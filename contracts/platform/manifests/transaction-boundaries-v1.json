@@ -207,8 +207,8 @@
     {
       "name": "nats_consumer_business_effect",
       "single_postgresql_transaction": [
-        "lock_or_insert_inbox_deduplication_record",
         "verify_event_owner_scope",
+        "lock_or_insert_inbox_deduplication_record",
         "lock_consumer_aggregate_projection",
         "compare_event_version_and_previous_event_id",
         "write_business_effect",

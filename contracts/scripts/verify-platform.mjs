@@ -507,17 +507,25 @@ function parseStrictJson(raw) {
   return value;
 }
 
-function containsCaseInsensitiveField(value, deniedFields) {
+function canonicalAuthorityFieldAlias(field) {
+  assert.equal(typeof field, "string");
+  return field
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/gu, "");
+}
+
+function containsAuthorityFieldAlias(value, deniedFields) {
   if (Array.isArray(value)) {
     return value.some((item) =>
-      containsCaseInsensitiveField(item, deniedFields),
+      containsAuthorityFieldAlias(item, deniedFields),
     );
   }
   if (value === null || typeof value !== "object") return false;
   return Object.keys(value).some(
     (key) =>
-      deniedFields.has(key.toLowerCase()) ||
-      containsCaseInsensitiveField(value[key], deniedFields),
+      deniedFields.has(canonicalAuthorityFieldAlias(key)) ||
+      containsAuthorityFieldAlias(value[key], deniedFields),
   );
 }
 
@@ -2162,10 +2170,10 @@ ajv.addKeyword({
   validate: (_rule, data) => {
     const deniedFields = new Set(
       platformSchema.$defs.UntrustedJsonObject.propertyNames.not.enum.map(
-        (field) => field.toLowerCase(),
+        canonicalAuthorityFieldAlias,
       ),
     );
-    return !containsCaseInsensitiveField(data, deniedFields);
+    return !containsAuthorityFieldAlias(data, deniedFields);
   },
 });
 ajv.addKeyword({
@@ -2174,9 +2182,9 @@ ajv.addKeyword({
   type: "object",
   errors: false,
   validate: (fields, data) =>
-    !containsCaseInsensitiveField(
+    !containsAuthorityFieldAlias(
       data,
-      new Set(fields.map((field) => field.toLowerCase())),
+      new Set(fields.map(canonicalAuthorityFieldAlias)),
     ),
 });
 ajv.addKeyword({
@@ -2683,7 +2691,16 @@ assertDeepEqual(
   "security and transaction manifests disagree on server-owned fields",
 );
 for (const forbiddenField of recursiveAuthorityDenylist) {
-  for (const spelling of [forbiddenField, forbiddenField.toUpperCase()]) {
+  const camelCaseSpelling = forbiddenField.replace(
+    /_([a-z])/gu,
+    (_match, letter) => letter.toUpperCase(),
+  );
+  for (const spelling of [
+    forbiddenField,
+    forbiddenField.toUpperCase(),
+    camelCaseSpelling,
+    forbiddenField.replaceAll("_", "-"),
+  ]) {
     const mutation = clone(validUntrustedMutation);
     mutation.body = {
       nested: [{ deeper: { [spelling]: "client-forged-authority" } }],
@@ -2754,14 +2771,38 @@ assert(
   "model/tool input accepted confirmation authority",
 );
 const uppercaseModelAuthority = clone(legitimateConfirmationInput);
-uppercaseModelAuthority.path = {
-  CONFIRMATION_ID: "70000000-0000-4000-8000-000000000001",
-};
-delete uppercaseModelAuthority.body.confirmation_hash;
-assert(
-  !validateModelToolMutation(uppercaseModelAuthority),
-  "model/tool input accepted uppercase confirmation authority",
-);
+for (const confirmationAlias of [
+  "CONFIRMATION_ID",
+  "confirmationId",
+  "confirmation-id",
+  "confirmation＿id",
+  "ｃｏｎｆｉｒｍａｔｉｏｎ_id",
+]) {
+  const modelAuthorityAlias = clone(uppercaseModelAuthority);
+  modelAuthorityAlias.path = {
+    [confirmationAlias]: "70000000-0000-4000-8000-000000000001",
+  };
+  delete modelAuthorityAlias.body.confirmation_hash;
+  assert(
+    !validateModelToolMutation(modelAuthorityAlias),
+    `model/tool input accepted confirmation authority alias ${confirmationAlias}`,
+  );
+}
+for (const identityAlias of [
+  "userId",
+  "user-id",
+  "user＿id",
+  "ｕser_id",
+]) {
+  const identityAliasMutation = clone(validUntrustedMutation);
+  identityAliasMutation.body = {
+    nested: { [identityAlias]: "client-forged-authority" },
+  };
+  assert(
+    !validateUntrustedMutation(identityAliasMutation),
+    `untrusted input accepted identity authority alias ${identityAlias}`,
+  );
+}
 const validRequestEnvelope = validFixtureSet.cases.find(
   ({ schema }) => schema === "RequestEnvelope",
 ).value;
@@ -6240,6 +6281,14 @@ const natsConsumerWorkflow = transactions.workflows.find(
   ({ name }) => name === "nats_consumer_business_effect",
 );
 assert.equal(natsConsumerWorkflow.ack_after_commit, true);
+assertDeepEqual(
+  natsConsumerWorkflow.single_postgresql_transaction.slice(0, 2),
+  [
+    "verify_event_owner_scope",
+    "lock_or_insert_inbox_deduplication_record",
+  ],
+  "Inbox deduplication must not run before owner-scope verification",
+);
 const outboxPublishWorkflow = transactions.workflows.find(
   ({ name }) => name === "outbox_publish",
 );
