@@ -9,7 +9,8 @@
     },
     "Timestamp": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{3})?Z$"
     },
     "Digest": {
       "type": "string",
@@ -454,10 +455,19 @@
             ]
           },
           "else": {
-            "not": {
-              "required": [
-                "rotated_to_digest"
-              ]
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "ACTIVE"
+                }
+              }
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "rotated_to_digest"
+                ]
+              }
             }
           }
         },
@@ -483,6 +493,50 @@
           }
         }
       ]
+    },
+    "RefreshFamilyState": {
+      "type": "object",
+      "x-fit-refresh-family-lineage": true,
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "family_id",
+        "session_id",
+        "family_created_at",
+        "family_deadline",
+        "status",
+        "tokens"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.refresh-family-state.v1"
+        },
+        "family_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "family_created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "family_deadline": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "REVOKED"
+          ]
+        },
+        "tokens": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/RefreshTokenRecord"
+          }
+        }
+      }
     },
     "EnrollmentChallenge": {
       "type": "object",
@@ -750,8 +804,16 @@
         }
       }
     },
+    "ModelToolMutationInput": {
+      "x-fit-model-authority-fields": [
+        "confirmation_id",
+        "confirmation_hash"
+      ],
+      "$ref": "#/$defs/UntrustedMutationInput"
+    },
     "UntrustedJsonObject": {
       "type": "object",
+      "x-fit-authority-field-names": true,
       "propertyNames": {
         "not": {
           "enum": [
@@ -765,8 +827,6 @@
             "server_time",
             "token_digest",
             "device_verification",
-            "confirmation_id",
-            "confirmation_hash",
             "authorization",
             "authorized",
             "owner_id",
@@ -957,6 +1017,7 @@
         "schema_version",
         "type",
         "nonce",
+        "connection_established_at",
         "issued_at",
         "deadline",
         "current_access_expires_at"
@@ -970,6 +1031,9 @@
         },
         "nonce": {
           "$ref": "#/$defs/OpaqueHandle"
+        },
+        "connection_established_at": {
+          "$ref": "#/$defs/Timestamp"
         },
         "issued_at": {
           "$ref": "#/$defs/Timestamp"
@@ -1035,9 +1099,53 @@
           "$ref": "#/$defs/Scope"
         },
         "data": {
-          "$ref": "#/$defs/JsonObject"
+          "$ref": "#/$defs/DurableEventData"
         }
       }
+    },
+    "DurableEventData": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "record_type",
+            "record_id",
+            "record"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "audit"
+            },
+            "record_id": {
+              "$ref": "#/$defs/Uuid"
+            },
+            "record": {
+              "$ref": "#/$defs/AuditEvent"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "record_type",
+            "record_id",
+            "record"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "notification"
+            },
+            "record_id": {
+              "$ref": "#/$defs/Uuid"
+            },
+            "record": {
+              "$ref": "#/$defs/Notification"
+            }
+          }
+        }
+      ]
     },
     "EventEnvelope": {
       "type": "object",
@@ -1085,8 +1193,7 @@
             "fit.platform.v1.notification.device-revoked",
             "fit.platform.v1.notification.session-revoked",
             "fit.platform.v1.notification.refresh-reuse-detected",
-            "fit.platform.v1.notification.wal-archive-interrupted",
-            "fit.platform.v1.notification.owner-mutation-committed"
+            "fit.platform.v1.notification.wal-archive-interrupted"
           ]
         },
         "stream": {
@@ -1208,16 +1315,6 @@
                 },
                 "scope": {
                   "$ref": "#/$defs/SystemScope"
-                }
-              }
-            },
-            {
-              "properties": {
-                "subject": {
-                  "const": "fit.platform.v1.notification.owner-mutation-committed"
-                },
-                "scope": {
-                  "$ref": "#/$defs/OwnerScope"
                 }
               }
             }
@@ -1368,16 +1465,6 @@
                   "const": "WAL_ARCHIVE_INTERRUPTED"
                 }
               }
-            },
-            {
-              "properties": {
-                "subject": {
-                  "const": "fit.platform.v1.notification.owner-mutation-committed"
-                },
-                "event_kind": {
-                  "const": "OWNER_MUTATION_COMMITTED"
-                }
-              }
             }
           ]
         }
@@ -1424,6 +1511,7 @@
     },
     "OutboxRecord": {
       "type": "object",
+      "x-fit-outbox-causality": true,
       "x-fit-time-order": [
         {
           "start": "created_at",
@@ -1846,7 +1934,6 @@
           "enum": [
             "LOGIN_ACCOUNT_LOCKED",
             "LOGIN_SOURCE_LOCKED",
-            "OWNER_MUTATION_COMMITTED",
             "DEVICE_ENROLLED",
             "DEVICE_REPLACED",
             "DEVICE_REVOKED",
@@ -1869,7 +1956,6 @@
           "enum": [
             "security.login.account_locked",
             "security.login.source_locked",
-            "owner.mutation.committed",
             "security.device.enrolled",
             "security.device.replaced",
             "security.device.revoked",
@@ -1943,25 +2029,6 @@
     },
     "NotificationKindRules": {
       "oneOf": [
-        {
-          "properties": {
-            "kind": {
-              "const": "OWNER_MUTATION_COMMITTED"
-            },
-            "severity": {
-              "const": "INFO"
-            },
-            "message_code": {
-              "const": "owner.mutation.committed"
-            },
-            "scope": {
-              "$ref": "#/$defs/OwnerScope"
-            },
-            "message_args": {
-              "$ref": "#/$defs/JsonObject"
-            }
-          }
-        },
         {
           "properties": {
             "kind": {

@@ -12,6 +12,7 @@
     "device_id",
     "source_key",
     "source_key_digest",
+    "server_received_at",
     "server_time",
     "token_digest",
     "family_id",
@@ -21,16 +22,20 @@
     "rotated_to_digest",
     "canonical_request_digest",
     "device_verification",
-    "confirmation_id",
-    "confirmation_hash",
     "identity_origin",
     "signature_verified"
+  ],
+  "model_tool_forbidden_authority_fields": [
+    "confirmation_id",
+    "confirmation_hash"
   ],
   "workflows": [
     {
       "name": "successful_login",
       "single_postgresql_transaction": [
-        "lock_source_and_resolved_user_throttle_dimensions",
+        "lock_source_throttle_dimension",
+        "resolve_user_without_disclosure",
+        "lock_resolved_user_throttle_dimension",
         "prune_failures_outside_rolling_window",
         "verify_neither_dimension_delayed_or_locked",
         "verify_password",
@@ -50,6 +55,14 @@
     {
       "name": "real_enrollment_challenge_creation",
       "single_postgresql_transaction": [
+        "lock_source_throttle_dimension",
+        "resolve_user_without_disclosure",
+        "lock_resolved_user_throttle_dimension",
+        "prune_failures_outside_rolling_window",
+        "verify_neither_dimension_delayed_or_locked",
+        "verify_password",
+        "clear_resolved_user_failures_only",
+        "preserve_source_failures",
         "assert_resolved_user",
         "create_random_opaque_subject_handle",
         "persist_single_use_challenge_and_candidate_fingerprint",
@@ -117,11 +130,6 @@
         "write_immutable_audit_event",
         "write_outbox_event"
       ],
-      "conditional_same_transaction": [
-        "write_internal_notification"
-      ],
-      "notification_event_kind": "OWNER_MUTATION_COMMITTED",
-      "notification_outbox_subject": "fit.platform.v1.notification.owner-mutation-committed",
       "commit_before_response": true
     },
     {
@@ -150,18 +158,6 @@
       ],
       "rolling_window_seconds": 900,
       "commit_before_rejection_response": true
-    },
-    {
-      "name": "password_lock",
-      "single_postgresql_transaction": [
-        "atomically_increment_throttle_dimension",
-        "create_audit_intent",
-        "persist_immutable_audit_event",
-        "create_notification_intent",
-        "persist_internal_notification",
-        "write_outbox_events"
-      ],
-      "commit_before_response": true
     },
     {
       "name": "ordinary_device_enrollment",
@@ -258,6 +254,9 @@
     "session.user_id equals device.user_id",
     "session.trading_account_id has active ownership for session.user_id",
     "refresh_token.session_id references session.session_id",
+    "refresh_token.family_id equals refresh_family.family_id",
+    "refresh_token.session_id equals refresh_family.session_id",
+    "refresh_token.rotated_to_digest references an acyclic descendant in the same family and session",
     "inbox.event_id is unique per consumer",
     "outbox.event.event_id is globally unique",
     "aggregate_version is unique and contiguous per aggregate",

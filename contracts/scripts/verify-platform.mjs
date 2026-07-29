@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process";
 import {
   createHash,
   createHmac,
+  generateKeyPairSync,
   createPublicKey,
+  sign as signMessage,
   verify as verifySignature,
 } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
@@ -66,8 +68,8 @@ function jcsCanonicalize(value) {
   }
   assert(
     typeof value === "object" &&
-      Object.getPrototypeOf(value) === Object.prototype,
-    "JCS accepts only plain JSON objects",
+      [Object.prototype, null].includes(Object.getPrototypeOf(value)),
+    "JCS accepts only JSON objects",
   );
   const entries = Object.keys(value)
     .sort()
@@ -200,6 +202,20 @@ function parseStrictJson(raw) {
   return value;
 }
 
+function containsCaseInsensitiveField(value, deniedFields) {
+  if (Array.isArray(value)) {
+    return value.some((item) =>
+      containsCaseInsensitiveField(item, deniedFields),
+    );
+  }
+  if (value === null || typeof value !== "object") return false;
+  return Object.keys(value).some(
+    (key) =>
+      deniedFields.has(key.toLowerCase()) ||
+      containsCaseInsensitiveField(value[key], deniedFields),
+  );
+}
+
 function enrollmentStateFromFixture(fixture) {
   return {
     identities: new Map(
@@ -212,9 +228,10 @@ function enrollmentStateFromFixture(fixture) {
       ]),
     ),
     challenges: new Map(),
-    devices: new Set(),
-    sessions: new Set(),
-    refreshFamilies: new Set(),
+    devices: new Map(),
+    sessions: new Map(),
+    refreshFamilies: new Map(),
+    publicKeyOwners: new Map(),
     auditEvents: new Set(),
     notifications: new Set(),
     outboxRecords: new Set(),
@@ -231,8 +248,7 @@ function startEnrollment(state, input, wire) {
   }
   state.challenges.set(wire.subject_handle, {
     userId: identity.userId,
-    purpose: input.purpose,
-    candidateFingerprint: wire.candidate_public_key_fingerprint,
+    wire: clone(wire),
     attempted: false,
   });
   state.auditEvents.add(`challenge-audit:${wire.subject_handle}`);
@@ -240,23 +256,122 @@ function startEnrollment(state, input, wire) {
   return { wire, persisted: true };
 }
 
-function completeEnrollment(state, subjectHandle, proofValid) {
-  const challenge = state.challenges.get(subjectHandle);
+function enrollmentProofIsValid(wire, completion) {
+  try {
+    const rawPublicKey = Buffer.from(
+      completion.candidate_public_key.slice("ed25519-public:".length),
+      "hex",
+    );
+    if (
+      completion.candidate_public_key !==
+        `ed25519-public:${rawPublicKey.toString("hex")}` ||
+      rawPublicKey.length !== 32 ||
+      wire.candidate_public_key_fingerprint !==
+        `ed25519:${sha256(rawPublicKey)}`
+    ) {
+      return false;
+    }
+    const publicKey = createPublicKey({
+      key: Buffer.concat([
+        Buffer.from("302a300506032b6570032100", "hex"),
+        rawPublicKey,
+      ]),
+      format: "der",
+      type: "spki",
+    });
+    const canonical = jcsCanonicalize(wire);
+    const signedBytes = Buffer.concat([
+      Buffer.from(wire.domain, "utf8"),
+      Buffer.from([0]),
+      Buffer.from(canonical, "utf8"),
+    ]);
+    const signature = Buffer.from(
+      completion.signature.slice("ed25519-signature:".length),
+      "hex",
+    );
+    return (
+      completion.signature ===
+        `ed25519-signature:${signature.toString("hex")}` &&
+      signature.length === 64 &&
+      verifySignature(null, signedBytes, publicKey, signature)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function completeEnrollment(state, completion) {
+  const challenge = state.challenges.get(completion.subject_handle);
   if (challenge === undefined) return "REJECT_NO_SERVER_STATE";
-  if (challenge.attempted) return "REJECT_REPLAY";
+  if (challenge.attempted) {
+    state.auditEvents.add(`replay-audit:${completion.subject_handle}`);
+    state.outboxRecords.add(`replay-outbox:${completion.subject_handle}`);
+    return "REJECT_REPLAY";
+  }
   challenge.attempted = true;
-  if (!proofValid) {
-    state.auditEvents.add(`invalid-proof-audit:${subjectHandle}`);
-    state.outboxRecords.add(`invalid-proof-outbox:${subjectHandle}`);
+  const wire = challenge.wire;
+  const bindingValid =
+    completion.nonce === wire.nonce &&
+    completion.purpose === wire.purpose &&
+    completion.candidate_public_key_fingerprint ===
+      wire.candidate_public_key_fingerprint &&
+    enrollmentProofIsValid(wire, completion) &&
+    isoMilliseconds(completion.completed_at) <
+      isoMilliseconds(wire.expires_at);
+  if (!bindingValid) {
+    state.auditEvents.add(`invalid-proof-audit:${completion.subject_handle}`);
+    state.outboxRecords.add(`invalid-proof-outbox:${completion.subject_handle}`);
     return "CONSUMED_INVALID_PROOF";
   }
-  state.devices.add(`device:${subjectHandle}`);
-  state.sessions.add(`session:${subjectHandle}`);
-  state.refreshFamilies.add(`family:${subjectHandle}`);
-  state.auditEvents.add(`enrollment-audit:${subjectHandle}`);
-  state.notifications.add(`enrollment-notification:${subjectHandle}`);
-  state.outboxRecords.add(`enrollment-audit-outbox:${subjectHandle}`);
-  state.outboxRecords.add(`enrollment-notification-outbox:${subjectHandle}`);
+  const existingOwner = state.publicKeyOwners.get(
+    wire.candidate_public_key_fingerprint,
+  );
+  if (existingOwner !== undefined) {
+    const outcome =
+      existingOwner === challenge.userId
+        ? "REJECT_DUPLICATE_KEY"
+        : "REJECT_CROSS_OWNER_REBIND";
+    state.auditEvents.add(`${outcome}-audit:${completion.subject_handle}`);
+    state.outboxRecords.add(`${outcome}-outbox:${completion.subject_handle}`);
+    return outcome;
+  }
+  if (wire.purpose === "REPLACEMENT_DEVICE") {
+    for (const record of state.devices.values()) {
+      if (record.userId === challenge.userId) record.active = false;
+    }
+    for (const record of state.sessions.values()) {
+      if (record.userId === challenge.userId) record.active = false;
+    }
+    for (const record of state.refreshFamilies.values()) {
+      if (record.userId === challenge.userId) record.active = false;
+    }
+  }
+  state.publicKeyOwners.set(
+    wire.candidate_public_key_fingerprint,
+    challenge.userId,
+  );
+  state.devices.set(`device:${completion.subject_handle}`, {
+    userId: challenge.userId,
+    active: true,
+  });
+  state.sessions.set(`session:${completion.subject_handle}`, {
+    userId: challenge.userId,
+    active: true,
+  });
+  state.refreshFamilies.set(`family:${completion.subject_handle}`, {
+    userId: challenge.userId,
+    active: true,
+  });
+  state.auditEvents.add(`enrollment-audit:${completion.subject_handle}`);
+  state.notifications.add(
+    `enrollment-notification:${completion.subject_handle}`,
+  );
+  state.outboxRecords.add(
+    `enrollment-audit-outbox:${completion.subject_handle}`,
+  );
+  state.outboxRecords.add(
+    `enrollment-notification-outbox:${completion.subject_handle}`,
+  );
   return "CONSUMED_SUCCESS";
 }
 
@@ -292,12 +407,57 @@ function refreshOutcome(item) {
   return "ROTATE_CREATE_DESCENDANT";
 }
 
+function presentRefreshToken(family, tokenDigest, now, descendantDigest) {
+  const token = family.tokens.find(
+    ({ token_digest: digest }) => digest === tokenDigest,
+  );
+  assert(token, "presented refresh digest is not in the locked family");
+  const outcome = refreshOutcome({
+    status: token.status,
+    now,
+    individual_expires_at: token.expires_at,
+    family_deadline: family.family_deadline,
+  });
+  if (outcome === "ROTATE_CREATE_DESCENDANT") {
+    assert(descendantDigest, "rotation requires a server-generated descendant");
+    token.status = "ROTATED";
+    token.rotated_to_digest = descendantDigest;
+    const issuedAt = isoMilliseconds(now);
+    family.tokens.push({
+      schema_version: "fit.platform.refresh-record.v1",
+      token_digest: descendantDigest,
+      family_id: family.family_id,
+      session_id: family.session_id,
+      family_created_at: family.family_created_at,
+      issued_at: now,
+      expires_at: new Date(
+        Math.min(
+          issuedAt + 604_800_000,
+          isoMilliseconds(family.family_deadline),
+        ),
+      )
+        .toISOString()
+        .replace(".000Z", "Z"),
+      family_deadline: family.family_deadline,
+      status: "ACTIVE",
+    });
+  } else if (outcome === "REVOKE_FAMILY_AND_DESCENDANTS") {
+    family.status = "REVOKED";
+    for (const member of family.tokens) {
+      member.status = "REVOKED";
+      member.revoked_at = now;
+    }
+  }
+  return outcome;
+}
+
 function websocketOutcome(item) {
   if (item.revoked) {
     return "CLOSE_REVOKED_WITHIN_5_SECONDS";
   }
   if (item.event === "APPLICATION_FRAME_WHILE_REAUTH_PENDING") {
-    return item.current_access_expired
+    return isoMilliseconds(item.frame_received_at) >=
+      isoMilliseconds(item.current_access_expires_at)
       ? "REJECT_APPLICATION_FRAME"
       : "ALLOW_APPLICATION_FRAME";
   }
@@ -392,7 +552,9 @@ function runThrottleTimeline(timeline, throttle) {
     const dimensions = [source, ...(account === null ? [] : [account])];
     let decision;
     let appliedDelaySeconds = 0;
-    if (dimensions.some((state) => nowMs < state.lockedUntilMs)) {
+    if (event.transaction_aborted === true) {
+      decision = "TRANSACTION_ABORTED";
+    } else if (dimensions.some((state) => nowMs < state.lockedUntilMs)) {
       decision = "DENY_LOCK";
     } else if (dimensions.some((state) => nowMs < state.nextAllowedMs)) {
       decision = "DENY_DELAY";
@@ -411,8 +573,10 @@ function runThrottleTimeline(timeline, throttle) {
           state.lockedUntilMs = nowMs + throttle.lock_seconds * 1000;
           state.nextAllowedMs = 0;
         } else {
-          appliedDelaySeconds =
-            throttle.failure_delays_seconds[state.failures - 1];
+          appliedDelaySeconds = Math.max(
+            appliedDelaySeconds,
+            throttle.failure_delays_seconds[state.failures - 1],
+          );
           state.nextAllowedMs = nowMs + appliedDelaySeconds * 1000;
         }
       }
@@ -648,6 +812,31 @@ const ajv = new Ajv2020({
 });
 addFormats(ajv);
 ajv.addKeyword({
+  keyword: "x-fit-authority-field-names",
+  schemaType: "boolean",
+  type: "object",
+  errors: false,
+  validate: (_rule, data) => {
+    const deniedFields = new Set(
+      platformSchema.$defs.UntrustedJsonObject.propertyNames.not.enum.map(
+        (field) => field.toLowerCase(),
+      ),
+    );
+    return !containsCaseInsensitiveField(data, deniedFields);
+  },
+});
+ajv.addKeyword({
+  keyword: "x-fit-model-authority-fields",
+  schemaType: "array",
+  type: "object",
+  errors: false,
+  validate: (fields, data) =>
+    !containsCaseInsensitiveField(
+      data,
+      new Set(fields.map((field) => field.toLowerCase())),
+    ),
+});
+ajv.addKeyword({
   keyword: "x-fit-time-window",
   schemaType: "object",
   type: "object",
@@ -726,6 +915,70 @@ ajv.addKeyword({
   },
 });
 ajv.addKeyword({
+  keyword: "x-fit-refresh-family-lineage",
+  schemaType: "boolean",
+  type: "object",
+  errors: false,
+  validate: (_rule, data) => {
+    try {
+      const tokens = data.tokens;
+      const byDigest = new Map(tokens.map((token) => [token.token_digest, token]));
+      if (byDigest.size !== tokens.length) return false;
+      const referencedDigests = new Set();
+      for (const token of tokens) {
+        if (
+          token.family_id !== data.family_id ||
+          token.session_id !== data.session_id ||
+          token.family_created_at !== data.family_created_at ||
+          token.family_deadline !== data.family_deadline
+        ) {
+          return false;
+        }
+        if (Object.hasOwn(token, "rotated_to_digest")) {
+          const descendant = byDigest.get(token.rotated_to_digest);
+          if (
+            descendant === undefined ||
+            Date.parse(descendant.issued_at) < Date.parse(token.issued_at)
+          ) {
+            return false;
+          }
+          if (referencedDigests.has(token.rotated_to_digest)) return false;
+          referencedDigests.add(token.rotated_to_digest);
+        }
+        if (data.status === "REVOKED" && token.status !== "REVOKED") return false;
+      }
+      const roots = tokens.filter(
+        ({ token_digest: digest }) => !referencedDigests.has(digest),
+      );
+      if (
+        roots.length !== 1 ||
+        referencedDigests.size !== tokens.length - 1
+      ) {
+        return false;
+      }
+      if (
+        data.status === "ACTIVE" &&
+        (tokens.filter(({ status }) => status === "ACTIVE").length !== 1 ||
+          tokens.some(({ status }) => status === "REVOKED"))
+      ) {
+        return false;
+      }
+      for (const origin of tokens) {
+        const visited = new Set();
+        let current = origin;
+        while (current && Object.hasOwn(current, "rotated_to_digest")) {
+          if (visited.has(current.token_digest)) return false;
+          visited.add(current.token_digest);
+          current = byDigest.get(current.rotated_to_digest);
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  },
+});
+ajv.addKeyword({
   keyword: "x-fit-websocket-deadline",
   schemaType: "boolean",
   type: "object",
@@ -733,12 +986,17 @@ ajv.addKeyword({
   validate: (_rule, data) => {
     try {
       const issuedAt = Date.parse(data.issued_at);
+      const connectedAt = Date.parse(data.connection_established_at);
       const deadline = Date.parse(data.deadline);
       const accessExpiry = Date.parse(data.current_access_expires_at);
+      const requiredIssueTime = Math.max(connectedAt, accessExpiry - 60_000);
       return (
         Number.isFinite(issuedAt) &&
+        Number.isFinite(connectedAt) &&
         Number.isFinite(deadline) &&
         Number.isFinite(accessExpiry) &&
+        connectedAt < accessExpiry &&
+        issuedAt === requiredIssueTime &&
         issuedAt < accessExpiry &&
         deadline === Math.min(issuedAt + 60_000, accessExpiry)
       );
@@ -765,7 +1023,44 @@ ajv.addKeyword({
         data.payload.subject === data.subject &&
         data.payload.event_kind === data.event_kind &&
         jcsCanonicalize(data.payload.scope) === jcsCanonicalize(data.scope) &&
-        sha256(jcsCanonicalize(data.payload)) === data.payload_digest
+        sha256(jcsCanonicalize(data.payload)) === data.payload_digest &&
+        data.payload.data.record.kind === data.event_kind &&
+        jcsCanonicalize(data.payload.data.record.scope) ===
+          jcsCanonicalize(data.scope) &&
+        data.payload.data.record.causation_id === data.causation_id &&
+        data.payload.data.record.correlation_id === data.correlation_id &&
+        (data.payload.data.record_type === "audit"
+          ? !data.subject.includes(".notification.") &&
+            data.payload.data.record.event_id ===
+              data.payload.data.record_id
+          : data.payload.data.record_type === "notification" &&
+            data.subject.includes(".notification.") &&
+            data.payload.data.record.notification_id ===
+              data.payload.data.record_id)
+      );
+    } catch {
+      return false;
+    }
+  },
+});
+ajv.addKeyword({
+  keyword: "x-fit-outbox-causality",
+  schemaType: "boolean",
+  type: "object",
+  errors: false,
+  validate: (_rule, data) => {
+    try {
+      const occurredAt = Date.parse(data.event.occurred_at);
+      const createdAt = Date.parse(data.created_at);
+      const publishedAt = Object.hasOwn(data, "published_at")
+        ? Date.parse(data.published_at)
+        : null;
+      return (
+        Number.isFinite(occurredAt) &&
+        Number.isFinite(createdAt) &&
+        occurredAt <= createdAt &&
+        (publishedAt === null ||
+          (Number.isFinite(publishedAt) && createdAt <= publishedAt))
       );
     } catch {
       return false;
@@ -783,7 +1078,15 @@ ajv.addKeyword({
       const recoveredAt = Date.parse(data.last_recovered.committed_at);
       const injectedAt = Date.parse(data.failure.injected_at);
       const invokedAt = Date.parse(data.restore.invoked_at);
-      const completedAt = Date.parse(data.restore.verification_completed_at);
+      const terminalAt = Date.parse(
+        data.result === "PASS"
+          ? data.restore.verification_completed_at
+          : data.restore.verification_stopped_at,
+      );
+      const terminalEventId =
+        data.result === "PASS"
+          ? data.restore.completion_event_id
+          : data.restore.stop_event_id;
       const failClosedKinds = new Set([
         "BACKUP_CORRUPTION",
         "MISSING_WAL",
@@ -800,25 +1103,29 @@ ajv.addKeyword({
           recoveredAt,
           injectedAt,
           invokedAt,
-          completedAt,
+          terminalAt,
         ].every(Number.isFinite) &&
         data.last_committed.sequence === 6000 &&
         data.last_recovered.sequence <= data.last_committed.sequence &&
         recoveredAt <= committedAt &&
         committedAt === injectedAt &&
         injectedAt <= invokedAt &&
-        invokedAt <= completedAt &&
-        data.restore.start_event_id !== data.restore.completion_event_id &&
+        invokedAt <= terminalAt &&
+        data.restore.start_event_id !== terminalEventId &&
         data.observed_rpo.sequence_gap ===
           data.last_committed.sequence - data.last_recovered.sequence &&
         data.observed_rpo.time_gap_ms === committedAt - recoveredAt &&
-        data.observed_rto_ms === completedAt - invokedAt &&
+        (data.result === "PASS"
+          ? data.observed_rto_ms === terminalAt - invokedAt
+          : !Object.hasOwn(data, "observed_rto_ms")) &&
         jcsCanonicalize(componentNames) ===
           jcsCanonicalize(["postgresql", "recovery-tool"]) &&
         (!failClosedKinds.has(data.failure.kind) ||
           data.result === "FAIL_CLOSED") &&
-        (data.result !== "FAIL_CLOSED" ||
-          gateStatuses.some((status) => status === "FAIL"))
+        (data.result === "PASS"
+          ? gateStatuses.every((status) => status === "PASS")
+          : gateStatuses.some((status) => status === "FAIL") &&
+            typeof data.restore.failure_reason_code === "string")
       );
     } catch {
       return false;
@@ -885,16 +1192,62 @@ for (const serverOwnedField of transactions.server_owned_fields) {
     `server-owned field ${serverOwnedField} missing recursive denylist`,
   );
 }
+assertDeepEqual(
+  [...security.server_authored_identity.fields].sort(),
+  [...transactions.server_owned_fields].sort(),
+  "security and transaction manifests disagree on server-owned fields",
+);
 for (const forbiddenField of recursiveAuthorityDenylist) {
-  const mutation = clone(validUntrustedMutation);
-  mutation.body = {
-    nested: [{ deeper: { [forbiddenField]: "client-forged-authority" } }],
-  };
-  assert(
-    !validateUntrustedMutation(mutation),
-    `untrusted recursive input accepted server authority ${forbiddenField}`,
-  );
+  for (const spelling of [forbiddenField, forbiddenField.toUpperCase()]) {
+    const mutation = clone(validUntrustedMutation);
+    mutation.body = {
+      nested: [{ deeper: { [spelling]: "client-forged-authority" } }],
+    };
+    assert(
+      !validateUntrustedMutation(mutation),
+      `untrusted recursive input accepted server authority ${spelling}`,
+    );
+  }
 }
+assertDeepEqual(transactions.model_tool_forbidden_authority_fields, [
+  "confirmation_id",
+  "confirmation_hash",
+]);
+assert.equal(
+  security.server_authored_identity.authenticated_http_input_schema,
+  "UntrustedMutationInput",
+);
+assert.equal(
+  security.server_authored_identity.model_tool_input_schema,
+  "ModelToolMutationInput",
+);
+const legitimateConfirmationInput = {
+  ...clone(validUntrustedMutation),
+  path: {
+    confirmation_id: "70000000-0000-4000-8000-000000000001",
+  },
+  body: {
+    confirmation_hash: "a".repeat(64),
+  },
+};
+assert(
+  validateUntrustedMutation(legitimateConfirmationInput),
+  "HTTP confirmation input was incorrectly treated as server-authored identity",
+);
+const validateModelToolMutation = validatorFor("ModelToolMutationInput");
+assert(
+  !validateModelToolMutation(legitimateConfirmationInput),
+  "model/tool input accepted confirmation authority",
+);
+const uppercaseModelAuthority = clone(legitimateConfirmationInput);
+uppercaseModelAuthority.path = {
+  CONFIRMATION_ID: "70000000-0000-4000-8000-000000000001",
+};
+delete uppercaseModelAuthority.body.confirmation_hash;
+assert(
+  !validateModelToolMutation(uppercaseModelAuthority),
+  "model/tool input accepted uppercase confirmation authority",
+);
 
 for (const fixture of validFixtureSet.cases.filter(
   ({ schema }) =>
@@ -937,6 +1290,62 @@ assert.equal(
     isoMilliseconds(validRefreshRecord.family_created_at),
   security.tokens.refresh_family_max_lifetime_seconds * 1000,
   "refresh family maximum lifetime drifted",
+);
+const validRefreshFamily = validFixtureSet.cases.find(
+  ({ schema }) => schema === "RefreshFamilyState",
+).value;
+const validateRefreshFamily = validatorFor("RefreshFamilyState");
+for (const mutate of [
+  (value) => {
+    value.tokens[1].family_id =
+      "50000000-0000-4000-8000-000000000099";
+  },
+  (value) => {
+    value.tokens[1].status = "ROTATED";
+    value.tokens[1].rotated_to_digest = value.tokens[0].token_digest;
+  },
+  (value) => {
+    value.status = "REVOKED";
+  },
+]) {
+  const invalidFamily = clone(validRefreshFamily);
+  mutate(invalidFamily);
+  assert(
+    !validateRefreshFamily(invalidFamily),
+    "refresh family accepted cross-family, cyclic, or partially revoked lineage",
+  );
+}
+const executableRefreshFamily = {
+  schema_version: "fit.platform.refresh-family-state.v1",
+  family_id: validRefreshRecord.family_id,
+  session_id: validRefreshRecord.session_id,
+  family_created_at: validRefreshRecord.family_created_at,
+  family_deadline: validRefreshRecord.family_deadline,
+  status: "ACTIVE",
+  tokens: [clone(validRefreshRecord)],
+};
+assert.equal(
+  presentRefreshToken(
+    executableRefreshFamily,
+    validRefreshRecord.token_digest,
+    "2026-08-01T10:00:00Z",
+    "b".repeat(64),
+  ),
+  "ROTATE_CREATE_DESCENDANT",
+);
+assert(validateRefreshFamily(executableRefreshFamily));
+assert.equal(
+  presentRefreshToken(
+    executableRefreshFamily,
+    validRefreshRecord.token_digest,
+    "2026-08-02T10:00:00Z",
+  ),
+  "REVOKE_FAMILY_AND_DESCENDANTS",
+);
+assert(validateRefreshFamily(executableRefreshFamily));
+assert(
+  executableRefreshFamily.tokens.every(({ status }) => status === "REVOKED"),
+  "refresh reuse did not revoke every already-issued descendant",
 );
 for (const mutation of [
   { ...validSession, access_expires_at: "2026-07-29T11:00:00Z" },
@@ -1027,6 +1436,14 @@ assert(
     expires_at: "2026-07-29T11:00:00Z",
   }),
   "EnrollmentChallenge accepted a non-frozen lifetime",
+);
+assert(
+  !validatorFor("EnrollmentChallenge")({
+    ...validEnrollmentChallenge,
+    issued_at: "2026-07-29T10:00:00.0001Z",
+    expires_at: "2026-07-29T10:02:00.0001Z",
+  }),
+  "EnrollmentChallenge accepted timestamp precision finer than milliseconds",
 );
 const validWebSocketChallenge = validFixtureSet.cases.find(
   ({ schema }) => schema === "WebSocketReauthRequired",
@@ -1158,6 +1575,51 @@ for (const scenario of scenarios.challenge_cases) {
   );
 }
 const syntheticHandles = new Set();
+const enrollmentCompletionFor = (wire, overrides = {}) => ({
+  subject_handle: wire.subject_handle,
+  purpose: wire.purpose,
+  nonce: wire.nonce,
+  candidate_public_key_fingerprint: wire.candidate_public_key_fingerprint,
+  candidate_public_key: golden.ed25519_proofs.public_key,
+  signature: golden.ed25519_proofs.vectors.find(
+    ({ challenge_schema }) => challenge_schema === "EnrollmentChallenge",
+  ).signature,
+  completed_at: "2026-07-29T10:01:00Z",
+  ...overrides,
+});
+function signedSyntheticEnrollment(baseWire, overrides = {}) {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const publicDer = publicKey.export({ format: "der", type: "spki" });
+  const rawPublicKey = publicDer.subarray(publicDer.length - 32);
+  const wire = {
+    ...clone(baseWire),
+    ...overrides,
+    candidate_public_key_fingerprint: `ed25519:${sha256(rawPublicKey)}`,
+  };
+  const canonical = jcsCanonicalize(wire);
+  const signedBytes = Buffer.concat([
+    Buffer.from(wire.domain, "utf8"),
+    Buffer.from([0]),
+    Buffer.from(canonical, "utf8"),
+  ]);
+  return {
+    wire,
+    completion: {
+      subject_handle: wire.subject_handle,
+      purpose: wire.purpose,
+      nonce: wire.nonce,
+      candidate_public_key_fingerprint:
+        wire.candidate_public_key_fingerprint,
+      candidate_public_key: `ed25519-public:${rawPublicKey.toString("hex")}`,
+      signature: `ed25519-signature:${signMessage(
+        null,
+        signedBytes,
+        privateKey,
+      ).toString("hex")}`,
+      completed_at: "2026-07-29T10:01:00Z",
+    },
+  };
+}
 for (const scenario of executableSecurity.enrollment_transition_cases) {
   assert(
     validatorFor("EnrollmentChallenge")(scenario.wire),
@@ -1175,8 +1637,12 @@ for (const scenario of executableSecurity.enrollment_transition_cases) {
   assert.equal(
     completeEnrollment(
       state,
-      startResult.wire.subject_handle,
-      scenario.completion.proof_valid,
+      enrollmentCompletionFor(
+        startResult.wire,
+        scenario.completion.proof_valid
+          ? {}
+          : { signature: `ed25519-signature:${"0".repeat(128)}` },
+      ),
     ),
     scenario.expected_completion,
     scenario.name,
@@ -1202,6 +1668,91 @@ for (const scenario of executableSecurity.enrollment_transition_cases) {
       `${scenario.name} leaked ${forbidden}`,
     );
   }
+}
+const realEnrollmentScenario =
+  executableSecurity.enrollment_transition_cases.find(
+    ({ expected_completion: expected }) => expected === "CONSUMED_SUCCESS",
+  );
+{
+  const state = enrollmentStateFromFixture(executableSecurity);
+  startEnrollment(state, realEnrollmentScenario.input, realEnrollmentScenario.wire);
+  const invalidBinding = enrollmentCompletionFor(
+    realEnrollmentScenario.wire,
+    { nonce: "synthetic_wrong_bound_nonce_000000000001" },
+  );
+  assert.equal(
+    completeEnrollment(state, invalidBinding),
+    "CONSUMED_INVALID_PROOF",
+  );
+  assert.equal(state.devices.size, 0);
+  assert.equal(state.auditEvents.size, 2);
+  assert.equal(state.outboxRecords.size, 2);
+}
+{
+  const state = enrollmentStateFromFixture(executableSecurity);
+  startEnrollment(state, realEnrollmentScenario.input, realEnrollmentScenario.wire);
+  const completion = enrollmentCompletionFor(realEnrollmentScenario.wire);
+  assert.equal(completeEnrollment(state, completion), "CONSUMED_SUCCESS");
+  assert.equal(completeEnrollment(state, completion), "REJECT_REPLAY");
+  assert.equal(state.devices.size, 1);
+  assert.equal(state.auditEvents.size, 3);
+  assert.equal(state.outboxRecords.size, 4);
+}
+for (const [existingOwner, expected] of [
+  ["10000000-0000-4000-8000-000000000001", "REJECT_DUPLICATE_KEY"],
+  ["10000000-0000-4000-8000-000000000099", "REJECT_CROSS_OWNER_REBIND"],
+]) {
+  const state = enrollmentStateFromFixture(executableSecurity);
+  state.publicKeyOwners.set(
+    realEnrollmentScenario.wire.candidate_public_key_fingerprint,
+    existingOwner,
+  );
+  startEnrollment(state, realEnrollmentScenario.input, realEnrollmentScenario.wire);
+  assert.equal(
+    completeEnrollment(
+      state,
+      enrollmentCompletionFor(realEnrollmentScenario.wire),
+    ),
+    expected,
+  );
+  assert.equal(state.devices.size, 0);
+  assert.equal(state.auditEvents.size, 2);
+  assert.equal(state.outboxRecords.size, 2);
+}
+for (const purpose of ["ADDITIONAL_DEVICE", "REPLACEMENT_DEVICE"]) {
+  const state = enrollmentStateFromFixture(executableSecurity);
+  state.devices.set("prior-device", {
+    userId: "10000000-0000-4000-8000-000000000001",
+    active: true,
+  });
+  state.sessions.set("prior-session", {
+    userId: "10000000-0000-4000-8000-000000000001",
+    active: true,
+  });
+  state.refreshFamilies.set("prior-family", {
+    userId: "10000000-0000-4000-8000-000000000001",
+    active: true,
+  });
+  const { wire, completion } = signedSyntheticEnrollment(
+    realEnrollmentScenario.wire,
+    {
+    purpose,
+    subject_handle: `real_${purpose.toLowerCase()}_state_transition`,
+    },
+  );
+  const input = { ...realEnrollmentScenario.input, purpose };
+  startEnrollment(state, input, wire);
+  assert.equal(
+    completeEnrollment(state, completion),
+    "CONSUMED_SUCCESS",
+  );
+  const priorShouldRemainActive = purpose === "ADDITIONAL_DEVICE";
+  assert.equal(state.devices.get("prior-device").active, priorShouldRemainActive);
+  assert.equal(state.sessions.get("prior-session").active, priorShouldRemainActive);
+  assert.equal(
+    state.refreshFamilies.get("prior-family").active,
+    priorShouldRemainActive,
+  );
 }
 
 for (const scenario of scenarios.refresh_cases) {
@@ -1248,6 +1799,18 @@ for (const scenario of scenarios.throttle_cases) {
 for (const timeline of executableSecurity.password_throttle_timelines) {
   runThrottleTimeline(timeline, security.password_throttle);
 }
+const crossRouteTimeline = executableSecurity.password_throttle_timelines.find(
+  ({ name }) => name.includes("shared cross-route"),
+);
+assertDeepEqual(
+  [...new Set(crossRouteTimeline.events.map(({ route }) => route))].sort(),
+  [
+    "POST /v1/auth/device-enrollments/start",
+    "POST /v1/auth/device-replacements/start",
+    "POST /v1/auth/login",
+  ],
+  "shared throttle timeline does not cross all password routes",
+);
 
 const crossRoute = scenarios.cross_route_throttle_case;
 let accountFailures = 0;
@@ -1328,6 +1891,16 @@ for (const scenario of scenarios.websocket_cases) {
 const validWebSocketReauth = scenarios.websocket_cases.find(
   ({ expected }) => expected === "ATOMIC_REBIND",
 );
+const validWebSocketChallengeForTiming = validFixtureSet.cases.find(
+  ({ schema }) => schema === "WebSocketReauthRequired",
+).value;
+const prematurelyIssuedChallenge = clone(validWebSocketChallengeForTiming);
+prematurelyIssuedChallenge.issued_at = "2026-07-29T10:01:00Z";
+prematurelyIssuedChallenge.deadline = "2026-07-29T10:02:00Z";
+assert(
+  !validatorFor("WebSocketReauthRequired")(prematurelyIssuedChallenge),
+  "WebSocket challenge was accepted before the exact reauthorization window",
+);
 for (const mismatchField of [
   "nonce_matches",
   "user_matches",
@@ -1345,6 +1918,15 @@ for (const mismatchField of [
   );
 }
 for (const scenario of scenarios.websocket_deadline_cases) {
+  const requiredIssueTime = Math.max(
+    isoMilliseconds(scenario.connection_established_at),
+    isoMilliseconds(scenario.current_access_expires_at) - 60_000,
+  );
+  assert.equal(
+    isoMilliseconds(scenario.issued_at),
+    requiredIssueTime,
+    `WebSocket issuance case failed: ${scenario.name}`,
+  );
   const calculated = Math.min(
     isoMilliseconds(scenario.issued_at) + 60_000,
     isoMilliseconds(scenario.current_access_expires_at),
@@ -1377,6 +1959,8 @@ for (const scenario of executableSecurity.websocket_upgrade_cases) {
     matches &&
     scenario.token_signature_valid &&
     scenario.token_not_expired &&
+    (scenario.user_active ?? true) &&
+    (scenario.account_ownership_active ?? true) &&
     scenario.session_active &&
     scenario.device_active &&
     scenario.refresh_family_active;
@@ -1482,7 +2066,34 @@ for (const scenario of executableSecurity.raw_entrypoint_cases) {
   let outcome = "REJECT";
   try {
     const decoded = parseStrictJson(scenario.raw);
-    outcome = validatorFor(scenario.schema)(decoded) ? "ACCEPT" : "REJECT";
+    const schemaAccepted = validatorFor(scenario.schema)(decoded);
+    if (
+      schemaAccepted &&
+      scenario.entry_point === "HTTP_MUTATION_BODY"
+    ) {
+      const parsedDigest = canonicalRequestDigest({
+        schema_version: "fit.platform.request-digest.v1",
+        method: "POST",
+        route_template: "/v1/operations/{operation_id}/confirm",
+        path: decoded.path,
+        query: decoded.query,
+        body: decoded.body,
+        user_id: "10000000-0000-4000-8000-000000000001",
+        trading_account_id: "20000000-0000-4000-8000-000000000001",
+      });
+      const plainDigest = canonicalRequestDigest({
+        schema_version: "fit.platform.request-digest.v1",
+        method: "POST",
+        route_template: "/v1/operations/{operation_id}/confirm",
+        path: clone(decoded.path),
+        query: clone(decoded.query),
+        body: clone(decoded.body),
+        user_id: "10000000-0000-4000-8000-000000000001",
+        trading_account_id: "20000000-0000-4000-8000-000000000001",
+      });
+      assert.equal(parsedDigest, plainDigest, `${scenario.name} digest drift`);
+    }
+    outcome = schemaAccepted ? "ACCEPT" : "REJECT";
   } catch {
     outcome = "REJECT";
   }
@@ -1788,6 +2399,15 @@ for (const failureKind of recoveryPolicy.fail_closed_conditions) {
   );
   const failClosedWithNoFailedGate = clone(falselyPassing);
   failClosedWithNoFailedGate.result = "FAIL_CLOSED";
+  delete failClosedWithNoFailedGate.observed_rto_ms;
+  failClosedWithNoFailedGate.restore.verification_stopped_at =
+    failClosedWithNoFailedGate.restore.verification_completed_at;
+  failClosedWithNoFailedGate.restore.stop_event_id =
+    failClosedWithNoFailedGate.restore.completion_event_id;
+  failClosedWithNoFailedGate.restore.failure_reason_code =
+    `${failureKind}_DETECTED`;
+  delete failClosedWithNoFailedGate.restore.verification_completed_at;
+  delete failClosedWithNoFailedGate.restore.completion_event_id;
   assert(
     !recoveryValidator(failClosedWithNoFailedGate),
     `${failureKind} accepted FAIL_CLOSED without a failed verification gate`,
@@ -1796,6 +2416,12 @@ for (const failureKind of recoveryPolicy.fail_closed_conditions) {
   assert(
     recoveryValidator(failClosedWithNoFailedGate),
     `${failureKind} rejected bound fail-closed evidence`,
+  );
+  const falseRto = clone(failClosedWithNoFailedGate);
+  falseRto.observed_rto_ms = 90_000;
+  assert(
+    !recoveryValidator(falseRto),
+    `${failureKind} falsely reported observed RTO after failed verification`,
   );
 }
 for (const mutate of [
@@ -2181,7 +2807,6 @@ const exactSubjects = [
   "fit.platform.v1.notification.device-revoked",
   "fit.platform.v1.notification.login-account-locked",
   "fit.platform.v1.notification.login-source-locked",
-  "fit.platform.v1.notification.owner-mutation-committed",
   "fit.platform.v1.notification.refresh-reuse-detected",
   "fit.platform.v1.notification.session-revoked",
   "fit.platform.v1.notification.wal-archive-interrupted",
@@ -2259,6 +2884,15 @@ const validateAuditIntent = validatorFor("AuditIntent");
 const validateAuditEvent = validatorFor("AuditEvent");
 const validateNotification = validatorFor("Notification");
 const validateOutbox = validatorFor("OutboxRecord");
+const causallyValidOutbox = validFixtureSet.cases.find(
+  ({ schema }) => schema === "OutboxRecord",
+).value;
+const futureEventOutbox = clone(causallyValidOutbox);
+futureEventOutbox.event.occurred_at = "2026-07-30T10:00:00Z";
+assert(
+  !validateOutbox(futureEventOutbox),
+  "Outbox accepted an event occurring after the Outbox record was created",
+);
 const notificationByKind = {
   LOGIN_SOURCE_LOCKED: {
     severity: "WARNING",
@@ -2269,6 +2903,41 @@ const notificationByKind = {
     severity: "WARNING",
     message_code: "security.login.account_locked",
     message_args: { lock_seconds: 900 },
+  },
+  DEVICE_ENROLLED: {
+    severity: "INFO",
+    message_code: "security.device.enrolled",
+    message_args: {
+      device_id: "30000000-0000-4000-8000-000000000001",
+    },
+  },
+  DEVICE_REPLACED: {
+    severity: "CRITICAL",
+    message_code: "security.device.replaced",
+    message_args: {
+      device_id: "30000000-0000-4000-8000-000000000001",
+    },
+  },
+  DEVICE_REVOKED: {
+    severity: "WARNING",
+    message_code: "security.device.revoked",
+    message_args: {
+      device_id: "30000000-0000-4000-8000-000000000001",
+    },
+  },
+  SESSION_REVOKED: {
+    severity: "INFO",
+    message_code: "security.session.revoked",
+    message_args: {
+      session_id: "40000000-0000-4000-8000-000000000001",
+    },
+  },
+  REFRESH_REUSE_DETECTED: {
+    severity: "CRITICAL",
+    message_code: "security.refresh.reuse_detected",
+    message_args: {
+      session_id: "40000000-0000-4000-8000-000000000001",
+    },
   },
   WAL_ARCHIVE_INTERRUPTED: {
     severity: "CRITICAL",
@@ -2482,13 +3151,71 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
               : {}),
           }
         : { type: "SYSTEM" };
+  const recordId = `19000000-0000-4000-8${String(index).padStart(3, "0")}-000000000001`;
+  const causationId = "17000000-0000-4000-8000-000000000001";
+  const correlationId = "18000000-0000-4000-8000-000000000001";
+  const recordIsNotification =
+    binding.consumer === "internal-notification-consumer";
+  let durableRecord;
+  if (recordIsNotification) {
+    const details = notificationByKind[binding.event_kind];
+    assert(details, `missing notification mapping for ${binding.event_kind}`);
+    durableRecord = {
+      schema_version: "fit.platform.notification.v1",
+      notification_id: recordId,
+      kind: binding.event_kind,
+      severity: details.severity,
+      scope,
+      message_code: details.message_code,
+      message_args: details.message_args,
+      causation_id: causationId,
+      correlation_id: correlationId,
+      occurred_at: "2026-07-29T10:00:01Z",
+      payload_digest: "2".repeat(64),
+    };
+  } else {
+    durableRecord = {
+      schema_version: "fit.platform.audit-event.v1",
+      event_id: recordId,
+      kind: binding.event_kind,
+      actor:
+        binding.scope === "SYSTEM"
+          ? { type: "SYSTEM", id: "system-monitor" }
+          : binding.scope === "OWNER"
+            ? { type: "USER", id: "synthetic-owner" }
+            : { type: "SERVICE", id: "auth-service" },
+      scope,
+      trigger: binding.scope === "SYSTEM" ? "BACKGROUND" : "REQUEST",
+      causation_id: causationId,
+      correlation_id: correlationId,
+      ...(binding.scope === "SYSTEM"
+        ? { system_operation_id: causationId }
+        : { request_id: causationId }),
+      ...([
+        "DEVICE_ENROLLED",
+        "DEVICE_REPLACED",
+        "DEVICE_REVOKED",
+      ].includes(binding.event_kind)
+        ? { device_id: "30000000-0000-4000-8000-000000000001" }
+        : {}),
+      ...(["SESSION_REVOKED", "REFRESH_REUSE_DETECTED"].includes(
+        binding.event_kind,
+      )
+        ? { session_id: "40000000-0000-4000-8000-000000000001" }
+        : {}),
+      occurred_at: "2026-07-29T10:00:01Z",
+      payload_digest: "2".repeat(64),
+    };
+  }
   const payload = {
     schema_version: "fit.platform.event-payload.v1",
     subject: binding.subject,
     event_kind: binding.event_kind,
     scope,
     data: {
-      contract_probe: true,
+      record_type: recordIsNotification ? "notification" : "audit",
+      record_id: recordId,
+      record: durableRecord,
     },
   };
   const envelope = {
@@ -2501,8 +3228,8 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
     aggregate_type: "SYNTHETIC_AGGREGATE",
     aggregate_id: "16000000-0000-4000-8000-000000000001",
     aggregate_version: 1,
-    causation_id: "17000000-0000-4000-8000-000000000001",
-    correlation_id: "18000000-0000-4000-8000-000000000001",
+    causation_id: causationId,
+    correlation_id: correlationId,
     occurred_at: "2026-07-29T10:00:01Z",
     payload_schema_version: "fit.platform.event-payload.v1",
     payload_digest: sha256(jcsCanonicalize(payload)),
@@ -2622,62 +3349,31 @@ for (const eventContract of transactionEventContracts) {
 const ownerMutationWorkflow = transactions.workflows.find(
   ({ name }) => name === "owner_mutation",
 );
-assert.equal(
-  ownerMutationWorkflow.notification_event_kind,
-  "OWNER_MUTATION_COMMITTED",
-);
-assert.equal(
-  ownerMutationWorkflow.notification_outbox_subject,
-  "fit.platform.v1.notification.owner-mutation-committed",
-);
-assert(
-  platformSchema.$defs.NotificationCore.properties.kind.enum.includes(
-    ownerMutationWorkflow.notification_event_kind,
-  ),
-  "owner mutation notification kind is not schema-expressible",
-);
-assert(
-  nats.subject_bindings.some(
-    ({ subject, event_kind: eventKind, consumer }) =>
-      subject === ownerMutationWorkflow.notification_outbox_subject &&
-      eventKind === ownerMutationWorkflow.notification_event_kind &&
-      consumer === "internal-notification-consumer",
-  ),
-  "owner mutation notification lacks an exact NATS binding",
-);
-assert(
-  validateNotificationIntent({
-    schema_version: "fit.platform.notification-intent.v1",
-    kind: "OWNER_MUTATION_COMMITTED",
-    severity: "INFO",
-    scope: {
-      type: "OWNER",
-      user_id: "10000000-0000-4000-8000-000000000001",
-      trading_account_id: "20000000-0000-4000-8000-000000000001",
-    },
-    message_code: "owner.mutation.committed",
-    message_args: {
-      operation_id: "70000000-0000-4000-8000-000000000001",
-    },
-    causation_id: "80000000-0000-4000-8000-000000000001",
-    correlation_id: "b0000000-0000-4000-8000-000000000001",
-  }),
-  `owner mutation cannot construct a valid NotificationIntent: ${ajv.errorsText(
-    validateNotificationIntent.errors,
-  )}`,
-);
+assert(!Object.hasOwn(ownerMutationWorkflow, "conditional_same_transaction"));
+assert(!Object.hasOwn(ownerMutationWorkflow, "notification_event_kind"));
 const successfulLoginWorkflow = transactions.workflows.find(
   ({ name }) => name === "successful_login",
 );
+const realEnrollmentStartWorkflow = transactions.workflows.find(
+  ({ name }) => name === "real_enrollment_challenge_creation",
+);
 for (const requiredStep of [
+  "lock_source_throttle_dimension",
   "prune_failures_outside_rolling_window",
+  "verify_neither_dimension_delayed_or_locked",
+  "verify_password",
   "clear_resolved_user_failures_only",
   "preserve_source_failures",
 ]) {
-  assert(
-    successfulLoginWorkflow.single_postgresql_transaction.includes(requiredStep),
-    `successful login transaction lacks ${requiredStep}`,
-  );
+  for (const workflow of [
+    successfulLoginWorkflow,
+    realEnrollmentStartWorkflow,
+  ]) {
+    assert(
+      workflow.single_postgresql_transaction.includes(requiredStep),
+      `${workflow.name} transaction lacks ${requiredStep}`,
+    );
+  }
 }
 const passwordFailureWorkflow = transactions.workflows.find(
   ({ name }) => name === "password_failure",
@@ -2730,6 +3426,14 @@ assertDeepEqual(failureInjection.transaction_cut_rule, {
     "INJECT_TRANSACTION_ABORT_AND_REQUIRE_COMPLETE_ROLLBACK",
   after_commit:
     "RETRY_MUST_OBSERVE_COMPLETE_DURABLE_TRANSACTION_WITH_NO_PARTIAL_EFFECT",
+  after_commit_before_response:
+    "UNKNOWN_RESULT_RETRY_MUST_RECONCILE_USING_STABLE_OPERATION_OR_IDEMPOTENCY_ID_AND_CREATE_NO_DUPLICATE_EFFECT",
+  commit_response_flags: [
+    "commit_before_response",
+    "commit_before_credential_response",
+    "commit_before_challenge_response",
+    "commit_before_rejection_response",
+  ],
   statement_order_source: "transaction-boundaries-v1.json",
   conditional_statement_policy: "EXERCISE_BOTH_ABSENT_AND_PRESENT_PATHS",
 });
@@ -2838,6 +3542,15 @@ for (const workflow of transactions.workflows) {
     }
     failureCutEvidence.push(`${workflow.name}:${transactionName}:AFTER_COMMIT`);
   }
+  if (
+    failureInjection.transaction_cut_rule.commit_response_flags.some(
+      (flag) => workflow[flag] === true,
+    )
+  ) {
+    failureCutEvidence.push(
+      `${workflow.name}:RESPONSE:AFTER_COMMIT_BEFORE_RESPONSE:UNKNOWN_REQUIRES_RECONCILIATION`,
+    );
+  }
   for (const boundary of expectedExternalBoundaries) {
     failureCutEvidence.push(`${workflow.name}:EXTERNAL:${boundary}`);
   }
@@ -2891,7 +3604,10 @@ assertDeepEqual(recoveryPolicy.fail_closed_evidence_contract, {
   required_result: "FAIL_CLOSED",
   minimum_failed_verification_gates: 1,
   pass_requires_every_verification_gate: "PASS",
-  restore_start_and_completion_event_ids_must_differ: true,
+  observed_rto_must_be_absent: true,
+  restore_stop_event_required: true,
+  failure_reason_code_required: true,
+  restore_start_and_terminal_event_ids_must_differ: true,
   required_components: ["postgresql", "recovery-tool"],
 });
 
@@ -2902,6 +3618,12 @@ assert(
 assert(
   failureCutEvidence.some((cut) => cut.includes("AFTER_COMMIT")),
   "no derived commit cut",
+);
+assert(
+  failureCutEvidence.some((cut) =>
+    cut.includes("UNKNOWN_REQUIRES_RECONCILIATION"),
+  ),
+  "no derived post-commit response-loss reconciliation cut",
 );
 assert(
   failureCutEvidence.some((cut) => cut.includes("PUBLISH")),

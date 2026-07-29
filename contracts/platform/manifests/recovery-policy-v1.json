@@ -47,7 +47,10 @@
     "required_result": "FAIL_CLOSED",
     "minimum_failed_verification_gates": 1,
     "pass_requires_every_verification_gate": "PASS",
-    "restore_start_and_completion_event_ids_must_differ": true,
+    "observed_rto_must_be_absent": true,
+    "restore_stop_event_required": true,
+    "failure_reason_code_required": true,
+    "restore_start_and_terminal_event_ids_must_differ": true,
     "required_components": [
       "postgresql",
       "recovery-tool"

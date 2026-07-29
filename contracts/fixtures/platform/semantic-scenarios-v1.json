@@ -432,14 +432,16 @@
     {
       "name": "application frame before token expiry remains allowed",
       "event": "APPLICATION_FRAME_WHILE_REAUTH_PENDING",
-      "current_access_expired": false,
+      "frame_received_at": "2026-07-29T10:19:59.999Z",
+      "current_access_expires_at": "2026-07-29T10:20:00Z",
       "revoked": false,
       "expected": "ALLOW_APPLICATION_FRAME"
     },
     {
       "name": "application frame after token expiry is rejected",
       "event": "APPLICATION_FRAME_WHILE_REAUTH_PENDING",
-      "current_access_expired": true,
+      "frame_received_at": "2026-07-29T10:20:00Z",
+      "current_access_expires_at": "2026-07-29T10:20:00Z",
       "revoked": false,
       "expected": "REJECT_APPLICATION_FRAME"
     },
@@ -466,12 +468,14 @@
   "websocket_deadline_cases": [
     {
       "name": "normal challenge gets sixty seconds",
+      "connection_established_at": "2026-07-29T10:00:00Z",
       "issued_at": "2026-07-29T10:19:00Z",
       "current_access_expires_at": "2026-07-29T10:20:00Z",
       "expected_deadline": "2026-07-29T10:20:00Z"
     },
     {
       "name": "near-expiry challenge is truncated by access expiry",
+      "connection_established_at": "2026-07-29T10:14:40Z",
       "issued_at": "2026-07-29T10:14:40Z",
       "current_access_expires_at": "2026-07-29T10:15:00Z",
       "expected_deadline": "2026-07-29T10:15:00Z"

@@ -68,6 +68,43 @@
       }
     },
     {
+      "name": "acyclic same-family refresh lineage",
+      "schema": "RefreshFamilyState",
+      "value": {
+        "schema_version": "fit.platform.refresh-family-state.v1",
+        "family_id": "50000000-0000-4000-8000-000000000001",
+        "session_id": "40000000-0000-4000-8000-000000000001",
+        "family_created_at": "2026-07-29T10:00:00Z",
+        "family_deadline": "2026-08-28T10:00:00Z",
+        "status": "ACTIVE",
+        "tokens": [
+          {
+            "schema_version": "fit.platform.refresh-record.v1",
+            "token_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "family_id": "50000000-0000-4000-8000-000000000001",
+            "session_id": "40000000-0000-4000-8000-000000000001",
+            "family_created_at": "2026-07-29T10:00:00Z",
+            "issued_at": "2026-07-29T10:00:00Z",
+            "expires_at": "2026-08-05T10:00:00Z",
+            "family_deadline": "2026-08-28T10:00:00Z",
+            "status": "ROTATED",
+            "rotated_to_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "schema_version": "fit.platform.refresh-record.v1",
+            "token_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "family_id": "50000000-0000-4000-8000-000000000001",
+            "session_id": "40000000-0000-4000-8000-000000000001",
+            "family_created_at": "2026-07-29T10:00:00Z",
+            "issued_at": "2026-08-01T10:00:00Z",
+            "expires_at": "2026-08-08T10:00:00Z",
+            "family_deadline": "2026-08-28T10:00:00Z",
+            "status": "ACTIVE"
+          }
+        ]
+      }
+    },
+    {
       "name": "additional-device enrollment challenge has no owner identifiers",
       "schema": "EnrollmentChallenge",
       "value": {
@@ -229,6 +266,7 @@
         "schema_version": "fit.platform.websocket-control.v1",
         "type": "REAUTH_REQUIRED",
         "nonce": "synthetic_websocket_nonce_000000000000001",
+        "connection_established_at": "2026-07-29T10:00:00Z",
         "issued_at": "2026-07-29T10:14:00Z",
         "deadline": "2026-07-29T10:15:00Z",
         "current_access_expires_at": "2026-07-29T10:15:00Z"
@@ -265,7 +303,7 @@
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
         "payload_schema_version": "fit.platform.event-payload.v1",
-        "payload_digest": "64f6d2619890aa0778a0c31e24b784bccaf022bc6f875e00db3bab87b0d0c6d5",
+        "payload_digest": "458f1fd0887251e71d15d80ec3ecf991a95c1a39a499c96061a918b51abb204e",
         "payload": {
           "schema_version": "fit.platform.event-payload.v1",
           "subject": "fit.platform.v1.owner.owner-mutation-committed",
@@ -275,10 +313,30 @@
             "user_id": "10000000-0000-4000-8000-000000000001",
             "trading_account_id": "20000000-0000-4000-8000-000000000001"
           },
-          "data": {
-            "operation_id": "70000000-0000-4000-8000-000000000001",
-            "decision": "CONFIRM"
-          }
+      "data": {
+        "record_type": "audit",
+        "record_id": "c0000000-0000-4000-8000-000000000001",
+        "record": {
+          "schema_version": "fit.platform.audit-event.v1",
+          "event_id": "c0000000-0000-4000-8000-000000000001",
+          "kind": "OWNER_MUTATION_COMMITTED",
+          "actor": {
+            "type": "USER",
+            "id": "synthetic-owner"
+          },
+          "scope": {
+            "type": "OWNER",
+            "user_id": "10000000-0000-4000-8000-000000000001",
+            "trading_account_id": "20000000-0000-4000-8000-000000000001"
+          },
+          "trigger": "REQUEST",
+          "causation_id": "80000000-0000-4000-8000-000000000001",
+          "correlation_id": "b0000000-0000-4000-8000-000000000001",
+          "request_id": "80000000-0000-4000-8000-000000000001",
+          "occurred_at": "2026-07-29T10:00:01Z",
+          "payload_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
         }
       }
     },
@@ -319,7 +377,7 @@
           "correlation_id": "b0000000-0000-4000-8000-000000000001",
           "occurred_at": "2026-07-29T10:00:01Z",
           "payload_schema_version": "fit.platform.event-payload.v1",
-          "payload_digest": "64f6d2619890aa0778a0c31e24b784bccaf022bc6f875e00db3bab87b0d0c6d5",
+          "payload_digest": "458f1fd0887251e71d15d80ec3ecf991a95c1a39a499c96061a918b51abb204e",
           "payload": {
             "schema_version": "fit.platform.event-payload.v1",
             "subject": "fit.platform.v1.owner.owner-mutation-committed",
@@ -329,10 +387,30 @@
               "user_id": "10000000-0000-4000-8000-000000000001",
               "trading_account_id": "20000000-0000-4000-8000-000000000001"
             },
-            "data": {
-              "operation_id": "70000000-0000-4000-8000-000000000001",
-              "decision": "CONFIRM"
-            }
+        "data": {
+          "record_type": "audit",
+          "record_id": "c0000000-0000-4000-8000-000000000001",
+          "record": {
+            "schema_version": "fit.platform.audit-event.v1",
+            "event_id": "c0000000-0000-4000-8000-000000000001",
+            "kind": "OWNER_MUTATION_COMMITTED",
+            "actor": {
+              "type": "USER",
+              "id": "synthetic-owner"
+            },
+            "scope": {
+              "type": "OWNER",
+              "user_id": "10000000-0000-4000-8000-000000000001",
+              "trading_account_id": "20000000-0000-4000-8000-000000000001"
+            },
+            "trigger": "REQUEST",
+            "causation_id": "80000000-0000-4000-8000-000000000001",
+            "correlation_id": "b0000000-0000-4000-8000-000000000001",
+            "request_id": "80000000-0000-4000-8000-000000000001",
+            "occurred_at": "2026-07-29T10:00:01Z",
+            "payload_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        }
           }
         },
         "created_at": "2026-07-29T10:00:01Z",

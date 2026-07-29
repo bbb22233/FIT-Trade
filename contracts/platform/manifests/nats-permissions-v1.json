@@ -20,7 +20,6 @@
       "fit.platform.v1.notification.device-revoked",
       "fit.platform.v1.notification.login-account-locked",
       "fit.platform.v1.notification.login-source-locked",
-      "fit.platform.v1.notification.owner-mutation-committed",
       "fit.platform.v1.notification.refresh-reuse-detected",
       "fit.platform.v1.notification.session-revoked",
       "fit.platform.v1.notification.wal-archive-interrupted",
@@ -120,12 +119,6 @@
       "consumer": "internal-notification-consumer"
     },
     {
-      "subject": "fit.platform.v1.notification.owner-mutation-committed",
-      "event_kind": "OWNER_MUTATION_COMMITTED",
-      "scope": "OWNER",
-      "consumer": "internal-notification-consumer"
-    },
-    {
       "subject": "fit.platform.v1.notification.refresh-reuse-detected",
       "event_kind": "REFRESH_REUSE_DETECTED",
       "scope": "AUTH_SECURITY",
@@ -204,7 +197,6 @@
         "fit.platform.v1.notification.device-revoked",
         "fit.platform.v1.notification.login-account-locked",
         "fit.platform.v1.notification.login-source-locked",
-        "fit.platform.v1.notification.owner-mutation-committed",
         "fit.platform.v1.notification.refresh-reuse-detected",
         "fit.platform.v1.notification.session-revoked",
         "fit.platform.v1.notification.wal-archive-interrupted",
@@ -244,7 +236,6 @@
         "fit.platform.v1.notification.device-revoked",
         "fit.platform.v1.notification.login-account-locked",
         "fit.platform.v1.notification.login-source-locked",
-        "fit.platform.v1.notification.owner-mutation-committed",
         "fit.platform.v1.notification.refresh-reuse-detected",
         "fit.platform.v1.notification.session-revoked",
         "fit.platform.v1.notification.wal-archive-interrupted"

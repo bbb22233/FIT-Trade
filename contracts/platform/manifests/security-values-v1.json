@@ -317,11 +317,23 @@
       "session_id",
       "device_id",
       "source_key",
+      "source_key_digest",
       "server_received_at",
+      "server_time",
       "token_digest",
-      "device_verification"
+      "family_id",
+      "family_created_at",
+      "family_deadline",
+      "refresh_family_id",
+      "rotated_to_digest",
+      "canonical_request_digest",
+      "device_verification",
+      "identity_origin",
+      "signature_verified"
     ],
-    "untrusted_transport_result": "REJECT_UNKNOWN_FIELD"
+    "untrusted_transport_result": "REJECT_UNKNOWN_FIELD",
+    "authenticated_http_input_schema": "UntrustedMutationInput",
+    "model_tool_input_schema": "ModelToolMutationInput"
   },
   "scope_rules": {
     "OWNER": {

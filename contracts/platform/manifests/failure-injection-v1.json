@@ -35,10 +35,7 @@
     },
     {
       "workflow": "owner_mutation",
-      "transaction_groups": [[
-        "single_postgresql_transaction",
-        "conditional_same_transaction"
-      ]]
+      "transaction_groups": [["single_postgresql_transaction"]]
     },
     {
       "workflow": "nats_consumer_business_effect",
@@ -55,10 +52,6 @@
           "single_postgresql_transaction"
         ]
       ]
-    },
-    {
-      "workflow": "password_lock",
-      "transaction_groups": [["single_postgresql_transaction"]]
     },
     {
       "workflow": "ordinary_device_enrollment",
@@ -94,6 +87,13 @@
     "before_first_statement": "NO_DURABLE_EFFECT",
     "after_every_statement_before_next_or_commit": "INJECT_TRANSACTION_ABORT_AND_REQUIRE_COMPLETE_ROLLBACK",
     "after_commit": "RETRY_MUST_OBSERVE_COMPLETE_DURABLE_TRANSACTION_WITH_NO_PARTIAL_EFFECT",
+    "after_commit_before_response": "UNKNOWN_RESULT_RETRY_MUST_RECONCILE_USING_STABLE_OPERATION_OR_IDEMPOTENCY_ID_AND_CREATE_NO_DUPLICATE_EFFECT",
+    "commit_response_flags": [
+      "commit_before_response",
+      "commit_before_credential_response",
+      "commit_before_challenge_response",
+      "commit_before_rejection_response"
+    ],
     "statement_order_source": "transaction-boundaries-v1.json",
     "conditional_statement_policy": "EXERCISE_BOTH_ABSENT_AND_PRESENT_PATHS"
   },

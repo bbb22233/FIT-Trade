@@ -40,7 +40,8 @@ The `x-fit-*` schema keywords are normative, not annotations. Every Phase 1
 validator must implement them before accepting a record:
 
 - `x-fit-time-window` requires the named UTC timestamps to differ by exactly
-  the frozen number of seconds.
+  the frozen number of seconds. Contract timestamps are UTC with either
+  second or exact millisecond precision; finer fractions are rejected.
 - `x-fit-time-order` rejects optional lifecycle timestamps that precede their
   creation or enrollment timestamp.
 - `x-fit-refresh-window` requires
@@ -48,15 +49,30 @@ validator must implement them before accepting a record:
   deadline exactly 2592000 seconds after `family_created_at`; rotated records
   retain that original family creation time and cannot point to their own
   digest.
+- `x-fit-refresh-family-lineage` validates the complete family as one state:
+  every token has the same family/session/deadline, successor digests resolve
+  inside that family, lineage is acyclic, and family revocation covers every
+  already-issued descendant.
 - `x-fit-websocket-deadline` requires
+  issuance at exactly the later of connection time or 60 seconds before access
+  expiry, and
   `deadline = min(issued_at + 60 seconds, current_access_expires_at)`.
 - `x-fit-payload-integrity` requires the registered
   `fit.platform.event-payload.v1` payload, exact subject/kind/scope agreement,
-  and SHA-256 over its RFC 8785 JCS bytes. Unknown payload schema versions are
-  invalid even when their digest is recomputed.
+  a schema-valid complete AuditEvent or Notification durable record with exact
+  record/causation/correlation linkage, and SHA-256 over its RFC 8785 JCS
+  bytes. Unknown or scope-inappropriate payloads are invalid even when their
+  digest is recomputed.
+- `x-fit-authority-field-names` rejects server-authored fields recursively and
+  case-insensitively. `ModelToolMutationInput` additionally rejects
+  confirmation ID/hash authority while the authenticated HTTP confirmation
+  route can carry its legitimate path/body fields.
+- `x-fit-outbox-causality` requires event occurrence at or before Outbox
+  creation and creation at or before publication.
 - `x-fit-recovery-consistency` checks the frozen workload, temporal ordering,
-  observed RPO/RTO arithmetic, distinct restore markers, exact component set,
-  and fail-closed result/gate binding.
+  observed RPO and successful RTO arithmetic, distinct terminal markers, exact
+  component set, and fail-closed result/gate binding. A failed verification
+  emits a stop marker and reason but never claims an observed RTO.
 
 Raw mutation bodies must be decoded with duplicate-object-key detection at
 every nesting depth before HTTP handler or WebSocket control-frame dispatch.

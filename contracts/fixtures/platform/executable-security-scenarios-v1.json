@@ -151,9 +151,9 @@
         "schema_version": "fit.platform.enrollment-challenge.v1",
         "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
         "purpose": "ADDITIONAL_DEVICE",
-        "subject_handle": "real_known_subject_handle_5HcU8mQp3Vz6Y",
-        "candidate_public_key_fingerprint": "ed25519:5555555555555555555555555555555555555555555555555555555555555555",
-        "nonce": "real_known_nonce_S9fJ4nP7rU2xA6cD8g",
+        "subject_handle": "synthetic_subject_handle_0000000000000001",
+        "candidate_public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f",
+        "nonce": "synthetic_enrollment_nonce_00000000000001",
         "issued_at": "2026-07-29T10:00:00Z",
         "expires_at": "2026-07-29T10:02:00Z",
         "single_use": true
@@ -442,6 +442,51 @@
           "expected_delay_seconds": 1
         }
       ]
+    },
+    {
+      "name": "one shared cross-route transaction state with success reset and abort",
+      "source_key": "SOURCE_E",
+      "events": [
+        {
+          "at_seconds": 0,
+          "route": "POST /v1/auth/login",
+          "user_id": "USER_E",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 1,
+          "route": "POST /v1/auth/device-enrollments/start",
+          "user_id": "USER_E",
+          "password_valid": true,
+          "expected_decision": "PASSWORD_ACCEPTED",
+          "expected_account_failures": 0,
+          "expected_source_failures": 1
+        },
+        {
+          "at_seconds": 2,
+          "route": "POST /v1/auth/device-replacements/start",
+          "user_id": "USER_F",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 2,
+          "expected_delay_seconds": 2
+        },
+        {
+          "at_seconds": 4,
+          "route": "POST /v1/auth/login",
+          "user_id": "USER_F",
+          "password_valid": false,
+          "transaction_aborted": true,
+          "expected_decision": "TRANSACTION_ABORTED",
+          "expected_account_failures": 1,
+          "expected_source_failures": 2
+        }
+      ]
     }
   ],
   "websocket_upgrade_cases": [
@@ -553,6 +598,28 @@
       "session_active": true,
       "device_active": true,
       "refresh_family_active": false,
+      "expected": "REJECT"
+    },
+    {
+      "name": "disabled user rejects",
+      "mismatch_field": null,
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "user_active": false,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
+      "expected": "REJECT"
+    },
+    {
+      "name": "revoked account ownership rejects",
+      "mismatch_field": null,
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "account_ownership_active": false,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
       "expected": "REJECT"
     }
   ],
