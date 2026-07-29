@@ -1,0 +1,42 @@
+# macOS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets/
+
+# JavaScript / TypeScript
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Go
+bin/
+*.test
+*.out
+
+# Runtime and local tooling
+*.log
+tmp/
+.cache/
