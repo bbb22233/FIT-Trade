@@ -123,6 +123,9 @@ function validProtectionAggregate(position, protection) {
       protection.absolute_live_position_quantity,
     ) &&
     protection.active_stop_order_ids.length >= 1 &&
+    protection.active_stop_order_ids.every(
+      (orderId) => typeof orderId === "string" && /\S/.test(orderId),
+    ) &&
     /^[a-f0-9]{64}$/.test(protection.coverage_evidence_hash)
   );
 }
@@ -377,6 +380,18 @@ async function verifyDomainFixtures() {
     validProtectionAggregate(coverage.PositionSnapshot, missingStop),
     false,
   );
+  for (const invalidStopOrderId of ["", "   "]) {
+    const invalidStopReference = structuredClone(coverage.ProtectionStatus);
+    invalidStopReference.active_stop_order_ids = [invalidStopOrderId];
+    assert.equal(
+      validators.get("ProtectionStatus")(invalidStopReference),
+      false,
+    );
+    assert.equal(
+      validProtectionAggregate(coverage.PositionSnapshot, invalidStopReference),
+      false,
+    );
+  }
 
   return { schema, validators };
 }

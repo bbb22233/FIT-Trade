@@ -890,7 +890,12 @@
           "type": "array",
           "uniqueItems": true,
           "maxItems": 32,
-          "items": { "type": "string", "maxLength": 128 }
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          }
         },
         "coverage_evidence_hash": {
           "type": "string",
