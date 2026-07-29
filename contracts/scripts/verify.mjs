@@ -546,9 +546,21 @@ async function verifyStateMachines() {
 
   const protection = await readJson("state-machines/protection.json");
   const protectionTransitions = verifyStateMachine(protection);
+  const semanticInvariants = await readJson("semantic-invariants-v1.json");
+  const referencedProtectionInvariant = semanticInvariants.invariants.find(
+    ({ id }) => id === protection.invariant_id,
+  );
+  assert.ok(
+    referencedProtectionInvariant,
+    "protection state machine must reference a defined semantic invariant",
+  );
   assert.equal(
-    protection.invariant,
-    "protected_quantity >= absolute_live_position_quantity",
+    referencedProtectionInvariant.id,
+    "PROTECTION_FULL_COVERAGE",
+  );
+  assert.equal(
+    referencedProtectionInvariant.failure_state,
+    "PROTECTION_FAILED",
   );
   assert.ok(
     !protectionTransitions.has("PROTECTION_FAILED->PROTECTED"),

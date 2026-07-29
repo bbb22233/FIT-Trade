@@ -35,5 +35,5 @@
     ["PROTECTED", "CLOSED"],
     ["CLOSED", "NO_POSITION"]
   ],
-  "invariant": "protected_quantity >= absolute_live_position_quantity"
+  "invariant_id": "PROTECTION_FULL_COVERAGE"
 }
