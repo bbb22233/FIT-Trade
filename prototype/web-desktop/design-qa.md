@@ -3,10 +3,10 @@
 ## Scope
 
 - Source visual truth: `reference/institutional-risk-desk.png`
-- Browser-rendered implementation: `qa-confirmation-ticket-freeze.png`
-- Combined comparison: `qa-confirmation-ticket-freeze-compare.png`
+- Browser-rendered implementation: `qa-operation-exclusive-lock.png`
+- Combined comparison: `qa-operation-exclusive-lock-compare.png`
 - Interactive implementation: `http://localhost:4174/`
-- Screen state: `SOL-PERP chart / ETH-PERP frozen ticket / LIVE / PROTECTED`
+- Screen state: `BTC-PERP / LIVE / DISPATCH_PENDING / Hermes command locked`
 - Theme: dark graphite
 
 This QA verifies the local simulated frontend shell only. It does not verify a
@@ -91,7 +91,8 @@ Hermes conversation, composer, and Kill Switch were all readable.
 
 Browser checks completed:
 
-1. BTC → ETH → SOL → BTC updates the market header, chart, position, and ticket.
+1. BTC → ETH → SOL → BTC updates the market header, chart and position while
+   the existing confirmation ticket remains frozen.
 2. `1h` → `4h` updates the selected timeframe and chart dataset.
 3. `LIVE` → `STALE` disables confirmation and displays the stale-data boundary.
 4. `STALE` → `RECONCILING` keeps confirmation disabled and displays the
@@ -112,6 +113,16 @@ Browser checks completed:
 12. After the simulated operation reaches `PROTECTED`, the secondary action is
     visibly disabled and reads `已完成，不能修改`. The same code path disables
     it for `REJECTED` with `已拒绝，不能修改`.
+13. A new ETH instruction submitted immediately before confirming the existing
+    BTC ticket cannot replace `SIM-0001`: the BTC ticket remains unchanged,
+    execution advances through dispatch to `PROTECTED`, and Hermes explains
+    that the new instruction did not generate a ticket.
+14. While the Operation is active, the Hermes input and send action are
+    disabled with `当前 Operation 必须先完成或核对`. After `PROTECTED`, the
+    composer becomes available and a new frozen ETH ticket can be generated.
+15. After the Operation-gate change, ticket freezing across symbol changes,
+    `STALE / RECONCILING` confirmation blocking, and Kill Switch reduce-only
+    availability were rerun and remained intact.
 
 App-origin browser console errors or warnings: 0. Chrome-extension-origin
 warnings were observed and excluded from the application result.
@@ -170,6 +181,36 @@ Post-fix browser evidence:
   notice, final `PROTECTED` progress, and the disabled completion action;
 - `qa-confirmation-ticket-freeze-compare.png` places that rendered state beside
   the visual source at the same 1487 × 1058 frame;
+- post-fix P0: 0, P1: 0, P2: 0.
+
+### Operation exclusivity iteration
+
+The second independent review found one P1 execution-safety issue: a Hermes
+instruction could finish its simulated generation callback while an existing
+Operation was active, call `replaceConfirmation`, clear the execution timers
+and silently replace the authoritative ticket.
+
+Fixes made:
+
+- all non-final execution states use one `isOperationActive` gate, including
+  `RISK_REVALIDATING`, dispatch, acknowledgement, `RECONCILING`,
+  `UNKNOWN_REQUIRES_RECONCILIATION`, `STOP_PLACING` and protection pending;
+- a synchronous Operation-state ref closes the confirm/send same-render race;
+- `replaceConfirmation` now checks the gate before clearing any timer or
+  changing any ticket;
+- active Operations disable the Hermes composer and show an explicit reason;
+- a previously accepted asynchronous Hermes instruction is rejected at commit
+  time if an Operation became active while it was being generated.
+
+Post-fix browser evidence:
+
+- `qa-operation-exclusive-lock.png` shows the original frozen BTC ticket still
+  advancing through dispatch, the explicit Hermes command lock, and the
+  rejection toast after the concurrent ETH instruction;
+- `qa-operation-exclusive-lock-compare.png` places the active Operation state
+  beside the visual source at the same 1487 × 1058 frame;
+- the original Operation reached `PROTECTED`; only then did the composer accept
+  a new ETH ticket;
 - post-fix P0: 0, P1: 0, P2: 0.
 
 Intentional differences from the visual target:

@@ -6,13 +6,29 @@ export type OperationState =
   | "DISPATCH_PENDING"
   | "DISPATCHED"
   | "ACKNOWLEDGED"
+  | "RECONCILING"
   | "UNKNOWN_REQUIRES_RECONCILIATION"
+  | "STOP_PLACING"
   | "PROTECTION_PENDING"
   | "PROTECTED"
   | "EXPIRED"
   | "REJECTED";
 
 export type PositionEffect = "OPEN" | "ADD";
+
+const activeOperationStates: readonly OperationState[] = [
+  "RISK_REVALIDATING",
+  "DISPATCH_PENDING",
+  "DISPATCHED",
+  "ACKNOWLEDGED",
+  "RECONCILING",
+  "UNKNOWN_REQUIRES_RECONCILIATION",
+  "STOP_PLACING",
+  "PROTECTION_PENDING",
+];
+
+export const isOperationActive = (state: OperationState) =>
+  activeOperationStates.includes(state);
 
 export type ConfirmationTicketSnapshot = Readonly<{
   ticketId: string;
@@ -48,7 +64,9 @@ export const operationLabels: Record<OperationState, string> = {
   DISPATCH_PENDING: "模拟执行命令等待派发",
   DISPATCHED: "模拟命令已进入执行链路",
   ACKNOWLEDGED: "模拟交易所已确认请求",
+  RECONCILING: "模拟服务端正在核对 Operation",
   UNKNOWN_REQUIRES_RECONCILIATION: "模拟结果未知，正在核对",
+  STOP_PLACING: "正在模拟建立 Stop Market",
   PROTECTION_PENDING: "正在模拟建立 Stop Market",
   PROTECTED: "模拟成交与止损均已核对",
   EXPIRED: "确认已过期",

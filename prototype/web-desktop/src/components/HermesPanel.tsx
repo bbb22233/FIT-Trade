@@ -47,7 +47,9 @@ function ConfirmationTicket({
     "DISPATCH_PENDING",
     "DISPATCHED",
     "ACKNOWLEDGED",
+    "RECONCILING",
     "UNKNOWN_REQUIRES_RECONCILIATION",
+    "STOP_PLACING",
     "PROTECTION_PENDING",
   ].includes(operationState);
   const isFinal = operationState === "PROTECTED";
@@ -252,6 +254,7 @@ export function HermesPanel({
   operationState,
   expiresIn,
   canIncreaseRisk,
+  canSubmitHermesInstruction,
   inputRef,
   onSubmit,
   onConfirm,
@@ -266,8 +269,9 @@ export function HermesPanel({
   operationState: OperationState;
   expiresIn: number;
   canIncreaseRisk: boolean;
+  canSubmitHermesInstruction: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string) => boolean;
   onConfirm: () => void;
   onEdit: () => void;
 }) {
@@ -277,8 +281,9 @@ export function HermesPanel({
     event.preventDefault();
     const trimmed = input.trim();
     if (!trimmed) return;
-    onSubmit(trimmed);
-    setInput("");
+    if (onSubmit(trimmed)) {
+      setInput("");
+    }
   };
 
   return (
@@ -334,18 +339,37 @@ export function HermesPanel({
         <label htmlFor="hermes-command" className="sr-only">
           向本地模拟 Hermes 发送消息
         </label>
-        <input
-          id="hermes-command"
-          ref={inputRef}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder="输入开仓或加仓演练指令…"
-          disabled={thinking}
-        />
+        <div className="composer-input-shell">
+          <input
+            id="hermes-command"
+            ref={inputRef}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder="输入开仓或加仓演练指令…"
+            disabled={thinking || !canSubmitHermesInstruction}
+            aria-describedby={
+              !canSubmitHermesInstruction
+                ? "operation-command-lock"
+                : undefined
+            }
+          />
+          {!canSubmitHermesInstruction ? (
+            <span
+              className="operation-command-lock"
+              id="operation-command-lock"
+              role="status"
+              data-testid="operation-command-lock"
+            >
+              当前 Operation 必须先完成或核对
+            </span>
+          ) : null}
+        </div>
         <button
           type="submit"
           aria-label="发送模拟消息"
-          disabled={!input.trim() || thinking}
+          disabled={
+            !input.trim() || thinking || !canSubmitHermesInstruction
+          }
         >
           <PaperPlaneTilt size={18} weight="fill" aria-hidden="true" />
         </button>

@@ -63,6 +63,9 @@ export function App() {
           operationState={simulation.operationState}
           expiresIn={simulation.expiresIn}
           canIncreaseRisk={simulation.canIncreaseRisk}
+          canSubmitHermesInstruction={
+            simulation.canSubmitHermesInstruction
+          }
           inputRef={simulation.inputRef}
           onSubmit={simulation.sendMessage}
           onConfirm={simulation.confirmOperation}

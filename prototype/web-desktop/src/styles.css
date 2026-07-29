@@ -1094,6 +1094,11 @@ button.system-item {
   background: #0d161e;
 }
 
+.composer-input-shell {
+  position: relative;
+  min-width: 0;
+}
+
 .chat-composer input {
   width: 100%;
   height: 38px;
@@ -1104,6 +1109,19 @@ button.system-item {
   background: #091118;
   color: #dce3e9;
   font-size: 11px;
+}
+
+.operation-command-lock {
+  position: absolute;
+  inset: 1px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 4px;
+  background: #0b131a;
+  color: #d6b875;
+  font-size: 10px;
+  pointer-events: none;
 }
 
 .chat-composer input::placeholder {

@@ -13,6 +13,7 @@ import type {
   OperationState,
   PositionEffect,
 } from "./simulation-types";
+import { isOperationActive } from "./simulation-types";
 
 const defaultMessages: ChatMessage[] = [
   {
@@ -96,7 +97,13 @@ export function useCommandCenterSimulation() {
   const inputRef = useRef<HTMLInputElement>(null);
   const timersRef = useRef<number[]>([]);
   const ticketSequenceRef = useRef(1);
+  const operationStateRef = useRef<OperationState>("AWAITING_CONFIRMATION");
   const profile = useMemo(() => symbolProfiles[symbol], [symbol]);
+
+  const transitionOperationState = (state: OperationState) => {
+    operationStateRef.current = state;
+    setOperationState(state);
+  };
 
   const clearExecutionTimers = () => {
     timersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -104,11 +111,18 @@ export function useCommandCenterSimulation() {
   };
 
   const replaceConfirmation = (ticket: ConfirmationTicketSnapshot) => {
+    if (isOperationActive(operationStateRef.current)) {
+      setToast(
+        "当前 Operation 必须先完成或核对；原票据和执行进度保持不变。",
+      );
+      return false;
+    }
     clearExecutionTimers();
     setConfirmationTicket(ticket);
-    setOperationState("AWAITING_CONFIRMATION");
+    transitionOperationState("AWAITING_CONFIRMATION");
     setExpiresIn(600);
     setConfirmationVisible(true);
+    return true;
   };
 
   useEffect(() => {
@@ -116,7 +130,7 @@ export function useCommandCenterSimulation() {
       setExpiresIn((current) => {
         if (operationState !== "AWAITING_CONFIRMATION") return current;
         if (current <= 1) {
-          setOperationState("EXPIRED");
+          transitionOperationState("EXPIRED");
           return 0;
         }
         return current - 1;
@@ -153,22 +167,22 @@ export function useCommandCenterSimulation() {
 
   const confirmOperation = () => {
     if (
-      operationState !== "AWAITING_CONFIRMATION" ||
+      operationStateRef.current !== "AWAITING_CONFIRMATION" ||
       killSwitchActive ||
       dataState !== "LIVE"
     ) {
       return;
     }
-    setOperationState("RISK_REVALIDATING");
+    transitionOperationState("RISK_REVALIDATING");
     timersRef.current = executionSequence.map(([delay, state]) =>
-      window.setTimeout(() => setOperationState(state), delay),
+      window.setTimeout(() => transitionOperationState(state), delay),
     );
   };
 
   const closeConfirmation = () => {
     if (
-      operationState !== "AWAITING_CONFIRMATION" &&
-      operationState !== "EXPIRED"
+      operationStateRef.current !== "AWAITING_CONFIRMATION" &&
+      operationStateRef.current !== "EXPIRED"
     ) {
       return;
     }
@@ -178,6 +192,12 @@ export function useCommandCenterSimulation() {
   };
 
   const sendMessage = (content: string) => {
+    if (isOperationActive(operationStateRef.current)) {
+      setToast(
+        "当前 Operation 必须先完成或核对；不能生成新票据或取消现有执行。",
+      );
+      return false;
+    }
     const effect: PositionEffect = content.includes("加仓") ? "ADD" : "OPEN";
     const normalized = content.toUpperCase();
     const mentionedSymbol = (
@@ -196,17 +216,20 @@ export function useCommandCenterSimulation() {
     ]);
     setThinking(true);
     window.setTimeout(() => {
+      setThinking(false);
+      const replaced = replaceConfirmation(ticket);
       setMessages((current) => [
         ...current,
         {
           id: current.length + 1,
           role: "hermes",
-          content: `已按 ${ticket.pair} 本地模拟上下文生成${effect === "ADD" ? "加仓" : "开仓"}意图。交易意图和全部风险字段已冻结到票据 ${ticket.ticketId}。`,
+          content: replaced
+            ? `已按 ${ticket.pair} 本地模拟上下文生成${effect === "ADD" ? "加仓" : "开仓"}意图。交易意图和全部风险字段已冻结到票据 ${ticket.ticketId}。`
+            : "当前 Operation 必须先完成或核对；这条指令未生成新票据，原 Operation 继续推进。",
         },
       ]);
-      setThinking(false);
-      replaceConfirmation(ticket);
     }, 700);
+    return true;
   };
 
   const activateKillSwitch = () => {
@@ -233,6 +256,7 @@ export function useCommandCenterSimulation() {
     killSwitchActive,
     toast,
     inputRef,
+    canSubmitHermesInstruction: !isOperationActive(operationState),
     canIncreaseRisk: dataState === "LIVE" && !killSwitchActive,
     setTimeframe,
     setIndicatorEnabled,
