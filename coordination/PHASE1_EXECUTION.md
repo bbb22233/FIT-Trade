@@ -2,7 +2,8 @@
 
 ## Frozen starting point
 
-- Accepted Phase 0 and `main`: `60850b69dd06c46bbe2a9cfab19d27cdb2ef0412`
+- Accepted Phase 0 lineage base:
+  `60850b69dd06c46bbe2a9cfab19d27cdb2ef0412`
 - Phase: development, local integration, and failure testing only
 - Live wallet, signer, exchange API, deployment, production enablement,
   automatic trading, and live orders remain unauthorized.
@@ -22,10 +23,10 @@ in a separately authorized and reviewed read-only Phase 2.
 | --- | --- | --- | --- | --- | --- |
 | P1-001 | Local Codex coordinator | `codex/p1-platform-contracts` | `/Users/guanlan/Documents/FIT-Trade-worktrees/p1-platform-contracts` | Narrow platform contract manifest | Accepted task packets |
 | P1-002 | Server root Codex | `codex/p1-go-contract-client` | `/root/fit-trade-dev/worktrees/p1-go-contract-client` | `services/trading-core/platformcontract/**` | Accepted P1-001 |
-| P1-003 | Server root Codex | `codex/p1-go-api-auth` | `/root/fit-trade-dev/worktrees/p1-go-api-auth` | `services/trading-core/**` | Accepted P1-002 |
-| P1-004 | Server root Codex | `codex/p1-postgres-persistence` | `/root/fit-trade-dev/worktrees/p1-postgres-persistence` | `services/trading-core/**`, `infra/postgres/**` | Accepted P1-003 |
-| P1-005 | Server root Codex | `codex/p1-nats-observability` | `/root/fit-trade-dev/worktrees/p1-nats-observability` | `services/trading-core/**`, `infra/nats/**`, `infra/observability/**` | Accepted P1-004 |
-| P1-006 | Server root Codex | `codex/p1-recovery-infra` | `/root/fit-trade-dev/worktrees/p1-recovery-infra` | `infra/**` | Accepted P1-005 |
+| P1-003 | Server root Codex | `codex/p1-go-api-auth` | `/root/fit-trade-dev/worktrees/p1-go-api-auth` | `services/trading-core/{api,auth,session,ownership}/**`, module manifests | Accepted P1-002 |
+| P1-004 | Server root Codex | `codex/p1-postgres-persistence` | `/root/fit-trade-dev/worktrees/p1-postgres-persistence` | `services/trading-core/persistence/**`, `infra/postgres/**`, module manifests | Accepted P1-003 |
+| P1-005 | Server root Codex | `codex/p1-nats-observability` | `/root/fit-trade-dev/worktrees/p1-nats-observability` | `services/trading-core/{messaging,observability}/**`, `infra/{nats,observability}/**`, module manifests | Accepted P1-004 |
+| P1-006 | Server root Codex | `codex/p1-recovery-infra` | `/root/fit-trade-dev/worktrees/p1-recovery-infra` | `infra/{runtime,recovery}/**` | Accepted P1-005 |
 | P1-007 | Local Codex coordinator | `codex/p1-exit-review` | `/Users/guanlan/Documents/FIT-Trade-worktrees/p1-exit-review` | `coordination/evidence/P1-007/**` | Accepted P1-006 |
 
 Each task branch and worktree is created only after its predecessor is accepted.
@@ -58,47 +59,118 @@ that component owner. The coordinator assigns a new descendant branch and
 requires fixed-commit acceptance before the blocked task resumes. P1-007 cannot
 start while such a remediation remains unresolved.
 
+Every remediation proposal is a machine-readable record with the discovery
+commit, affected component and task, severity, reproducible evidence, permitted
+and forbidden paths, proposed owner, exact base, acceptance checks, rollback or
+compatibility impact, and unresolved risk. A proposal authorizes no edit. The
+coordinator must assign a new task ID, owner, branch, worktree, and exact
+descendant base before implementation.
+
 ## Frozen Phase 1 security values
 
-- Device Challenge TTL: 120 seconds, single use.
+- Enrollment Challenge and Device Action Challenge TTL: 120 seconds, single use.
 - New-device enrollment first verifies the account password, then issues a
-  single-use 120-second enrollment Challenge. The device proves possession of
-  its Ed25519 private key by signing the Challenge and public-key fingerprint.
-  The server generates the device ID, binds the globally unique public key to
-  the server-owned user, and creates the device and its first session atomically.
+  domain-separated Enrollment Challenge. It binds purpose, server-resolved user,
+  candidate public-key fingerprint, nonce, issued time, and expiry; it contains
+  no device, session, or trading-account ID. The candidate Ed25519 key signs the
+  Challenge, proving possession of the new key before it is registered. The
+  server then generates the device ID, binds the globally unique public key to
+  the server-owned user, and creates the device and first session atomically.
   Client-supplied owner IDs, duplicate keys, cross-owner key rebinding, invalid
   proof, and replay fail closed and are audited.
+- Replacement enrollment when every prior device is unavailable proves
+  possession of the replacement key, not a lost key. After password verification
+  and valid Enrollment Challenge proof, it atomically revokes all prior devices,
+  sessions, and refresh families before creating the replacement device and its
+  first session. Ordinary additional-device enrollment does not revoke prior
+  devices. Both paths create distinct internal security notifications.
 - Argon2id production parameters are versioned and have minimums of 64 MiB
   memory, 3 iterations, parallelism 1, a 16-byte random salt, and a 32-byte
   result. A visibly non-production test profile may reduce cost, but tests must
   verify production-profile metadata and one production-profile vector.
 - Session access token TTL: 15 minutes.
-- Rotating refresh-token family maximum lifetime: 30 days.
+- Rotating refresh-token family maximum lifetime is a hard 30 days measured
+  from family creation. Rotation never moves that deadline.
 - Refresh-token reuse revokes the complete token family, including every
   already-issued descendant. Each descendant must be rejected after reuse.
 - Only token digests are stored; plaintext tokens never enter logs or storage.
-- Successful authentication and every privilege transition create a new random
-  session ID and token family. Pre-authentication or prior session identifiers
-  are never promoted and are invalidated, which is the Phase 1 fixation defense.
+- Successful login creates a new random session ID and token family and
+  invalidates every presented pre-authentication identifier. Ordinary enrollment
+  creates an independently random first session for the new device without
+  promoting a client-supplied or existing session and preserves other devices;
+  replacement enrollment creates an independently random first session only
+  after the prior devices, sessions, and families are revoked. Phase 1 has no
+  other privilege-transition endpoint; a future transition requires a new
+  fixation contract before implementation.
 - Session and device revocation must deny every HTTP, WebSocket, and internal
   tool ingress within 5 seconds.
-- Device Challenge signatures use a registered Ed25519 public key and bind the
-  user, account, device, session, action, payload hash, nonce, issued time, and
-  expiry. Revoked keys fail closed.
+- Device Action Challenge signatures are separate from Enrollment Challenges.
+  They use an already registered Ed25519 public key and bind domain, user,
+  account, device, session, action, payload hash, nonce, issued time, and expiry.
+  Revoked keys fail closed. Phase 1 tests this server protocol with synthetic
+  keys; iOS LocalAuthentication and Windows Hello integration are later
+  client-phase work and are not claimed by Phase 1.
 - Login responses are enumeration-resistant. Account and source counters are
-  independent and atomic. For either dimension, failures one through four impose
-  delays of 1, 2, 4, and 8 seconds before another attempt; the fifth failure in
-  15 minutes imposes a 15-minute lock. A request is denied when either counter
-  is delayed or locked. Successful authentication resets only that account's
-  consecutive-failure counter; it does not clear source-abuse state. Concurrent
-  attempts cannot skip a delay or threshold. Every lock creates an AuditIntent
-  and internal NotificationIntent.
+  independent and atomic. Here "account counter" is keyed by the server-owned
+  product User ID, never a trading-account ID. The source counter increments for
+  every failed login; the account counter increments only when the submitted
+  identifier resolves server-side, without changing the generic response. For
+  either dimension, failures one through four impose delays of 1, 2, 4, and 8
+  seconds before another attempt; the fifth failure in 15 minutes imposes a
+  15-minute lock. A request is denied when either counter is delayed or locked.
+  At lock expiry, that dimension's failures, delay, and lock are atomically
+  cleared, so its next failure is failure one. Successful authentication resets
+  only that User's consecutive-failure counter; it does not clear source-abuse
+  state. Concurrent attempts cannot skip a delay, reset, or threshold. Every
+  lock creates an AuditIntent and internal NotificationIntent.
 - Non-login authenticated HTTP is limited to 20 requests/second with burst 40
-  per session and 50 requests/second with burst 100 per source. Unauthenticated
-  non-login endpoints are limited to 5 requests/minute per source. WebSocket
-  creation is limited to 2/second and 5 concurrent connections per session.
-  In Phase 1, source means the direct peer IP; forwarding headers are untrusted
-  and cannot select a rate-limit identity.
+  per session and 50 requests/second with burst 100 per source. The only
+  unauthenticated non-login routes are `/health/live`, limited to 60/minute with
+  burst 10 per source, and `/health/ready`, limited to 5/minute with burst 2 per
+  source; every other unauthenticated route rejects. WebSocket creation is
+  limited to 2/second with burst 2 and 5 concurrent connections per session,
+  plus 10/second with burst 20 and 20 concurrent connections per source. In
+  Phase 1, source means the direct peer IP; forwarding headers are untrusted and
+  cannot select a rate-limit identity.
+- Audit and Notification scope is a required tagged union. `OWNER` requires
+  server-authored user and trading-account IDs and is the only scope permitted
+  for business effects. `AUTH_SECURITY` is limited to pre-authentication,
+  login, session, and device security events; it requires a server-derived
+  pseudonymous source key, permits user ID only after unambiguous resolution,
+  and prohibits trading-account ID before account selection. `SYSTEM` is
+  limited to recovery, WAL, and infrastructure events and prohibits user and
+  trading-account IDs. `AUTH_SECURITY` and `SYSTEM` records are control-plane
+  facts, never business entities or authority to access owner data. Unknown
+  identifiers and source-only locks must use `AUTH_SECURITY` without a phantom
+  owner.
+- The pseudonymous source key is
+  `HMAC-SHA-256(runtime_source_key, canonical_direct_peer_ip)`, where the peer is
+  encoded as the normalized 16-byte IPv6 form (IPv4 uses IPv4-mapped form).
+  The runtime key and raw IP are never persisted or logged. The key ID is stored
+  with the digest; rotation retains the prior key only for the 30-minute maximum
+  throttle/audit-correlation window. Forwarding headers never enter this value.
+- AuditEvent common required fields are event ID, actor type and actor ID,
+  tagged scope, server occurrence time, causation ID, correlation ID, schema
+  version, and payload digest. `OWNER` and request-triggered `AUTH_SECURITY`
+  events additionally require request ID; `SYSTEM` events instead require a
+  system incident/operation ID and prohibit a fabricated request ID. Device and
+  session IDs are present only when the allowlisted kind has them.
+- Internal Notification requires notification ID, frozen kind enum, severity
+  (`INFO`, `WARNING`, or `CRITICAL`), tagged scope, server occurrence time,
+  message-code enum, schema-validated message arguments, causation ID,
+  correlation ID, and payload digest. Phase 1 kinds are
+  `LOGIN_ACCOUNT_LOCKED`, `LOGIN_SOURCE_LOCKED`, `DEVICE_ENROLLED`,
+  `DEVICE_REPLACED`, `DEVICE_REVOKED`, `SESSION_REVOKED`,
+  `REFRESH_REUSE_DETECTED`, and `WAL_ARCHIVE_INTERRUPTED`. Arbitrary text,
+  destination, address, credential, Email, Push, and webhook fields are
+  forbidden.
+- Phase 1 NATS service principals are exactly `outbox-publisher`,
+  `platform-consumer`, and `internal-notification-consumer`. P1-001 freezes the
+  exact versioned subjects per event kind. Publisher may publish only those
+  subjects and may not subscribe; each consumer may subscribe only its explicit
+  subject allowlist and may not publish. No principal may use `>` or `*`,
+  administer JetStream, or carry user/account claims. The API service has no
+  NATS credential.
 - Request idempotency digest is SHA-256 over RFC 8785 JCS of a versioned object
   containing the uppercase method, route template, strictly decoded path/query
   parameter objects, strictly decoded JSON body, and server-authored user and
@@ -108,8 +180,12 @@ start while such a remediation remains unresolved.
 - Phase 1 never deletes Outbox business events. Archival/deletion policy is
   deferred until a later reviewed phase, so a restored PostgreSQL source can
   rebuild all Phase 1 derived NATS delivery state.
-- Database migrations support the accepted application version and its
-  immediate predecessor. Destructive cleanup requires a later task after the
+- For every PostgreSQL schema revision, "immediate predecessor" means the
+  directly prior numbered schema revision in the linear P1-004 migration
+  manifest, not the P1-003 Git commit. The initial revision applies from empty;
+  each later revision must apply from empty and its immediately prior revision,
+  while the current and immediately prior application revisions both work
+  during expand/contract. Destructive cleanup requires a later task after the
   predecessor is retired.
 
 ## Required handoff for every task
@@ -122,6 +198,8 @@ start while such a remediation remains unresolved.
 - Failure-path tests and unresolved risks
 - Migration, rollback, compatibility, and retention notes when applicable
 - Independent fixed-commit review with findings and exact P0/P1/P2 counts
+- If remediation is needed, the complete proposal record and its newly assigned
+  task/owner/branch/worktree/base
 
 Green tests or review `PASS` do not authorize merge, deployment, production,
 wallet access, exchange connectivity, exchange writes, or automatic trading.
@@ -142,6 +220,12 @@ wallet access, exchange connectivity, exchange writes, or automatic trading.
 - Audit records remain in the same transaction as their business effect.
 - Abnormal login and security events create durable internal notifications in
   the same transaction; Phase 1 has no Email, Push, or external delivery.
+- `database_wal_archive_age` measures seconds since the most recent successful
+  archive while WAL is being generated. Any archive-command failure or age over
+  60 seconds creates one idempotent `CRITICAL` internal
+  `WAL_ARCHIVE_INTERRUPTED` notification and audit event per incident; the
+  incident clears only after two consecutive successful archive cycles and age
+  at or below 60 seconds.
 - Services are disabled by default, non-public, authenticated, deny external
   runtime egress, and contain no connector, executor, signer, or exchange route.
 - Independent P1-007 review reports zero P0/P1/P2 and `PASS`.
