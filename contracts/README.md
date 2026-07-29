@@ -26,7 +26,9 @@ must not redefine trading semantics independently.
 - `mcp-tools-v1.json`: complete allowed MCP inventory
 - `error-taxonomy-v1.json`: machine-readable code/retry pairs
 - `logging-policy-v1.json`: executable structured-log allowlist and redaction vector
+- `semantic-invariants-v1.json`: cross-object invariants that JSON Schema cannot express
 - `state-machines/*.json`: allowed transition graphs
+- `spec/protection-invariant.md`: mandatory aggregate protection validation
 - `confirmation-fields.json`: confirmation-bound field order
 - `proto/fit/v1/trading.proto`: internal service contract
 - `openapi/openapi.yaml`: client API contract

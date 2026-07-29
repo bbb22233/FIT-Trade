@@ -7,8 +7,9 @@ option go_package = "github.com/bbb22233/FIT-Trade/services/trading-core/gen/fit
 // Financial values are canonical decimal strings. Implementations must not
 // convert them through binary floating point.
 message StopMarket {
-  string trigger_price = 1;
-  bool reduce_only = 2;
+  string type = 1;
+  string trigger_price = 2;
+  bool reduce_only = 3;
 }
 
 message TakeProfitLeg {
@@ -69,7 +70,7 @@ message Operation {
   string intent_id = 3;
   string confirmation_id = 4;
   string state = 5;
-  uint64 state_version = 6;
+  optional uint64 state_version = 6;
   string rejection_code = 7;
   string created_at = 8;
   string updated_at = 9;
@@ -96,7 +97,7 @@ message Order {
   string quantity = 8;
   string filled_quantity = 9;
   string limit_price = 10;
-  bool reduce_only = 11;
+  optional bool reduce_only = 11;
   string state = 12;
   string updated_at = 13;
 }
@@ -121,7 +122,7 @@ message PositionSnapshot {
   string signed_quantity = 5;
   string entry_price = 6;
   string mark_price = 7;
-  string protected_quantity = 8;
+  string protection_status_id = 8;
   string protection_state = 9;
   string data_status = 10;
   string snapshot_at = 11;
@@ -226,7 +227,7 @@ message ExecutionCommand {
   string time_in_force = 12;
   string quantity = 13;
   string worst_acceptable_price = 14;
-  bool reduce_only = 15;
+  optional bool reduce_only = 15;
   string created_at = 16;
 }
 
@@ -243,13 +244,14 @@ message ExecutionResult {
 
 message ProtectionStatus {
   string schema_version = 1;
-  string position_id = 2;
-  string state = 3;
-  string absolute_live_position_quantity = 4;
-  string protected_quantity = 5;
+  string protection_status_id = 2;
+  string position_id = 3;
+  string state = 4;
+  string absolute_live_position_quantity = 5;
   repeated string active_stop_order_ids = 6;
-  string data_status = 7;
-  string observed_at = 8;
+  string coverage_evidence_hash = 7;
+  string data_status = 8;
+  string observed_at = 9;
 }
 
 message ReconciliationStatus {
@@ -270,9 +272,9 @@ message AgentFeedback {
   string operation_id = 3;
   string user_id = 4;
   string account_id = 5;
-  sint32 rating = 6;
+  optional sint32 rating = 6;
   string comment = 7;
-  bool include_in_learning = 8;
+  optional bool include_in_learning = 8;
   string created_at = 9;
 }
 
@@ -294,9 +296,46 @@ message AutomationAuthorization {
   string authorized_at = 15;
 }
 
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  VALIDATION_FAILED = 1;
+  UNAUTHENTICATED = 2;
+  SCOPE_MISMATCH = 3;
+  TOOL_NOT_AUTHORIZED = 4;
+  CONFIRMATION_REQUIRED = 5;
+  CONFIRMATION_EXPIRED = 6;
+  CONFIRMATION_MISMATCH = 7;
+  CONFIRMATION_ALREADY_CONSUMED = 8;
+  RISK_REJECTED = 9;
+  DATA_STALE = 10;
+  STATE_TRANSITION_REJECTED = 11;
+  DUPLICATE_REQUEST = 12;
+  UPSTREAM_UNAVAILABLE = 13;
+  UNKNOWN_REQUIRES_RECONCILIATION = 14;
+  MANUAL_RECONCILIATION_REQUIRED = 15;
+  INTERNAL_ERROR = 16;
+}
+
+enum RetryClass {
+  RETRY_CLASS_UNSPECIFIED = 0;
+  NEVER = 1;
+  NEVER_SAME_INPUT = 2;
+  NEVER_SAME_TICKET = 3;
+  NEVER_SAME_TRANSITION = 4;
+  AFTER_REAUTHENTICATION = 5;
+  AFTER_NEW_CONFIRMATION = 6;
+  AFTER_NEW_INTENT = 7;
+  AFTER_FRESH_SNAPSHOT = 8;
+  RETURN_EXISTING_RESULT = 9;
+  BOUNDED_BACKOFF_BEFORE_DISPATCH = 10;
+  RECONCILE_ONLY = 11;
+  OPERATOR_ONLY = 12;
+  POLICY_DEPENDENT = 13;
+}
+
 message ErrorDetail {
-  string code = 1;
-  string retry = 2;
+  ErrorCode code = 1;
+  RetryClass retry = 2;
   string correlation_id = 3;
   string redacted_message = 4;
 }

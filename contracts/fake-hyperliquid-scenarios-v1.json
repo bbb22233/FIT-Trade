@@ -29,6 +29,26 @@
       "result": "UNKNOWN_REQUIRES_RECONCILIATION"
     },
     {
+      "id": "executor_crash_before_signing",
+      "effect": "PROCESS_CRASH_SIMULATION",
+      "result": "NOT_DISPATCHED"
+    },
+    {
+      "id": "executor_crash_after_signing_before_submit",
+      "effect": "PROCESS_CRASH_SIMULATION",
+      "result": "NOT_DISPATCHED"
+    },
+    {
+      "id": "executor_crash_after_submit_before_record",
+      "effect": "PROCESS_CRASH_SIMULATION",
+      "result": "UNKNOWN_REQUIRES_RECONCILIATION"
+    },
+    {
+      "id": "executor_crash_after_record_before_report",
+      "effect": "PROCESS_CRASH_SIMULATION",
+      "result": "EXISTING_RESULT"
+    },
+    {
       "id": "result_published_ack_lost",
       "effect": "EVENT_REDELIVERY_SIMULATION",
       "result": "EXISTING_RESULT"
@@ -82,6 +102,21 @@
       "id": "manual_native_position_change",
       "effect": "RECONCILIATION_SIMULATION",
       "result": "RECONCILING"
+    },
+    {
+      "id": "database_restart_during_operation",
+      "effect": "PROCESS_CRASH_SIMULATION",
+      "result": "RECOVER_FROM_DURABLE_STATE"
+    },
+    {
+      "id": "websocket_disconnect_and_resubscribe",
+      "effect": "STREAM_DISCONNECT_SIMULATION",
+      "result": "RECONCILING"
+    },
+    {
+      "id": "client_disconnect_then_duplicate_submit",
+      "effect": "REQUEST_REDELIVERY_SIMULATION",
+      "result": "EXISTING_RESULT"
     },
     {
       "id": "stale_market_snapshot",

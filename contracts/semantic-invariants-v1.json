@@ -1,0 +1,20 @@
+{
+  "schema_version": "fit.semantic-invariants.v1",
+  "invariants": [
+    {
+      "id": "PROTECTION_FULL_COVERAGE",
+      "when": {
+        "position.protection_state": "PROTECTED",
+        "protection.state": "PROTECTED"
+      },
+      "requirements": [
+        "position.protection_status_id == protection.protection_status_id",
+        "position.position_id == protection.position_id",
+        "abs(position.signed_quantity) == protection.absolute_live_position_quantity",
+        "protection.active_stop_order_ids.length >= 1",
+        "protection.coverage_evidence_hash is lowercase sha256"
+      ],
+      "failure_state": "PROTECTION_FAILED"
+    }
+  ]
+}

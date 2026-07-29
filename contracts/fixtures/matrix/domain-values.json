@@ -128,7 +128,7 @@
     "signed_quantity": "0.025",
     "entry_price": "118452",
     "mark_price": "118500",
-    "protected_quantity": "0.025",
+    "protection_status_id": "90123456-9012-4012-8012-901234567890",
     "protection_state": "PROTECTED",
     "data_status": "LIVE",
     "snapshot_at": "2026-07-29T04:00:05Z"
@@ -139,11 +139,11 @@
     "allowed_symbols": ["BTC-PERP", "ETH-PERP", "SOL-PERP"],
     "maximum_trade_risk_fraction": "0.01",
     "maximum_total_risk_fraction": "0.03",
-    "maximum_leverage_by_symbol": {
-      "BTC-PERP": 5,
-      "ETH-PERP": 5,
-      "SOL-PERP": 3
-    },
+    "maximum_leverage_by_symbol": [
+      { "symbol": "BTC-PERP", "maximum_leverage": 5 },
+      { "symbol": "ETH-PERP", "maximum_leverage": 5 },
+      { "symbol": "SOL-PERP", "maximum_leverage": 3 }
+    ],
     "maximum_slippage_fraction": "0.002",
     "created_at": "2026-07-29T04:00:06Z"
   },
@@ -221,11 +221,12 @@
   },
   "ProtectionStatus": {
     "schema_version": "fit.trade.v1",
+    "protection_status_id": "90123456-9012-4012-8012-901234567890",
     "position_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     "state": "PROTECTED",
     "absolute_live_position_quantity": "0.025",
-    "protected_quantity": "0.025",
     "active_stop_order_ids": ["synthetic-stop-1"],
+    "coverage_evidence_hash": "4444444444444444444444444444444444444444444444444444444444444444",
     "data_status": "LIVE",
     "observed_at": "2026-07-29T04:00:12Z"
   },

@@ -117,6 +117,19 @@
         "reduce_only": { "const": true }
       }
     },
+    "SymbolLeverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbol", "maximum_leverage"],
+      "properties": {
+        "symbol": { "$ref": "#/$defs/Symbol" },
+        "maximum_leverage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
     "TradeIntent": {
       "type": "object",
       "additionalProperties": false,
@@ -440,7 +453,7 @@
         "signed_quantity",
         "entry_price",
         "mark_price",
-        "protected_quantity",
+        "protection_status_id",
         "protection_state",
         "data_status",
         "snapshot_at"
@@ -453,7 +466,7 @@
         "signed_quantity": { "$ref": "#/$defs/Decimal" },
         "entry_price": { "$ref": "#/$defs/PositiveDecimal" },
         "mark_price": { "$ref": "#/$defs/PositiveDecimal" },
-        "protected_quantity": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "protection_status_id": { "$ref": "#/$defs/UUID" },
         "protection_state": {
           "enum": [
             "NO_POSITION",
@@ -505,14 +518,40 @@
           "$ref": "#/$defs/PositiveFraction"
         },
         "maximum_leverage_by_symbol": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["BTC-PERP", "ETH-PERP", "SOL-PERP"],
-          "properties": {
-            "BTC-PERP": { "type": "integer", "minimum": 1, "maximum": 100 },
-            "ETH-PERP": { "type": "integer", "minimum": 1, "maximum": 100 },
-            "SOL-PERP": { "type": "integer", "minimum": 1, "maximum": 100 }
-          }
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/SymbolLeverage" },
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": { "symbol": { "const": "BTC-PERP" } },
+                "required": ["symbol"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": { "symbol": { "const": "ETH-PERP" } },
+                "required": ["symbol"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": { "symbol": { "const": "SOL-PERP" } },
+                "required": ["symbol"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          ]
         },
         "maximum_slippage_fraction": {
           "$ref": "#/$defs/PositiveFraction"
@@ -817,15 +856,17 @@
       "additionalProperties": false,
       "required": [
         "schema_version",
+        "protection_status_id",
         "position_id",
         "state",
         "absolute_live_position_quantity",
-        "protected_quantity",
+        "active_stop_order_ids",
         "data_status",
         "observed_at"
       ],
       "properties": {
         "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "protection_status_id": { "$ref": "#/$defs/UUID" },
         "position_id": { "$ref": "#/$defs/UUID" },
         "state": {
           "enum": [
@@ -845,16 +886,40 @@
         "absolute_live_position_quantity": {
           "$ref": "#/$defs/NonNegativeDecimal"
         },
-        "protected_quantity": { "$ref": "#/$defs/NonNegativeDecimal" },
         "active_stop_order_ids": {
           "type": "array",
           "uniqueItems": true,
           "maxItems": 32,
           "items": { "type": "string", "maxLength": 128 }
         },
+        "coverage_evidence_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "data_status": { "$ref": "#/$defs/DataStatus" },
         "observed_at": { "$ref": "#/$defs/Timestamp" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "state": { "const": "PROTECTED" } },
+            "required": ["state"]
+          },
+          "then": {
+            "properties": {
+              "absolute_live_position_quantity": {
+                "$ref": "#/$defs/PositiveDecimal"
+              },
+              "active_stop_order_ids": {
+                "type": "array",
+                "minItems": 1
+              },
+              "coverage_evidence_hash": true
+            },
+            "required": ["coverage_evidence_hash"]
+          }
+        }
+      ]
     },
     "ReconciliationStatus": {
       "type": "object",

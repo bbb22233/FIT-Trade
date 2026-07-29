@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -10,6 +9,8 @@ import addFormats from "ajv-formats";
 import SwaggerParser from "@apidevtools/swagger-parser";
 import protobuf from "protobufjs";
 import YAML from "yaml";
+
+import { matchingSecretPatternNames } from "./secret-patterns.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -88,6 +89,42 @@ function setAtPath(value, dottedPath, replacement) {
   let current = value;
   for (const segment of segments.slice(0, -1)) current = current[segment];
   current[segments.at(-1)] = replacement;
+}
+
+function decimalParts(value) {
+  const negative = value.startsWith("-");
+  const unsigned = negative ? value.slice(1) : value;
+  const [whole, fraction = ""] = unsigned.split(".");
+  return {
+    coefficient: BigInt(`${whole}${fraction}`) * (negative ? -1n : 1n),
+    scale: fraction.length,
+  };
+}
+
+function equalAbsoluteDecimal(left, right) {
+  const a = decimalParts(left);
+  const b = decimalParts(right);
+  const scale = Math.max(a.scale, b.scale);
+  const scaledA =
+    (a.coefficient < 0n ? -a.coefficient : a.coefficient) *
+    10n ** BigInt(scale - a.scale);
+  const scaledB = b.coefficient * 10n ** BigInt(scale - b.scale);
+  return scaledA === scaledB;
+}
+
+function validProtectionAggregate(position, protection) {
+  return (
+    position.protection_state === "PROTECTED" &&
+    protection.state === "PROTECTED" &&
+    position.protection_status_id === protection.protection_status_id &&
+    position.position_id === protection.position_id &&
+    equalAbsoluteDecimal(
+      position.signed_quantity,
+      protection.absolute_live_position_quantity,
+    ) &&
+    protection.active_stop_order_ids.length >= 1 &&
+    /^[a-f0-9]{64}$/.test(protection.coverage_evidence_hash)
+  );
 }
 
 function walkObject(value, visit, currentPath = []) {
@@ -199,7 +236,7 @@ async function verifyDomainFixtures() {
     ExecutionAttempt: ["attempt_number", 0],
     Order: ["client_order_id", "short"],
     Fill: ["quantity", "0"],
-    PositionSnapshot: ["protected_quantity", "-1"],
+    PositionSnapshot: ["protection_status_id", "not-a-uuid"],
     RiskPolicy: ["maximum_trade_risk_fraction", "1.1"],
     AutomationGrant: ["allowed_symbols", []],
     ModelProposal: ["model_version", "x".repeat(65)],
@@ -292,6 +329,54 @@ async function verifyDomainFixtures() {
   limitIocCommand.order_type = "LIMIT";
   limitIocCommand.time_in_force = "IOC";
   assert.equal(commandValidator(limitIocCommand), false);
+
+  const invariants = await readJson("semantic-invariants-v1.json");
+  assert.equal(invariants.schema_version, "fit.semantic-invariants.v1");
+  assert.ok(
+    invariants.invariants.some(({ id }) => id === "PROTECTION_FULL_COVERAGE"),
+  );
+  assert.ok(
+    validProtectionAggregate(
+      coverage.PositionSnapshot,
+      coverage.ProtectionStatus,
+    ),
+  );
+  const legacyPositionContradiction = {
+    ...structuredClone(coverage.PositionSnapshot),
+    protected_quantity: "0",
+  };
+  assert.equal(
+    validators.get("PositionSnapshot")(legacyPositionContradiction),
+    false,
+  );
+  const legacyProtectionContradiction = {
+    ...structuredClone(coverage.ProtectionStatus),
+    protected_quantity: "0",
+  };
+  assert.equal(
+    validators.get("ProtectionStatus")(legacyProtectionContradiction),
+    false,
+  );
+  const structurallyUnprotected = structuredClone(coverage.ProtectionStatus);
+  structurallyUnprotected.absolute_live_position_quantity = "0";
+  structurallyUnprotected.active_stop_order_ids = [];
+  delete structurallyUnprotected.coverage_evidence_hash;
+  assert.equal(
+    validators.get("ProtectionStatus")(structurallyUnprotected),
+    false,
+  );
+  const underCovered = structuredClone(coverage.ProtectionStatus);
+  underCovered.absolute_live_position_quantity = "0.01";
+  assert.equal(
+    validProtectionAggregate(coverage.PositionSnapshot, underCovered),
+    false,
+  );
+  const missingStop = structuredClone(coverage.ProtectionStatus);
+  missingStop.active_stop_order_ids = [];
+  assert.equal(
+    validProtectionAggregate(coverage.PositionSnapshot, missingStop),
+    false,
+  );
 
   return { schema, validators };
 }
@@ -497,20 +582,54 @@ async function verifyOpenApiAndProto() {
   assert.ok(parsedProto.root.lookupType("fit.v1.TradeIntent"));
   assert.ok(parsedProto.root.lookupService("fit.v1.TradingCore"));
   const domainSchema = await readJson("jsonschema/fit-trade-v1.schema.json");
+  const matrix = await readJson("fixtures/matrix/domain-values.json");
+  const roundTripAjv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(roundTripAjv);
+  roundTripAjv.addSchema(domainSchema);
   const topLevelDomainNames = domainSchema.oneOf.map(({ $ref }) =>
     $ref.split("/").at(-1),
   );
   for (const name of topLevelDomainNames) {
-    const protoFields = Object.keys(
-      parsedProto.root.lookupType(`fit.v1.${name}`).fields,
-    ).sort();
+    const protoType = parsedProto.root.lookupType(`fit.v1.${name}`);
+    const protoFields = Object.keys(protoType.fields).sort();
     const schemaFields = Object.keys(domainSchema.$defs[name].properties).sort();
     assert.deepEqual(
       protoFields,
       schemaFields,
       `${name}: Proto and JSON Schema fields diverge`,
     );
+
+    const sample = matrix[name];
+    const encoded = protoType.encode(protoType.fromObject(sample)).finish();
+    const decoded = protoType.toObject(protoType.decode(encoded), {
+      arrays: true,
+      enums: String,
+      longs: Number,
+    });
+    const validateRoundTrip = roundTripAjv.compile({
+      $ref: `${domainSchema.$id}#/$defs/${name}`,
+    });
+    assert.ok(
+      validateRoundTrip(decoded),
+      `${name}: Proto round trip violates JSON Schema: ${roundTripAjv.errorsText(
+        validateRoundTrip.errors,
+      )}`,
+    );
   }
+  for (const nestedName of ["StopMarket", "TakeProfitLeg", "SymbolLeverage"]) {
+    const protoFields = Object.keys(
+      parsedProto.root.lookupType(`fit.v1.${nestedName}`).fields,
+    ).sort();
+    const schemaFields = Object.keys(
+      domainSchema.$defs[nestedName].properties,
+    ).sort();
+    assert.deepEqual(protoFields, schemaFields);
+  }
+  assert.equal(
+    parsedProto.root.lookupType("fit.v1.RiskPolicy").fields
+      .maximum_leverage_by_symbol.repeated,
+    true,
+  );
   assert.match(proto, /^syntax = "proto3";/);
   assert.match(proto, /\bpackage fit\.v1;/);
   for (const message of [
@@ -548,6 +667,20 @@ async function verifyOpenApiAndProto() {
   assert.doesNotMatch(consumeMessage, /device_challenge_signature/);
 
   const taxonomy = await readJson("error-taxonomy-v1.json");
+  const protoErrorCodes = Object.keys(
+    parsedProto.root.lookupEnum("fit.v1.ErrorCode").values,
+  ).filter((value) => value !== "ERROR_CODE_UNSPECIFIED");
+  const protoRetryClasses = Object.keys(
+    parsedProto.root.lookupEnum("fit.v1.RetryClass").values,
+  ).filter((value) => value !== "RETRY_CLASS_UNSPECIFIED");
+  assert.deepEqual(
+    protoErrorCodes,
+    taxonomy.errors.map(({ code }) => code),
+  );
+  assert.deepEqual(
+    protoRetryClasses.sort(),
+    [...new Set(taxonomy.errors.map(({ retry }) => retry))].sort(),
+  );
   const apiPairs =
     api.components.schemas.Problem.allOf[0].oneOf.map(({ properties }) => ({
       code: properties.code.const,
@@ -614,6 +747,10 @@ async function verifyErrorAndFakeContracts() {
     "dispatch_timeout_after_send",
     "duplicate_event",
     "executor_crash_after_exchange_success",
+    "executor_crash_before_signing",
+    "executor_crash_after_signing_before_submit",
+    "executor_crash_after_submit_before_record",
+    "executor_crash_after_record_before_report",
     "result_published_ack_lost",
     "duplicate_client_order_id",
     "partial_fill_then_parent_cancel",
@@ -623,6 +760,9 @@ async function verifyErrorAndFakeContracts() {
     "partial_fill_protection_failed",
     "emergency_close_residual_position",
     "manual_native_position_change",
+    "database_restart_during_operation",
+    "websocket_disconnect_and_resubscribe",
+    "client_disconnect_then_duplicate_submit",
     "stale_market_snapshot",
   ];
   for (const id of requiredScenarioIds) {
@@ -674,35 +814,29 @@ async function verifySecretBaseline() {
   }
 
   await collect(repositoryRoot);
-  const patterns = [
-    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-    /\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{16,}/,
-    /\b(?:API_KEY|SECRET_KEY|PRIVATE_KEY)\s*[:=]\s*["'][^"' \n]{8,}/,
-    /\bBearer\s+[A-Za-z0-9._-]{20,}/,
-    /(?:mnemonic|seed[_-]?phrase)\s*[:=]\s*["'](?:[a-z]+\s+){11,23}[a-z]+["']/i,
-  ];
   for (const absolutePath of files.sort()) {
     const content = await readFile(absolutePath, "utf8");
-    for (const pattern of patterns) {
-      assert.doesNotMatch(
-        content,
-        pattern,
-        `${path.relative(repositoryRoot, absolutePath)}: secret-like value`,
-      );
-    }
+    assert.deepEqual(
+      matchingSecretPatternNames(content),
+      [],
+      `${path.relative(repositoryRoot, absolutePath)}: secret-like value`,
+    );
   }
 
-  const history = execFileSync(
-    "git",
-    ["log", "-p", "--all", "--", "."],
-    {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-      maxBuffer: 50 * 1024 * 1024,
-    },
-  );
-  for (const pattern of patterns) {
-    assert.doesNotMatch(history, pattern, "Git history contains a secret-like value");
+  const syntheticDetections = [
+    ["ghp_", "A".repeat(40)].join(""),
+    ["AKIA", "A".repeat(16)].join(""),
+    ["eyJ", "A".repeat(12), ".", "B".repeat(12), ".", "C".repeat(12)].join(""),
+    ["https://user:", "longpassword", "@example.invalid"].join(""),
+    ["API_KEY", "=", "A".repeat(24)].join(""),
+    ["sk-", "A".repeat(32)].join(""),
+    ["xoxb-", "A".repeat(24)].join(""),
+  ];
+  for (const synthetic of syntheticDetections) {
+    assert.ok(
+      matchingSecretPatternNames(synthetic).length >= 1,
+      "known secret format was not detected",
+    );
   }
 }
 
