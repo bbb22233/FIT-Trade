@@ -1,0 +1,193 @@
+{
+  "$schema": "./jsonschema/mcp-tools-v1.schema.json",
+  "schema_version": "fit.mcp.v1",
+  "tools": [
+    {
+      "name": "market.get_context",
+      "description": "Read verified market context for an approved perpetual symbol.",
+      "risk_effect": "READ_ONLY",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["symbol", "timeframes"],
+        "properties": {
+          "symbol": { "enum": ["BTC-PERP", "ETH-PERP", "SOL-PERP"] },
+          "timeframes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["1h", "4h"] }
+          }
+        }
+      }
+    },
+    {
+      "name": "account.get_snapshot",
+      "description": "Read account, position, open-order, and risk-limit state for the authenticated scope.",
+      "risk_effect": "READ_ONLY",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "trade.propose_intent",
+      "description": "Propose a structured risk-increasing intent for deterministic server validation.",
+      "risk_effect": "PROPOSE_INCREASE",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "symbol",
+          "side",
+          "position_effect",
+          "order_type",
+          "time_in_force",
+          "quantity",
+          "margin_mode",
+          "leverage",
+          "entry_price_or_bound",
+          "worst_acceptable_price",
+          "stop_trigger"
+        ],
+        "properties": {
+          "symbol": { "enum": ["BTC-PERP", "ETH-PERP", "SOL-PERP"] },
+          "side": { "enum": ["BUY", "SELL"] },
+          "position_effect": { "enum": ["OPEN", "INCREASE"] },
+          "order_type": { "enum": ["MARKET", "LIMIT"] },
+          "time_in_force": { "enum": ["IOC", "GTC", "ALO"] },
+          "quantity": {
+            "type": "string",
+            "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|[1-9][0-9]{0,17}(?:\\.[0-9]{0,17}[1-9])?)$"
+          },
+          "margin_mode": { "enum": ["CROSS", "ISOLATED"] },
+          "leverage": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "entry_price_or_bound": {
+            "type": "string",
+            "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|[1-9][0-9]{0,17}(?:\\.[0-9]{0,17}[1-9])?)$"
+          },
+          "worst_acceptable_price": {
+            "type": "string",
+            "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|[1-9][0-9]{0,17}(?:\\.[0-9]{0,17}[1-9])?)$"
+          },
+          "stop_trigger": {
+            "type": "string",
+            "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|[1-9][0-9]{0,17}(?:\\.[0-9]{0,17}[1-9])?)$"
+          }
+        }
+      }
+    },
+    {
+      "name": "trade.request_confirmation",
+      "description": "Request a server-authored immutable confirmation ticket for an accepted intent.",
+      "risk_effect": "PROPOSE_INCREASE",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["intent_id"],
+        "properties": {
+          "intent_id": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
+    {
+      "name": "operation.get_status",
+      "description": "Read an operation status within the authenticated account scope.",
+      "risk_effect": "READ_ONLY",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operation_id"],
+        "properties": {
+          "operation_id": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
+    {
+      "name": "position.reduce",
+      "description": "Request a reduce-only position reduction through the deterministic Go core.",
+      "risk_effect": "REDUCE_RISK",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["position_id", "quantity"],
+        "properties": {
+          "position_id": { "type": "string", "format": "uuid" },
+          "quantity": {
+            "type": "string",
+            "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|[1-9][0-9]{0,17}(?:\\.[0-9]{0,17}[1-9])?)$"
+          }
+        }
+      }
+    },
+    {
+      "name": "position.close",
+      "description": "Request a full reduce-only close through the deterministic Go core.",
+      "risk_effect": "REDUCE_RISK",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["position_id"],
+        "properties": {
+          "position_id": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
+    {
+      "name": "order.cancel_entry",
+      "description": "Request cancellation of an unfilled or partially filled risk-increasing entry order.",
+      "risk_effect": "REDUCE_RISK",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_id"],
+        "properties": {
+          "order_id": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
+    {
+      "name": "protection.tighten_stop",
+      "description": "Request a risk-reducing Stop Market trigger adjustment without widening risk.",
+      "risk_effect": "REDUCE_RISK",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["position_id", "new_trigger_price"],
+        "properties": {
+          "position_id": { "type": "string", "format": "uuid" },
+          "new_trigger_price": {
+            "type": "string",
+            "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|[1-9][0-9]{0,17}(?:\\.[0-9]{0,17}[1-9])?)$"
+          }
+        }
+      }
+    },
+    {
+      "name": "trade.submit_feedback",
+      "description": "Record user-authored trade feedback for later learning without changing live risk.",
+      "risk_effect": "LEARNING_ONLY",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operation_id", "rating", "comment"],
+        "properties": {
+          "operation_id": { "type": "string", "format": "uuid" },
+          "rating": { "type": "integer", "minimum": -2, "maximum": 2 },
+          "comment": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      }
+    }
+  ]
+}

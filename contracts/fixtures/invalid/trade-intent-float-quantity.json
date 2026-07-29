@@ -1,0 +1,33 @@
+{
+  "schema": "TradeIntent",
+  "reason": "financial decimals cannot be JSON numbers",
+  "value": {
+    "schema_version": "fit.trade.v1",
+    "intent_id": "11111111-1111-4111-8111-111111111111",
+    "user_id": "22222222-2222-4222-8222-222222222222",
+    "account_id": "33333333-3333-4333-8333-333333333333",
+    "network": "HYPERLIQUID_MAINNET",
+    "symbol": "BTC-PERP",
+    "side": "BUY",
+    "position_effect": "OPEN",
+    "order_type": "MARKET",
+    "time_in_force": "IOC",
+    "quantity": 0.025,
+    "notional": "2961.3",
+    "margin_mode": "ISOLATED",
+    "leverage": 5,
+    "entry_price_or_bound": "118452",
+    "worst_acceptable_price": "118689",
+    "stop": {
+      "type": "STOP_MARKET",
+      "trigger_price": "115200",
+      "reduce_only": true
+    },
+    "risk_policy_version": "risk-v1",
+    "market_snapshot_id": "44444444-4444-4444-8444-444444444444",
+    "strategy_version": "strategy-user-directed-v1",
+    "model_version": "model-hermes-v1",
+    "source": "USER_DIRECTED",
+    "created_at": "2026-07-29T04:00:00Z"
+  }
+}

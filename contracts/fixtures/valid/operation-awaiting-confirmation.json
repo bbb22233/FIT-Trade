@@ -1,0 +1,13 @@
+{
+  "schema": "Operation",
+  "value": {
+    "schema_version": "fit.trade.v1",
+    "operation_id": "66666666-6666-4666-8666-666666666666",
+    "intent_id": "11111111-1111-4111-8111-111111111111",
+    "confirmation_id": "55555555-5555-4555-8555-555555555555",
+    "state": "AWAITING_CONFIRMATION",
+    "state_version": 1,
+    "created_at": "2026-07-29T04:00:00Z",
+    "updated_at": "2026-07-29T04:00:01Z"
+  }
+}

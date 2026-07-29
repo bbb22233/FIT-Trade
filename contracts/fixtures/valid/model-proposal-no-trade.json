@@ -1,0 +1,10 @@
+{
+  "schema": "ModelProposal",
+  "value": {
+    "schema_version": "fit.trade.v1",
+    "proposal_id": "77777777-7777-4777-8777-777777777777",
+    "model_version": "model-hermes-v1",
+    "decision": "NO_TRADE",
+    "created_at": "2026-07-29T04:00:00Z"
+  }
+}

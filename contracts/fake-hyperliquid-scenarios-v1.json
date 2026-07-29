@@ -1,0 +1,47 @@
+{
+  "schema_version": "fit.fake-hyperliquid.v1",
+  "network_access": false,
+  "synthetic_only": true,
+  "scenarios": [
+    {
+      "id": "read_snapshot_ok",
+      "effect": "READ_ONLY",
+      "result": "SUCCESS"
+    },
+    {
+      "id": "dispatch_acknowledged",
+      "effect": "ORDER_WRITE_SIMULATION",
+      "result": "ACKNOWLEDGED"
+    },
+    {
+      "id": "dispatch_timeout_before_send",
+      "effect": "ORDER_WRITE_SIMULATION",
+      "result": "NOT_DISPATCHED"
+    },
+    {
+      "id": "dispatch_timeout_after_send",
+      "effect": "ORDER_WRITE_SIMULATION",
+      "result": "UNKNOWN_REQUIRES_RECONCILIATION"
+    },
+    {
+      "id": "duplicate_event",
+      "effect": "EVENT_REDELIVERY_SIMULATION",
+      "result": "EXISTING_RESULT"
+    },
+    {
+      "id": "partial_fill_then_protection_ok",
+      "effect": "FILL_SIMULATION",
+      "result": "PROTECTED"
+    },
+    {
+      "id": "partial_fill_protection_failed",
+      "effect": "FILL_SIMULATION",
+      "result": "EMERGENCY_CLOSING"
+    },
+    {
+      "id": "stale_market_snapshot",
+      "effect": "READ_ONLY",
+      "result": "DATA_STALE"
+    }
+  ]
+}

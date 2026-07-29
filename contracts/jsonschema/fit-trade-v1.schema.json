@@ -1,0 +1,628 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fit-trade.local/contracts/fit-trade-v1.schema.json",
+  "title": "FIT-Trade v1 domain contracts",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/TradeIntent" },
+    { "$ref": "#/$defs/ConfirmationTicket" },
+    { "$ref": "#/$defs/Operation" },
+    { "$ref": "#/$defs/ExecutionAttempt" },
+    { "$ref": "#/$defs/Order" },
+    { "$ref": "#/$defs/Fill" },
+    { "$ref": "#/$defs/PositionSnapshot" },
+    { "$ref": "#/$defs/RiskPolicy" },
+    { "$ref": "#/$defs/AutomationGrant" },
+    { "$ref": "#/$defs/ModelProposal" },
+    { "$ref": "#/$defs/ModelReview" },
+    { "$ref": "#/$defs/AuditEvent" }
+  ],
+  "$defs": {
+    "SchemaVersion": {
+      "const": "fit.trade.v1"
+    },
+    "UUID": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Decimal": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{0,17}[1-9])?$",
+      "maxLength": 38
+    },
+    "NonNegativeDecimal": {
+      "allOf": [
+        { "$ref": "#/$defs/Decimal" },
+        {
+          "type": "string",
+          "pattern": "^(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{0,17}[1-9])?$"
+        }
+      ]
+    },
+    "PositiveDecimal": {
+      "allOf": [
+        { "$ref": "#/$defs/NonNegativeDecimal" },
+        { "not": { "type": "string", "pattern": "^0$" } }
+      ]
+    },
+    "Network": {
+      "enum": ["HYPERLIQUID_MAINNET", "HYPERLIQUID_TESTNET"]
+    },
+    "Symbol": {
+      "enum": ["BTC-PERP", "ETH-PERP", "SOL-PERP"]
+    },
+    "Side": {
+      "enum": ["BUY", "SELL"]
+    },
+    "PositionEffect": {
+      "enum": ["OPEN", "INCREASE", "REDUCE", "CLOSE"]
+    },
+    "OrderType": {
+      "enum": ["MARKET", "LIMIT"]
+    },
+    "TimeInForce": {
+      "enum": ["IOC", "GTC", "ALO"]
+    },
+    "MarginMode": {
+      "enum": ["CROSS", "ISOLATED"]
+    },
+    "DataStatus": {
+      "enum": ["LIVE", "STALE", "RECONCILING"]
+    },
+    "StopMarket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "trigger_price", "reduce_only"],
+      "properties": {
+        "type": { "const": "STOP_MARKET" },
+        "trigger_price": { "$ref": "#/$defs/PositiveDecimal" },
+        "reduce_only": { "const": true }
+      }
+    },
+    "TakeProfitLeg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger_price", "quantity_fraction", "reduce_only"],
+      "properties": {
+        "trigger_price": { "$ref": "#/$defs/PositiveDecimal" },
+        "quantity_fraction": {
+          "allOf": [
+            { "$ref": "#/$defs/PositiveDecimal" },
+            {
+              "type": "string",
+              "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|1)$"
+            }
+          ]
+        },
+        "reduce_only": { "const": true }
+      }
+    },
+    "TradeIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "intent_id",
+        "user_id",
+        "account_id",
+        "network",
+        "symbol",
+        "side",
+        "position_effect",
+        "order_type",
+        "time_in_force",
+        "quantity",
+        "notional",
+        "margin_mode",
+        "leverage",
+        "entry_price_or_bound",
+        "worst_acceptable_price",
+        "risk_policy_version",
+        "market_snapshot_id",
+        "strategy_version",
+        "model_version",
+        "source",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "intent_id": { "$ref": "#/$defs/UUID" },
+        "user_id": { "$ref": "#/$defs/UUID" },
+        "account_id": { "$ref": "#/$defs/UUID" },
+        "network": { "$ref": "#/$defs/Network" },
+        "symbol": { "$ref": "#/$defs/Symbol" },
+        "side": { "$ref": "#/$defs/Side" },
+        "position_effect": { "$ref": "#/$defs/PositionEffect" },
+        "order_type": { "$ref": "#/$defs/OrderType" },
+        "time_in_force": { "$ref": "#/$defs/TimeInForce" },
+        "quantity": { "$ref": "#/$defs/PositiveDecimal" },
+        "notional": { "$ref": "#/$defs/PositiveDecimal" },
+        "margin_mode": { "$ref": "#/$defs/MarginMode" },
+        "leverage": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "entry_price_or_bound": { "$ref": "#/$defs/PositiveDecimal" },
+        "worst_acceptable_price": { "$ref": "#/$defs/PositiveDecimal" },
+        "stop": { "$ref": "#/$defs/StopMarket" },
+        "take_profit_plan": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/TakeProfitLeg" }
+        },
+        "risk_policy_version": {
+          "type": "string",
+          "pattern": "^risk-[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "market_snapshot_id": { "$ref": "#/$defs/UUID" },
+        "strategy_version": {
+          "type": "string",
+          "pattern": "^strategy-[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "model_version": {
+          "type": "string",
+          "pattern": "^model-[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "source": { "enum": ["USER_DIRECTED", "AUTOMATION"] },
+        "created_at": { "$ref": "#/$defs/Timestamp" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "position_effect": { "enum": ["OPEN", "INCREASE"] }
+            },
+            "required": ["position_effect"]
+          },
+          "then": {
+            "properties": { "stop": true },
+            "required": ["stop"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "order_type": { "const": "MARKET" } },
+            "required": ["order_type"]
+          },
+          "then": {
+            "properties": { "time_in_force": { "const": "IOC" } }
+          }
+        }
+      ]
+    },
+    "ConfirmationTicket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "confirmation_id",
+        "intent",
+        "maximum_loss",
+        "maximum_loss_fraction",
+        "post_trade_total_risk",
+        "post_trade_total_risk_fraction",
+        "liquidation_price",
+        "estimated_fees",
+        "slippage_budget",
+        "expires_at",
+        "confirmation_nonce",
+        "confirmation_hash",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "confirmation_id": { "$ref": "#/$defs/UUID" },
+        "intent": { "$ref": "#/$defs/TradeIntent" },
+        "maximum_loss": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "maximum_loss_fraction": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "post_trade_total_risk": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "post_trade_total_risk_fraction": {
+          "$ref": "#/$defs/NonNegativeDecimal"
+        },
+        "liquidation_price": { "$ref": "#/$defs/PositiveDecimal" },
+        "estimated_fees": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "slippage_budget": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "expires_at": { "$ref": "#/$defs/Timestamp" },
+        "confirmation_nonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{32,128}$"
+        },
+        "confirmation_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "created_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "Operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "operation_id",
+        "intent_id",
+        "state",
+        "state_version",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "operation_id": { "$ref": "#/$defs/UUID" },
+        "intent_id": { "$ref": "#/$defs/UUID" },
+        "confirmation_id": { "$ref": "#/$defs/UUID" },
+        "state": {
+          "enum": [
+            "DRAFT",
+            "AWAITING_CONFIRMATION",
+            "EXPIRED",
+            "CONFIRMED",
+            "RISK_REVALIDATING",
+            "REJECTED",
+            "ADMITTED",
+            "DISPATCH_PENDING",
+            "DISPATCHED",
+            "ACKNOWLEDGED",
+            "UNKNOWN_REQUIRES_RECONCILIATION",
+            "MANUAL_RECONCILIATION",
+            "FINAL"
+          ]
+        },
+        "state_version": { "type": "integer", "minimum": 0 },
+        "rejection_code": { "type": "string", "maxLength": 96 },
+        "created_at": { "$ref": "#/$defs/Timestamp" },
+        "updated_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "ExecutionAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "operation_id",
+        "client_order_id",
+        "attempt_number",
+        "state",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "attempt_id": { "$ref": "#/$defs/UUID" },
+        "operation_id": { "$ref": "#/$defs/UUID" },
+        "client_order_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "attempt_number": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "state": {
+          "enum": [
+            "CREATED",
+            "SIGNED",
+            "SUBMITTED",
+            "ACKNOWLEDGED",
+            "UNKNOWN_REQUIRES_RECONCILIATION",
+            "REJECTED"
+          ]
+        },
+        "created_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "Order": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "order_id",
+        "operation_id",
+        "client_order_id",
+        "symbol",
+        "side",
+        "quantity",
+        "filled_quantity",
+        "reduce_only",
+        "state",
+        "updated_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "order_id": { "$ref": "#/$defs/UUID" },
+        "operation_id": { "$ref": "#/$defs/UUID" },
+        "client_order_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "exchange_order_id": { "type": "string", "maxLength": 128 },
+        "symbol": { "$ref": "#/$defs/Symbol" },
+        "side": { "$ref": "#/$defs/Side" },
+        "quantity": { "$ref": "#/$defs/PositiveDecimal" },
+        "filled_quantity": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "limit_price": { "$ref": "#/$defs/PositiveDecimal" },
+        "reduce_only": { "type": "boolean" },
+        "state": {
+          "enum": [
+            "PENDING",
+            "OPEN",
+            "PARTIALLY_FILLED",
+            "FILLED",
+            "CANCELLED",
+            "REJECTED",
+            "UNKNOWN_REQUIRES_RECONCILIATION"
+          ]
+        },
+        "updated_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "Fill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "fill_id",
+        "order_id",
+        "symbol",
+        "side",
+        "quantity",
+        "price",
+        "fee",
+        "occurred_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "fill_id": { "$ref": "#/$defs/UUID" },
+        "order_id": { "$ref": "#/$defs/UUID" },
+        "symbol": { "$ref": "#/$defs/Symbol" },
+        "side": { "$ref": "#/$defs/Side" },
+        "quantity": { "$ref": "#/$defs/PositiveDecimal" },
+        "price": { "$ref": "#/$defs/PositiveDecimal" },
+        "fee": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "occurred_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "PositionSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "position_id",
+        "account_id",
+        "symbol",
+        "signed_quantity",
+        "entry_price",
+        "mark_price",
+        "protected_quantity",
+        "protection_state",
+        "data_status",
+        "snapshot_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "position_id": { "$ref": "#/$defs/UUID" },
+        "account_id": { "$ref": "#/$defs/UUID" },
+        "symbol": { "$ref": "#/$defs/Symbol" },
+        "signed_quantity": { "$ref": "#/$defs/Decimal" },
+        "entry_price": { "$ref": "#/$defs/PositiveDecimal" },
+        "mark_price": { "$ref": "#/$defs/PositiveDecimal" },
+        "protected_quantity": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "protection_state": {
+          "enum": [
+            "NO_POSITION",
+            "ENTRY_PENDING",
+            "PARTIALLY_FILLED",
+            "FILLED",
+            "PROTECTION_PENDING",
+            "PROTECTED",
+            "ADJUSTING_PROTECTION",
+            "PROTECTION_FAILED",
+            "EMERGENCY_CLOSING",
+            "MANUAL_RECONCILIATION",
+            "CLOSED"
+          ]
+        },
+        "data_status": { "$ref": "#/$defs/DataStatus" },
+        "snapshot_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "RiskPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "risk_policy_version",
+        "allowed_symbols",
+        "maximum_trade_risk_fraction",
+        "maximum_total_risk_fraction",
+        "maximum_leverage_by_symbol",
+        "maximum_slippage_fraction",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "risk_policy_version": {
+          "type": "string",
+          "pattern": "^risk-[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "allowed_symbols": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Symbol" }
+        },
+        "maximum_trade_risk_fraction": {
+          "$ref": "#/$defs/PositiveDecimal"
+        },
+        "maximum_total_risk_fraction": {
+          "$ref": "#/$defs/PositiveDecimal"
+        },
+        "maximum_leverage_by_symbol": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "BTC-PERP": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "ETH-PERP": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "SOL-PERP": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        },
+        "maximum_slippage_fraction": {
+          "$ref": "#/$defs/PositiveDecimal"
+        },
+        "created_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "AutomationGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "grant_id",
+        "user_id",
+        "account_id",
+        "state",
+        "allowed_symbols",
+        "risk_policy_version",
+        "strategy_version",
+        "model_version",
+        "review_model_version",
+        "maximum_notional",
+        "expires_at",
+        "authorization_hash"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "grant_id": { "$ref": "#/$defs/UUID" },
+        "user_id": { "$ref": "#/$defs/UUID" },
+        "account_id": { "$ref": "#/$defs/UUID" },
+        "state": { "enum": ["DISABLED", "ENABLED", "SAFETY_PAUSED"] },
+        "allowed_symbols": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Symbol" }
+        },
+        "risk_policy_version": { "type": "string", "maxLength": 64 },
+        "strategy_version": { "type": "string", "maxLength": 64 },
+        "model_version": { "type": "string", "maxLength": 64 },
+        "review_model_version": { "type": "string", "maxLength": 64 },
+        "maximum_notional": { "$ref": "#/$defs/PositiveDecimal" },
+        "expires_at": { "$ref": "#/$defs/Timestamp" },
+        "authorization_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "ModelProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "proposal_id",
+        "model_version",
+        "decision",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "proposal_id": { "$ref": "#/$defs/UUID" },
+        "model_version": { "type": "string", "maxLength": 64 },
+        "decision": { "enum": ["PROPOSE_TRADE", "NO_TRADE"] },
+        "intent": { "$ref": "#/$defs/TradeIntent" },
+        "created_at": { "$ref": "#/$defs/Timestamp" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "decision": { "const": "PROPOSE_TRADE" } },
+            "required": ["decision"]
+          },
+          "then": {
+            "properties": { "intent": true },
+            "required": ["intent"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "decision": { "const": "NO_TRADE" } },
+            "required": ["decision"]
+          },
+          "then": {
+            "not": {
+              "properties": { "intent": true },
+              "required": ["intent"]
+            }
+          }
+        }
+      ]
+    },
+    "ModelReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "review_id",
+        "proposal_id",
+        "review_model_version",
+        "decision",
+        "reason_codes",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "review_id": { "$ref": "#/$defs/UUID" },
+        "proposal_id": { "$ref": "#/$defs/UUID" },
+        "review_model_version": { "type": "string", "maxLength": 64 },
+        "decision": { "enum": ["APPROVE", "REJECT", "NO_TRADE"] },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+          }
+        },
+        "created_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "AuditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "event_id",
+        "event_type",
+        "actor_type",
+        "subject_type",
+        "subject_id",
+        "occurred_at",
+        "payload_hash"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "event_id": { "$ref": "#/$defs/UUID" },
+        "event_type": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,95}$"
+        },
+        "actor_type": { "enum": ["USER", "DEVICE", "HERMES", "SYSTEM"] },
+        "subject_type": {
+          "enum": [
+            "INTENT",
+            "CONFIRMATION",
+            "OPERATION",
+            "ORDER",
+            "POSITION",
+            "AUTOMATION_GRANT"
+          ]
+        },
+        "subject_id": { "$ref": "#/$defs/UUID" },
+        "occurred_at": { "$ref": "#/$defs/Timestamp" },
+        "payload_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

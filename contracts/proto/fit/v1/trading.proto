@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package fit.v1;
+
+option go_package = "github.com/bbb22233/FIT-Trade/services/trading-core/gen/fit/v1;fitv1";
+
+// Financial values are canonical decimal strings. Implementations must not
+// convert them through binary floating point.
+message StopMarket {
+  string trigger_price = 1;
+  bool reduce_only = 2;
+}
+
+message TakeProfitLeg {
+  string trigger_price = 1;
+  string quantity_fraction = 2;
+  bool reduce_only = 3;
+}
+
+message TradeIntent {
+  string schema_version = 1;
+  string intent_id = 2;
+  string user_id = 3;
+  string account_id = 4;
+  string network = 5;
+  string symbol = 6;
+  string side = 7;
+  string position_effect = 8;
+  string order_type = 9;
+  string time_in_force = 10;
+  string quantity = 11;
+  string notional = 12;
+  string margin_mode = 13;
+  uint32 leverage = 14;
+  string entry_price_or_bound = 15;
+  string worst_acceptable_price = 16;
+  StopMarket stop = 17;
+  repeated TakeProfitLeg take_profit_plan = 18;
+  string risk_policy_version = 19;
+  string market_snapshot_id = 20;
+  string strategy_version = 21;
+  string model_version = 22;
+  string source = 23;
+  string created_at = 24;
+}
+
+message ConfirmationTicket {
+  string schema_version = 1;
+  string confirmation_id = 2;
+  TradeIntent intent = 3;
+  string maximum_loss = 4;
+  string maximum_loss_fraction = 5;
+  string post_trade_total_risk = 6;
+  string post_trade_total_risk_fraction = 7;
+  string liquidation_price = 8;
+  string estimated_fees = 9;
+  string slippage_budget = 10;
+  string expires_at = 11;
+  string confirmation_nonce = 12;
+  string confirmation_hash = 13;
+  string created_at = 14;
+}
+
+message Operation {
+  string schema_version = 1;
+  string operation_id = 2;
+  string intent_id = 3;
+  string confirmation_id = 4;
+  string state = 5;
+  uint64 state_version = 6;
+  string rejection_code = 7;
+  string created_at = 8;
+  string updated_at = 9;
+}
+
+message PositionSnapshot {
+  string schema_version = 1;
+  string position_id = 2;
+  string account_id = 3;
+  string symbol = 4;
+  string signed_quantity = 5;
+  string entry_price = 6;
+  string mark_price = 7;
+  string protected_quantity = 8;
+  string protection_state = 9;
+  string data_status = 10;
+  string snapshot_at = 11;
+}
+
+message SubmitIntentRequest {
+  TradeIntent intent = 1;
+}
+
+message SubmitIntentResponse {
+  string intent_id = 1;
+  string status = 2;
+}
+
+message RequestConfirmationRequest {
+  string intent_id = 1;
+}
+
+message RequestConfirmationResponse {
+  ConfirmationTicket ticket = 1;
+}
+
+message ConsumeConfirmationRequest {
+  string confirmation_id = 1;
+  string confirmation_hash = 2;
+  string device_session_id = 3;
+  string idempotency_key = 4;
+}
+
+message ConsumeConfirmationResponse {
+  Operation operation = 1;
+}
+
+message GetOperationRequest {
+  string operation_id = 1;
+}
+
+message GetOperationResponse {
+  Operation operation = 1;
+}
+
+service TradingCore {
+  rpc SubmitIntent(SubmitIntentRequest) returns (SubmitIntentResponse);
+  rpc RequestConfirmation(RequestConfirmationRequest)
+      returns (RequestConfirmationResponse);
+  rpc ConsumeConfirmation(ConsumeConfirmationRequest)
+      returns (ConsumeConfirmationResponse);
+  rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
+}

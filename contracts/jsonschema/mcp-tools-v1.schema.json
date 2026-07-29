@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fit-trade.local/contracts/mcp-tools-v1.schema.json",
+  "title": "FIT-Trade approved MCP tool inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "tools"],
+  "properties": {
+    "$schema": { "const": "./jsonschema/mcp-tools-v1.schema.json" },
+    "schema_version": { "const": "fit.mcp.v1" },
+    "tools": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/Tool" }
+    }
+  },
+  "$defs": {
+    "Tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "risk_effect",
+        "server_injected_scope",
+        "input_schema"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "market.get_context",
+            "account.get_snapshot",
+            "trade.propose_intent",
+            "trade.request_confirmation",
+            "operation.get_status",
+            "position.reduce",
+            "position.close",
+            "order.cancel_entry",
+            "protection.tighten_stop",
+            "trade.submit_feedback"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 240
+        },
+        "risk_effect": {
+          "enum": ["READ_ONLY", "PROPOSE_INCREASE", "REDUCE_RISK", "LEARNING_ONLY"]
+        },
+        "server_injected_scope": {
+          "type": "array",
+          "const": ["user_id", "account_id", "session_id"]
+        },
+        "input_schema": {
+          "type": "object",
+          "required": ["type", "additionalProperties", "properties"],
+          "properties": {
+            "type": { "const": "object" },
+            "additionalProperties": { "const": false },
+            "required": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string" }
+            },
+            "properties": { "type": "object" }
+          },
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

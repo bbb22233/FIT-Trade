@@ -1,0 +1,255 @@
+openapi: 3.1.0
+info:
+  title: FIT-Trade Client API
+  version: 0.1.0
+  description: >-
+    Phase 0 contract only. This document does not provide an exchange, wallet,
+    signer, deployment, or production execution path.
+servers:
+  - url: https://api.invalid.example
+    description: Non-routable documentation placeholder
+security:
+  - bearerSession: []
+paths:
+  /v1/trade-intents:
+    post:
+      operationId: proposeTradeIntent
+      summary: Validate and record a structured trade intent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/TradeIntent
+      responses:
+        "202":
+          description: Intent accepted for deterministic validation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [intent_id, status]
+                properties:
+                  intent_id:
+                    type: string
+                    format: uuid
+                  status:
+                    const: ACCEPTED
+        "400":
+          $ref: "#/components/responses/Problem"
+  /v1/trade-intents/{intent_id}/confirmation:
+    post:
+      operationId: requestTradeConfirmation
+      summary: Create a short-lived server-authored confirmation ticket
+      parameters:
+        - $ref: "#/components/parameters/IntentId"
+      responses:
+        "201":
+          description: Immutable confirmation ticket
+          content:
+            application/json:
+              schema:
+                $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/ConfirmationTicket
+        "400":
+          $ref: "#/components/responses/Problem"
+  /v1/confirmations/{confirmation_id}/consume:
+    post:
+      operationId: consumeTradeConfirmation
+      summary: Atomically consume a device-confirmed ticket
+      parameters:
+        - name: confirmation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation_hash, device_challenge_signature]
+              properties:
+                confirmation_hash:
+                  type: string
+                  pattern: "^[a-f0-9]{64}$"
+                device_challenge_signature:
+                  type: string
+                  minLength: 32
+                  maxLength: 4096
+      responses:
+        "202":
+          description: Operation created or existing idempotent result returned
+          content:
+            application/json:
+              schema:
+                $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/Operation
+        "400":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+  /v1/operations/{operation_id}:
+    get:
+      operationId: getOperation
+      summary: Read operation state in the authenticated account scope
+      parameters:
+        - $ref: "#/components/parameters/OperationId"
+      responses:
+        "200":
+          description: Current operation state
+          content:
+            application/json:
+              schema:
+                $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/Operation
+        "404":
+          $ref: "#/components/responses/Problem"
+  /v1/positions/{position_id}/reduce:
+    post:
+      operationId: reducePosition
+      summary: Request a reduce-only position reduction
+      parameters:
+        - $ref: "#/components/parameters/PositionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [quantity]
+              properties:
+                quantity:
+                  $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/PositiveDecimal
+      responses:
+        "202":
+          description: Risk-reducing operation accepted
+          content:
+            application/json:
+              schema:
+                $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/Operation
+        "400":
+          $ref: "#/components/responses/Problem"
+  /v1/positions/{position_id}/close:
+    post:
+      operationId: closePosition
+      summary: Request a complete reduce-only close
+      parameters:
+        - $ref: "#/components/parameters/PositionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Risk-reducing operation accepted
+          content:
+            application/json:
+              schema:
+                $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/Operation
+        "400":
+          $ref: "#/components/responses/Problem"
+  /v1/positions/{position_id}/protection/tighten:
+    post:
+      operationId: tightenPositionStop
+      summary: Tighten a Stop Market without increasing risk
+      parameters:
+        - $ref: "#/components/parameters/PositionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [new_trigger_price]
+              properties:
+                new_trigger_price:
+                  $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/PositiveDecimal
+      responses:
+        "202":
+          description: Risk-reducing operation accepted
+          content:
+            application/json:
+              schema:
+                $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/Operation
+        "400":
+          $ref: "#/components/responses/Problem"
+components:
+  securitySchemes:
+    bearerSession:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session
+  parameters:
+    IntentId:
+      name: intent_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    OperationId:
+      name: operation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PositionId:
+      name: position_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [code, message, correlation_id, retry]
+      properties:
+        code:
+          type: string
+          pattern: "^[A-Z][A-Z0-9_]{2,95}$"
+        message:
+          type: string
+          maxLength: 500
+        correlation_id:
+          type: string
+          format: uuid
+        retry:
+          enum:
+            - NEVER
+            - AFTER_REAUTHENTICATION
+            - AFTER_NEW_CONFIRMATION
+            - AFTER_NEW_INTENT
+            - AFTER_FRESH_SNAPSHOT
+            - RETURN_EXISTING_RESULT
+            - BOUNDED_BACKOFF_BEFORE_DISPATCH
+            - RECONCILE_ONLY
+            - OPERATOR_ONLY
+  responses:
+    Problem:
+      description: Stable fail-closed error
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+x-websocket:
+  endpoint: /v1/events
+  authentication: bearerSession
+  client_messages: []
+  server_messages:
+    - $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/AuditEvent
+    - $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/Operation
+    - $ref: ../jsonschema/fit-trade-v1.schema.json#/$defs/PositionSnapshot

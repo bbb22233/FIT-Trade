@@ -1,0 +1,36 @@
+{
+  "name": "PositionProtection",
+  "initial": "NO_POSITION",
+  "terminal": [],
+  "states": [
+    "NO_POSITION",
+    "ENTRY_PENDING",
+    "PARTIALLY_FILLED",
+    "FILLED",
+    "PROTECTION_PENDING",
+    "PROTECTED",
+    "ADJUSTING_PROTECTION",
+    "PROTECTION_FAILED",
+    "EMERGENCY_CLOSING",
+    "MANUAL_RECONCILIATION",
+    "CLOSED"
+  ],
+  "transitions": [
+    ["NO_POSITION", "ENTRY_PENDING"],
+    ["ENTRY_PENDING", "PARTIALLY_FILLED"],
+    ["ENTRY_PENDING", "FILLED"],
+    ["PARTIALLY_FILLED", "PROTECTION_PENDING"],
+    ["FILLED", "PROTECTION_PENDING"],
+    ["PROTECTION_PENDING", "PROTECTED"],
+    ["PROTECTION_PENDING", "PROTECTION_FAILED"],
+    ["PROTECTED", "ADJUSTING_PROTECTION"],
+    ["ADJUSTING_PROTECTION", "PROTECTED"],
+    ["ADJUSTING_PROTECTION", "PROTECTION_FAILED"],
+    ["PROTECTION_FAILED", "EMERGENCY_CLOSING"],
+    ["EMERGENCY_CLOSING", "CLOSED"],
+    ["EMERGENCY_CLOSING", "MANUAL_RECONCILIATION"],
+    ["PROTECTED", "CLOSED"],
+    ["CLOSED", "NO_POSITION"]
+  ],
+  "invariant": "protected_quantity >= absolute_live_position_quantity"
+}

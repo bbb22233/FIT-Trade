@@ -1,0 +1,17 @@
+{
+  "name": "AutomationGrant",
+  "initial": "DISABLED",
+  "terminal": [],
+  "states": ["DISABLED", "ENABLED", "SAFETY_PAUSED"],
+  "transitions": [
+    ["DISABLED", "ENABLED"],
+    ["ENABLED", "DISABLED"],
+    ["ENABLED", "SAFETY_PAUSED"],
+    ["SAFETY_PAUSED", "DISABLED"],
+    ["SAFETY_PAUSED", "ENABLED"]
+  ],
+  "guards": {
+    "DISABLED->ENABLED": "device_authentication_and_user_approval",
+    "SAFETY_PAUSED->ENABLED": "recovery_report_and_device_authentication"
+  }
+}
