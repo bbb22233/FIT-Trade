@@ -23,6 +23,7 @@
       "commit_or_tag": "2fdb18f9517675ea03695a0962bd19eece9c83f0",
       "license": "MIT",
       "license_url": "https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/0.24.0/LICENSE.md",
+      "classification": "ADOPT",
       "use_mode": "current_phase_read_only_and_simulation_runtime",
       "allowed_components": [
         "Info read APIs",
@@ -58,6 +59,7 @@
       "commit_or_tag": "868cae27bd1acafa0128d8d868ea740a59ae42ce",
       "license": "Apache-2.0",
       "license_url": "https://github.com/tradingview/lightweight-charts/blob/v5.2.0/LICENSE",
+      "classification": "ADOPT",
       "use_mode": "web_chart_runtime",
       "allowed_components": [
         "candlestick and volume rendering",
@@ -90,6 +92,7 @@
       "commit_or_tag": "3ef6bbd201263d354fd83ec55b3c306ded2eb72a",
       "license": "MIT",
       "license_url": "https://github.com/NousResearch/hermes-agent/blob/v2026.7.20/LICENSE",
+      "classification": "ADOPT",
       "use_mode": "os_isolated_agent_runtime",
       "allowed_components": [
         "model routing",
@@ -129,6 +132,7 @@
       "commit_or_tag": "a2fca037434a0a7096b095d4ed87cdffb03b626e",
       "license": "MIT",
       "license_url": "https://github.com/jackc/pgx/blob/v5.7.6/LICENSE",
+      "classification": "ADOPT",
       "use_mode": "go_postgresql_runtime",
       "allowed_components": [
         "pgxpool",
@@ -151,13 +155,15 @@
       ],
       "upgrade_policy": "Keep major version v5. Raise the Go baseline in a separate change before considering v5.8 or newer; then run migration, concurrency, disconnect and recovery tests.",
       "latest_observed": {
-        "ref": "v5.9.2",
+        "ref": "v5.10.0",
         "go_requirement": "1.25.0",
         "disposition": "not_admitted_on_go_1_23"
       },
       "evidence_urls": [
         "https://github.com/jackc/pgx/tree/v5.7.6",
-        "https://github.com/jackc/pgx/blob/v5.7.6/go.mod"
+        "https://github.com/jackc/pgx/blob/v5.7.6/go.mod",
+        "https://github.com/jackc/pgx/tree/v5.10.0",
+        "https://github.com/jackc/pgx/blob/v5.10.0/go.mod"
       ]
     },
     {
@@ -167,6 +173,7 @@
       "commit_or_tag": "a95e91d70ad9e1181253c333a1cfdd75ae4b95a5",
       "license": "MIT",
       "license_url": "https://github.com/sqlc-dev/sqlc/blob/v1.31.1/LICENSE",
+      "classification": "ADOPT",
       "use_mode": "build_time_generator_only",
       "allowed_components": [
         "sqlc generate against reviewed SQL",
@@ -198,6 +205,7 @@
       "commit_or_tag": "a0e7b702c6b8ef9f86d09008d8cfcb4623fdd608",
       "license": "Apache-2.0",
       "license_url": "https://github.com/nats-io/nats.go/blob/v1.48.0/LICENSE",
+      "classification": "ADOPT",
       "use_mode": "go_internal_messaging_runtime",
       "allowed_components": [
         "internal request-reply",
@@ -237,6 +245,7 @@
       "commit_or_tag": "8b258c7bb28f97a5f2a856ff7ef962578fec9215",
       "license": "MIT",
       "license_url": "https://github.com/go-chi/chi/blob/v5.3.1/LICENSE",
+      "classification": "ADOPT",
       "use_mode": "go_http_router_runtime",
       "allowed_components": [
         "routing",
@@ -268,6 +277,7 @@
       "commit_or_tag": "84e3f3ac8b25204f3a0f77a805437a5e08573b35",
       "license": "Apache-2.0",
       "license_url": "https://github.com/open-telemetry/opentelemetry-go/blob/v1.38.0/LICENSE",
+      "classification": "ADOPT",
       "use_mode": "go_telemetry_runtime",
       "allowed_components": [
         "trace and metric API",
@@ -306,6 +316,7 @@
       "commit_or_tag": "41bd60184bf156af3dbb7f5b7fbb58da3603ada4",
       "license": "MIT",
       "license_url": "https://github.com/testcontainers/testcontainers-go/blob/v0.38.0/LICENSE",
+      "classification": "ADOPT",
       "use_mode": "development_and_integration_test_only",
       "allowed_components": [
         "PostgreSQL test containers",
@@ -343,6 +354,7 @@
       "commit_or_tag": "7cd71369c00978a3783b6ae3e9972358abbe4ae6",
       "license": "Apache-2.0 OR MIT",
       "license_url": "https://github.com/tauri-apps/tauri/blob/tauri-v2.11.5/Cargo.toml#L39-L44",
+      "classification": "ADOPT",
       "use_mode": "desktop_shell_runtime",
       "allowed_components": [
         "desktop windows",
@@ -378,6 +390,7 @@
       "commit_or_tag": "816b8ab539360557cee7d9248c2f24473b10b16f",
       "license": "Apache-2.0",
       "license_url": "https://github.com/hummingbot/hummingbot/blob/v2.15.0/LICENSE",
+      "classification": "REFERENCE_ONLY",
       "use_mode": "reference_only",
       "allowed_components": [
         "connector responsibility ideas",
@@ -410,6 +423,7 @@
       "commit_or_tag": "48410ae2a126d6bc09845432705b2ef41010da34",
       "license": "MIT",
       "license_url": "https://github.com/ccxt/ccxt/blob/v4.5.70/LICENSE.txt",
+      "classification": "REFERENCE_ONLY",
       "use_mode": "reference_only",
       "allowed_components": [
         "exchange error-taxonomy ideas",
@@ -440,6 +454,7 @@
       "commit_or_tag": "b604e2fd70539f7f73d3c62c16ce0b155bbab319",
       "license": "GPL-3.0",
       "license_url": "https://github.com/freqtrade/freqtrade/blob/2026.6/LICENSE",
+      "classification": "PROHIBITED",
       "use_mode": "prohibited",
       "allowed_components": [],
       "forbidden_components": [

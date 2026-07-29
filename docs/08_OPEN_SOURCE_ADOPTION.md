@@ -27,23 +27,32 @@
    权限。Hermes 文本永远不能直接签名、下单或授权订单。
 6. 开发 mock 必须显著标为模拟数据。测试通过不授权实盘、部署或生产。
 
+`classification` 是唯一、规范的采用分类，只有三种取值：
+
+- `ADOPT`：允许在固定版本和本文边界内引入；不等于安装、合并、部署或生产授权。
+- `REFERENCE_ONLY`：只允许参考概念与核验证据，不能成为运行时依赖，也不能复制或导入代码。
+- `PROHIBITED`：禁止依赖、复制、vendor 或改写后引入。
+
+`review_status` 只表达当前阶段、工具链、署名、隔离等附加条件，不能替代或改变
+上述三态分类。
+
 ## 3. 固定版本总表
 
-| 候选 | 固定 ref | 解析 commit | 许可证 | 使用方式 | 准入状态 |
-|---|---|---|---|---|---|
-| hyperliquid-python-sdk | `0.24.0` | `2fdb18f9517675ea03695a0962bd19eece9c83f0` | MIT | 当前阶段只读/模拟 SDK | `APPROVED_CURRENT_PHASE_READ_ONLY` |
-| Lightweight Charts | `v5.2.0` | `868cae27bd1acafa0128d8d868ea740a59ae42ce` | Apache-2.0 | Web 图表运行时 | `APPROVED_WITH_ATTRIBUTION` |
-| NousResearch/hermes-agent | `v2026.7.20` | `3ef6bbd201263d354fd83ec55b3c306ded2eb72a` | MIT | OS 隔离的 Agent 运行时 | `APPROVED_ISOLATED_RUNTIME` |
-| pgx v5 | `v5.7.6` | `a2fca037434a0a7096b095d4ed87cdffb03b626e` | MIT | Go PostgreSQL 驱动/连接池 | `APPROVED_GO_1_23` |
-| sqlc | `v1.31.1` | `a95e91d70ad9e1181253c333a1cfdd75ae4b95a5` | MIT | 仅构建时生成器 | `APPROVED_BUILD_ONLY` |
-| nats.go | `v1.48.0` | `a0e7b702c6b8ef9f86d09008d8cfcb4623fdd608` | Apache-2.0 | Go 内部消息客户端 | `APPROVED_GO_1_23` |
-| chi | `v5.3.1` | `8b258c7bb28f97a5f2a856ff7ef962578fec9215` | MIT | Go HTTP 路由 | `APPROVED_GO_1_23` |
-| opentelemetry-go | `v1.38.0` | `84e3f3ac8b25204f3a0f77a805437a5e08573b35` | Apache-2.0 | Go 遥测 API/SDK | `APPROVED_GO_1_23` |
-| testcontainers-go | `v0.38.0` | `41bd60184bf156af3dbb7f5b7fbb58da3603ada4` | MIT | 仅开发/集成测试 | `APPROVED_TEST_ONLY_GO_1_23` |
-| Tauri | `tauri-v2.11.5` | `7cd71369c00978a3783b6ae3e9972358abbe4ae6` | Apache-2.0 OR MIT | 桌面壳 | `APPROVED_DESKTOP_WITH_CAPABILITY_REVIEW` |
-| Hummingbot | `v2.15.0` | `816b8ab539360557cee7d9248c2f24473b10b16f` | Apache-2.0 | 仅参考 | `REFERENCE_ONLY` |
-| CCXT | `v4.5.70` | `48410ae2a126d6bc09845432705b2ef41010da34` | MIT | 仅参考 | `REFERENCE_ONLY` |
-| Freqtrade | `2026.6` | `b604e2fd70539f7f73d3c62c16ce0b155bbab319` | GPL-3.0 | 禁止复制或引入 | `PROHIBITED` |
+| 候选 | 固定 ref | 解析 commit | 许可证 | 分类 | 使用方式 | 准入状态 |
+|---|---|---|---|---|---|---|
+| hyperliquid-python-sdk | `0.24.0` | `2fdb18f9517675ea03695a0962bd19eece9c83f0` | MIT | `ADOPT` | 当前阶段只读/模拟 SDK | `APPROVED_CURRENT_PHASE_READ_ONLY` |
+| Lightweight Charts | `v5.2.0` | `868cae27bd1acafa0128d8d868ea740a59ae42ce` | Apache-2.0 | `ADOPT` | Web 图表运行时 | `APPROVED_WITH_ATTRIBUTION` |
+| NousResearch/hermes-agent | `v2026.7.20` | `3ef6bbd201263d354fd83ec55b3c306ded2eb72a` | MIT | `ADOPT` | OS 隔离的 Agent 运行时 | `APPROVED_ISOLATED_RUNTIME` |
+| pgx v5 | `v5.7.6` | `a2fca037434a0a7096b095d4ed87cdffb03b626e` | MIT | `ADOPT` | Go PostgreSQL 驱动/连接池 | `APPROVED_GO_1_23` |
+| sqlc | `v1.31.1` | `a95e91d70ad9e1181253c333a1cfdd75ae4b95a5` | MIT | `ADOPT` | 仅构建时生成器 | `APPROVED_BUILD_ONLY` |
+| nats.go | `v1.48.0` | `a0e7b702c6b8ef9f86d09008d8cfcb4623fdd608` | Apache-2.0 | `ADOPT` | Go 内部消息客户端 | `APPROVED_GO_1_23` |
+| chi | `v5.3.1` | `8b258c7bb28f97a5f2a856ff7ef962578fec9215` | MIT | `ADOPT` | Go HTTP 路由 | `APPROVED_GO_1_23` |
+| opentelemetry-go | `v1.38.0` | `84e3f3ac8b25204f3a0f77a805437a5e08573b35` | Apache-2.0 | `ADOPT` | Go 遥测 API/SDK | `APPROVED_GO_1_23` |
+| testcontainers-go | `v0.38.0` | `41bd60184bf156af3dbb7f5b7fbb58da3603ada4` | MIT | `ADOPT` | 仅开发/集成测试 | `APPROVED_TEST_ONLY_GO_1_23` |
+| Tauri | `tauri-v2.11.5` | `7cd71369c00978a3783b6ae3e9972358abbe4ae6` | Apache-2.0 OR MIT | `ADOPT` | 桌面壳 | `APPROVED_DESKTOP_WITH_CAPABILITY_REVIEW` |
+| Hummingbot | `v2.15.0` | `816b8ab539360557cee7d9248c2f24473b10b16f` | Apache-2.0 | `REFERENCE_ONLY` | 仅参考 | `REFERENCE_ONLY` |
+| CCXT | `v4.5.70` | `48410ae2a126d6bc09845432705b2ef41010da34` | MIT | `REFERENCE_ONLY` | 仅参考 | `REFERENCE_ONLY` |
+| Freqtrade | `2026.6` | `b604e2fd70539f7f73d3c62c16ce0b155bbab319` | GPL-3.0 | `PROHIBITED` | 禁止复制或引入 | `PROHIBITED` |
 
 ### Go 1.23 兼容性选择
 
@@ -51,7 +60,7 @@
 
 | 依赖 | 本文固定版本 | 固定版本的 `go` 指令 | 核验时上游最新版 | 上游最新版门槛 |
 |---|---:|---:|---:|---:|
-| pgx v5 | `v5.7.6` | `1.23.0` | `v5.9.2` | `1.25.0` |
+| pgx v5 | `v5.7.6` | `1.23.0` | `v5.10.0` | `1.25.0` |
 | nats.go | `v1.48.0` | `1.23.0` | `v1.52.0` | `1.25.0` |
 | opentelemetry-go | `v1.38.0` | `1.23.0` | `v1.44.0` | `1.25.0` |
 | testcontainers-go | `v0.38.0` | `1.23.0` | `v0.43.0` | `1.25.0` |
