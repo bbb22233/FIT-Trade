@@ -15,6 +15,8 @@
 | [决策记录](05_DECISION_REGISTER.md) | 用户已确认的选择、解释和待配置参数 |
 | [前端 UX 设计规范](06_FRONTEND_UX_SPEC.md) | 信息架构、关键流程、安全交互、组件和原型验收标准 |
 | [多代理开发工作流](07_MULTI_AGENT_WORKFLOW.md) | Codex、Hermes 与服务器 Codex 的职责、并行边界、任务包和验收流程 |
+| [项目代码地图](CODE_MAP.md) | 当前代码目录、权威边界、固定提交和下一批落点 |
+| [当前项目进度](CURRENT_STATUS.md) | 本轮验收、测试证据、完整产品估算和下一轮建议 |
 
 ## 3. 当前基线
 
@@ -22,7 +24,7 @@
 | --- | --- |
 | 需求基线 | `APPROVED_FOR_DESIGN` |
 | UX 设计基线 | `APPROVED_FOR_UX_DESIGN` |
-| 实现状态 | `NOT_STARTED` |
+| 实现状态 | `IN_DEVELOPMENT_FEATURE_BRANCHES_NOT_MERGED` |
 | 部署状态 | `NOT_DEPLOYED` |
 | 生产状态 | `PRODUCTION_DISABLED` |
 | 自动交易 | `NOT_AUTHORIZED` |

@@ -1,0 +1,57 @@
+# 项目代码地图
+
+更新日期：2026-07-29
+
+## 1. 当前仓库结构
+
+```text
+FIT-Trade/
+├── contracts/                    跨语言契约、安全规则和可执行验证
+│   ├── jsonschema/               交易领域与 MCP JSON Schema
+│   ├── openapi/                  客户端 HTTP 契约
+│   ├── proto/                    Go/Python 内部服务契约
+│   ├── platform/
+│   │   ├── schemas/              身份、会话、事件、Inbox/Outbox 等平台 Schema
+│   │   └── manifests/            事务、NATS、安全、恢复和故障注入规则
+│   ├── fixtures/                 正向、负向、黄金向量和安全场景
+│   └── scripts/                  契约、秘密和语义验证器
+├── prototype/web-desktop/        React/Vite 网页与桌面主界面原型
+├── docs/                         产品、架构、验收、计划和状态文档
+└── coordination/                 多代理任务包、范围和验收证据
+```
+
+以下计划目录尚未实现，不能把文档或原型误认为运行时：
+
+```text
+services/trading-core/            尚未开始
+services/hyperliquid-adapter/     尚未开始
+services/hermes-agent/            尚未开始
+apps/ios/                         尚未开始
+infra/                            尚未开始
+```
+
+## 2. 当前代码事实
+
+| 区域 | 当前事实 | 权威边界 |
+| --- | --- | --- |
+| Phase 0 交易契约 | 已在 `main@60850b6` 建立 Go/Python/TypeScript 共用的领域契约、状态机、MCP 工具清单和安全验证 | 业务实现不能自行重定义交易语义 |
+| Phase 1 平台契约 | `codex/p1-platform-contracts@9b4b113` 已通过独立固定提交审查并推送，尚未合并 | 定义 PostgreSQL 事务、身份、会话、事件、Inbox/Outbox、NATS、恢复和故障语义；没有 Go 平台运行时 |
+| 网页/桌面原型 | `codex/frontend-command-center-shell@b18aa1f` 已通过独立固定提交审查并推送，尚未合并 | 仅本地模拟；没有钱包、签名器、交易所、模型 API 或生产后端 |
+| 开源准入 | `codex/oss-dependency-intake@d3a219a` 固定 13 个候选的版本、许可证和使用边界，已通过独立固定提交审查并推送，尚未合并 | 准入不等于已经安装，也不授权交易所写入或生产 |
+| 产品与架构文档 | `docs/00`—`07` 是当前产品和技术基线 | 文档不能替代实现、测试、合并、部署或实盘授权 |
+
+## 3. 关键依赖关系
+
+| 上游事实 | 下游使用方 | 规则 |
+| --- | --- | --- |
+| `contracts/jsonschema`、`openapi`、`proto` | Go、Python、React、iOS | 下游只生成或消费类型，不能复制后独立修改 |
+| `contracts/platform/manifests/transaction-boundaries-v1.json` | Go PostgreSQL 事务实现 | 先完成身份/owner scope 验证，再做 scoped idempotency、Inbox 去重和业务效果 |
+| `contracts/platform/schemas/platform-v1.schema.json` | API、NATS publisher/consumer、恢复工具 | 事件身份、聚合版本、Inbox/Outbox 和响应缓存必须保持一致 |
+| `coordination/evidence/OSS-001/dependency-intake.json` | 依赖安装与升级任务 | 只能使用固定 ref/commit；`REFERENCE_ONLY` 和 `PROHIBITED` 不能进入运行时 |
+| `prototype/web-desktop` | 后续真实客户端 | 当前 UI 状态只能替换为服务端权威状态，不能把模拟器升级成交易权威 |
+
+## 4. 下一批落点
+
+下一轮优先建立 `services/trading-core/` 的 Go 平台骨架和 PostgreSQL
+迁移，把已审查的平台契约变成最小可运行实现。Hyperliquid 仍保持只读；
+Hermes、签名器、交易所写 API、部署和实盘不在下一轮授权内。
