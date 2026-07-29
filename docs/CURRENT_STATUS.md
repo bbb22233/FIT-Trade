@@ -76,7 +76,7 @@
 
 第 2 轮建议只做 Phase 1 Go 平台最小纵切：
 
-1. 建立 `services/trading-core/` Go module、配置和健康检查；
+1. 扩展现有 `services/trading-core/` Go module，建立平台 runtime 配置和健康检查；
 2. 按平台 Schema 建立用户、ownership、device、session、Inbox、Outbox 迁移；
 3. 实现一个不触及交易的事务闭环：鉴权 scope → scoped idempotency →
    audit/outbox → exact response replay；

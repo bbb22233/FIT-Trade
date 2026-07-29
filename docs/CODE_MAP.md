@@ -10,9 +10,6 @@ FIT-Trade/
 │   ├── jsonschema/               交易领域与 MCP JSON Schema
 │   ├── openapi/                  客户端 HTTP 契约
 │   ├── proto/                    Go/Python 内部服务契约
-│   ├── platform/
-│   │   ├── schemas/              身份、会话、事件、Inbox/Outbox 等平台 Schema
-│   │   └── manifests/            事务、NATS、安全、恢复和故障注入规则
 │   ├── fixtures/                 正向、负向、黄金向量和安全场景
 │   └── scripts/                  契约、秘密和语义验证器
 ├── prototype/web-desktop/        React/Vite 网页与桌面主界面原型
@@ -22,6 +19,15 @@ FIT-Trade/
 ├── docs/                         产品、架构、验收、计划和状态文档
 └── coordination/                 多代理任务包、范围和验收证据
 ```
+
+当前文档分支以 `main@60850b6` 为父提交。以下内容已经通过审查，但仍只存在于
+尚未合并的功能分支：
+
+| 功能分支 | 新增或扩展路径 |
+| --- | --- |
+| `codex/p1-platform-contracts@9b4b113` | `contracts/platform/{schemas,manifests}`、`contracts/fixtures/platform` 与平台验证器 |
+| `codex/frontend-command-center-shell@b18aa1f` | `prototype/web-desktop` 的 Command Center 状态和交互 |
+| `codex/oss-dependency-intake@d3a219a` | `docs/08_OPEN_SOURCE_ADOPTION.md` 与 `coordination/evidence/OSS-001` |
 
 以下运行时能力或计划目录尚未实现，不能把 Phase 0 一致性代码、文档或原型
 误认为可运行平台：
@@ -52,9 +58,9 @@ infra/                                                       目录不存在
 | 上游事实 | 下游使用方 | 规则 |
 | --- | --- | --- |
 | `contracts/jsonschema`、`openapi`、`proto` | Go、Python、React、iOS | 下游只生成或消费类型，不能复制后独立修改 |
-| `contracts/platform/manifests/transaction-boundaries-v1.json` | Go PostgreSQL 事务实现 | 先完成身份/owner scope 验证，再做 scoped idempotency、Inbox 去重和业务效果 |
-| `contracts/platform/schemas/platform-v1.schema.json` | API、NATS publisher/consumer、恢复工具 | 事件身份、聚合版本、Inbox/Outbox 和响应缓存必须保持一致 |
-| `coordination/evidence/OSS-001/dependency-intake.json` | 依赖安装与升级任务 | 只能使用固定 ref/commit；`REFERENCE_ONLY` 和 `PROHIBITED` 不能进入运行时 |
+| `codex/p1-platform-contracts:contracts/platform/manifests/transaction-boundaries-v1.json` | 后续 Go PostgreSQL 事务实现 | 该契约尚未合并；合并后实现必须先完成身份/owner scope 验证，再做 scoped idempotency、Inbox 去重和业务效果 |
+| `codex/p1-platform-contracts:contracts/platform/schemas/platform-v1.schema.json` | 后续 API、NATS publisher/consumer、恢复工具 | 该契约尚未合并；事件身份、聚合版本、Inbox/Outbox 和响应缓存必须保持一致 |
+| `codex/oss-dependency-intake:coordination/evidence/OSS-001/dependency-intake.json` | 后续依赖安装与升级任务 | 该清单尚未合并；只能使用固定 ref/commit，`REFERENCE_ONLY` 和 `PROHIBITED` 不能进入运行时 |
 | `prototype/web-desktop` | 后续真实客户端 | 当前 UI 状态只能替换为服务端权威状态，不能把模拟器升级成交易权威 |
 
 ## 4. 下一批落点
