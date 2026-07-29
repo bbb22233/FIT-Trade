@@ -90,6 +90,7 @@ button:disabled {
 .brand-block {
   display: flex;
   align-items: center;
+  gap: 9px;
   padding: 0 17px;
   border-right: 1px solid var(--line-soft);
   color: #f2f6f9;
@@ -97,6 +98,28 @@ button:disabled {
   font-weight: 500;
   letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+.mock-badge,
+.simulated-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(240, 184, 60, 0.4);
+  border-radius: 4px;
+  background: rgba(240, 184, 60, 0.07);
+  color: #d7b45e;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mock-badge {
+  height: 18px;
+  padding: 0 5px;
 }
 
 .system-track {
@@ -118,6 +141,19 @@ button:disabled {
   font-weight: 500;
 }
 
+button.system-item {
+  border: 0;
+  background: transparent;
+}
+
+.system-item.data-state {
+  cursor: pointer;
+}
+
+.system-item.data-state:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
 .system-item.mainnet {
   color: var(--amber);
 }
@@ -125,6 +161,11 @@ button:disabled {
 .system-item.live,
 .system-item.protected {
   color: var(--green);
+}
+
+.system-item.stale,
+.system-item.reconciling {
+  color: var(--amber);
 }
 
 .status-dot {
@@ -197,6 +238,13 @@ button:disabled {
   background: #2a2111;
   color: #e7c571;
   font-size: 12px;
+}
+
+.safety-banner.data-stale,
+.safety-banner.data-reconciling {
+  border-bottom-color: rgba(240, 184, 60, 0.34);
+  background: #211c12;
+  color: #e1bd67;
 }
 
 .main-shell {
@@ -302,6 +350,11 @@ button:disabled {
   min-width: max-content;
   align-items: baseline;
   gap: 17px;
+}
+
+.instrument-quote .simulated-label {
+  height: 19px;
+  padding: 0 6px;
 }
 
 .instrument-name {
@@ -694,6 +747,11 @@ button:disabled {
   color: #eef1f6;
   font-size: 16px;
   font-weight: 500;
+}
+
+.hermes-header .simulated-label {
+  height: 18px;
+  padding: 0 6px;
 }
 
 .hermes-header > div svg {
@@ -1095,6 +1153,10 @@ button:disabled {
 .status-footer .footer-right {
   justify-content: flex-end;
   color: var(--green);
+}
+
+.status-footer .state-warning {
+  color: var(--amber);
 }
 
 .dialog-backdrop {
