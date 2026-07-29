@@ -1,0 +1,23 @@
+[project]
+name = "hermes-agent-contracts"
+version = "0.1.0"
+description = "FIT-Trade Hermes Agent — P0 contract conformance and validation layer"
+requires-python = ">=3.11"
+license = { text = "UNLICENSED" }
+
+dependencies = [
+    "pydantic>=2.8,<3",
+    "jsonschema>=4.23,<5",
+    "cryptography>=43,<45",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-xdist>=3.6,<4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"
