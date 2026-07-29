@@ -56,7 +56,8 @@ paths:
   /v1/confirmations/{confirmation_id}/consume:
     post:
       operationId: consumeTradeConfirmation
-      summary: Atomically consume a device-confirmed ticket
+      summary: Atomically consume a ticket from an authenticated registered device
+      x-server-injected-scope: [user_id, account_id, device_id, session_id]
       parameters:
         - name: confirmation_id
           in: path
@@ -72,15 +73,11 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [confirmation_hash, device_challenge_signature]
+              required: [confirmation_hash]
               properties:
                 confirmation_hash:
                   type: string
                   pattern: "^[a-f0-9]{64}$"
-                device_challenge_signature:
-                  type: string
-                  minLength: 32
-                  maxLength: 4096
       responses:
         "202":
           description: Operation created or existing idempotent result returned
@@ -230,6 +227,9 @@ components:
         retry:
           enum:
             - NEVER
+            - NEVER_SAME_INPUT
+            - NEVER_SAME_TICKET
+            - NEVER_SAME_TRANSITION
             - AFTER_REAUTHENTICATION
             - AFTER_NEW_CONFIRMATION
             - AFTER_NEW_INTENT
@@ -238,6 +238,57 @@ components:
             - BOUNDED_BACKOFF_BEFORE_DISPATCH
             - RECONCILE_ONLY
             - OPERATOR_ONLY
+            - POLICY_DEPENDENT
+      allOf:
+        - oneOf:
+            - properties:
+                code: { const: VALIDATION_FAILED }
+                retry: { const: NEVER_SAME_INPUT }
+            - properties:
+                code: { const: UNAUTHENTICATED }
+                retry: { const: AFTER_REAUTHENTICATION }
+            - properties:
+                code: { const: SCOPE_MISMATCH }
+                retry: { const: NEVER }
+            - properties:
+                code: { const: TOOL_NOT_AUTHORIZED }
+                retry: { const: NEVER }
+            - properties:
+                code: { const: CONFIRMATION_REQUIRED }
+                retry: { const: AFTER_NEW_CONFIRMATION }
+            - properties:
+                code: { const: CONFIRMATION_EXPIRED }
+                retry: { const: AFTER_NEW_CONFIRMATION }
+            - properties:
+                code: { const: CONFIRMATION_MISMATCH }
+                retry: { const: NEVER_SAME_TICKET }
+            - properties:
+                code: { const: CONFIRMATION_ALREADY_CONSUMED }
+                retry: { const: RETURN_EXISTING_RESULT }
+            - properties:
+                code: { const: RISK_REJECTED }
+                retry: { const: AFTER_NEW_INTENT }
+            - properties:
+                code: { const: DATA_STALE }
+                retry: { const: AFTER_FRESH_SNAPSHOT }
+            - properties:
+                code: { const: STATE_TRANSITION_REJECTED }
+                retry: { const: NEVER_SAME_TRANSITION }
+            - properties:
+                code: { const: DUPLICATE_REQUEST }
+                retry: { const: RETURN_EXISTING_RESULT }
+            - properties:
+                code: { const: UPSTREAM_UNAVAILABLE }
+                retry: { const: BOUNDED_BACKOFF_BEFORE_DISPATCH }
+            - properties:
+                code: { const: UNKNOWN_REQUIRES_RECONCILIATION }
+                retry: { const: RECONCILE_ONLY }
+            - properties:
+                code: { const: MANUAL_RECONCILIATION_REQUIRED }
+                retry: { const: OPERATOR_ONLY }
+            - properties:
+                code: { const: INTERNAL_ERROR }
+                retry: { const: POLICY_DEPENDENT }
   responses:
     Problem:
       description: Stable fail-closed error

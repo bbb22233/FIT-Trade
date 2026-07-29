@@ -1,0 +1,50 @@
+{
+  "schema_version": "fit.logging.v1",
+  "drop_unknown_fields": true,
+  "allowed_fields": [
+    "timestamp",
+    "level",
+    "component",
+    "correlation_id",
+    "operation_id",
+    "attempt_id",
+    "event_type",
+    "state",
+    "error_code",
+    "latency_ms"
+  ],
+  "redacted_fields": [
+    "authorization",
+    "cookie",
+    "password",
+    "password_hash",
+    "api_key",
+    "private_key",
+    "seed_phrase",
+    "confirmation_nonce",
+    "device_challenge_signature",
+    "model_prompt",
+    "user_text",
+    "request_body",
+    "response_body",
+    "account_address"
+  ],
+  "replacement": "[REDACTED]",
+  "test_vector": {
+    "input": {
+      "level": "INFO",
+      "component": "contract-test",
+      "operation_id": "66666666-6666-4666-8666-666666666666",
+      "api_key": "synthetic-sensitive-value",
+      "confirmation_nonce": "synthetic-sensitive-value",
+      "unknown_payload": "must-be-dropped"
+    },
+    "expected": {
+      "level": "INFO",
+      "component": "contract-test",
+      "operation_id": "66666666-6666-4666-8666-666666666666",
+      "api_key": "[REDACTED]",
+      "confirmation_nonce": "[REDACTED]"
+    }
+  }
+}

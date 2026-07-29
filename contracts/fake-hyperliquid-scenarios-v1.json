@@ -24,6 +24,21 @@
       "result": "UNKNOWN_REQUIRES_RECONCILIATION"
     },
     {
+      "id": "executor_crash_after_exchange_success",
+      "effect": "PROCESS_CRASH_SIMULATION",
+      "result": "UNKNOWN_REQUIRES_RECONCILIATION"
+    },
+    {
+      "id": "result_published_ack_lost",
+      "effect": "EVENT_REDELIVERY_SIMULATION",
+      "result": "EXISTING_RESULT"
+    },
+    {
+      "id": "duplicate_client_order_id",
+      "effect": "ORDER_WRITE_SIMULATION",
+      "result": "EXISTING_RESULT"
+    },
+    {
       "id": "duplicate_event",
       "effect": "EVENT_REDELIVERY_SIMULATION",
       "result": "EXISTING_RESULT"
@@ -34,9 +49,39 @@
       "result": "PROTECTED"
     },
     {
+      "id": "partial_fill_then_parent_cancel",
+      "effect": "FILL_SIMULATION",
+      "result": "PROTECTION_PENDING"
+    },
+    {
+      "id": "rapid_consecutive_partial_fills",
+      "effect": "FILL_SIMULATION",
+      "result": "PROTECTION_PENDING"
+    },
+    {
+      "id": "protection_response_lost",
+      "effect": "PROTECTION_SIMULATION",
+      "result": "MANUAL_RECONCILIATION"
+    },
+    {
+      "id": "replacement_stop_create_failed_old_stop_active",
+      "effect": "PROTECTION_SIMULATION",
+      "result": "PROTECTED"
+    },
+    {
       "id": "partial_fill_protection_failed",
       "effect": "FILL_SIMULATION",
       "result": "EMERGENCY_CLOSING"
+    },
+    {
+      "id": "emergency_close_residual_position",
+      "effect": "PROTECTION_SIMULATION",
+      "result": "MANUAL_RECONCILIATION"
+    },
+    {
+      "id": "manual_native_position_change",
+      "effect": "RECONCILIATION_SIMULATION",
+      "result": "RECONCILING"
     },
     {
       "id": "stale_market_snapshot",

@@ -16,13 +16,14 @@
     "notional": "1000",
     "margin_mode": "ISOLATED",
     "leverage": 5,
-    "entry_price_or_bound": "0.10",
+    "entry_price_or_bound": "0.1",
     "worst_acceptable_price": "0.11",
     "stop": {
       "type": "STOP_MARKET",
       "trigger_price": "0.08",
       "reduce_only": true
     },
+    "take_profit_plan": [],
     "risk_policy_version": "risk-v1",
     "market_snapshot_id": "44444444-4444-4444-8444-444444444444",
     "strategy_version": "strategy-user-directed-v1",

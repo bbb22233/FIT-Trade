@@ -1,0 +1,36 @@
+{
+  "schema_version": "fit.errors.v1",
+  "errors": [
+    { "code": "VALIDATION_FAILED", "retry": "NEVER_SAME_INPUT" },
+    { "code": "UNAUTHENTICATED", "retry": "AFTER_REAUTHENTICATION" },
+    { "code": "SCOPE_MISMATCH", "retry": "NEVER" },
+    { "code": "TOOL_NOT_AUTHORIZED", "retry": "NEVER" },
+    { "code": "CONFIRMATION_REQUIRED", "retry": "AFTER_NEW_CONFIRMATION" },
+    { "code": "CONFIRMATION_EXPIRED", "retry": "AFTER_NEW_CONFIRMATION" },
+    { "code": "CONFIRMATION_MISMATCH", "retry": "NEVER_SAME_TICKET" },
+    {
+      "code": "CONFIRMATION_ALREADY_CONSUMED",
+      "retry": "RETURN_EXISTING_RESULT"
+    },
+    { "code": "RISK_REJECTED", "retry": "AFTER_NEW_INTENT" },
+    { "code": "DATA_STALE", "retry": "AFTER_FRESH_SNAPSHOT" },
+    {
+      "code": "STATE_TRANSITION_REJECTED",
+      "retry": "NEVER_SAME_TRANSITION"
+    },
+    { "code": "DUPLICATE_REQUEST", "retry": "RETURN_EXISTING_RESULT" },
+    {
+      "code": "UPSTREAM_UNAVAILABLE",
+      "retry": "BOUNDED_BACKOFF_BEFORE_DISPATCH"
+    },
+    {
+      "code": "UNKNOWN_REQUIRES_RECONCILIATION",
+      "retry": "RECONCILE_ONLY"
+    },
+    {
+      "code": "MANUAL_RECONCILIATION_REQUIRED",
+      "retry": "OPERATOR_ONLY"
+    },
+    { "code": "INTERNAL_ERROR", "retry": "POLICY_DEPENDENT" }
+  ]
+}

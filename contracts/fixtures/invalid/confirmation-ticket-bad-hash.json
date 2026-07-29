@@ -4,6 +4,8 @@
   "value": {
     "schema_version": "fit.trade.v1",
     "confirmation_id": "55555555-5555-4555-8555-555555555555",
+    "device_id": "6789abcd-6789-4789-8789-6789abcdef01",
+    "session_id": "789abcde-789a-489a-889a-789abcdef012",
     "intent": {
       "schema_version": "fit.trade.v1",
       "intent_id": "11111111-1111-4111-8111-111111111111",
@@ -26,6 +28,7 @@
         "trigger_price": "115200",
         "reduce_only": true
       },
+      "take_profit_plan": [],
       "risk_policy_version": "risk-v1",
       "market_snapshot_id": "44444444-4444-4444-8444-444444444444",
       "strategy_version": "strategy-user-directed-v1",

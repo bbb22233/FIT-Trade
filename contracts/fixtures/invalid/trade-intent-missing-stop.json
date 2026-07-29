@@ -18,6 +18,7 @@
     "leverage": 5,
     "entry_price_or_bound": "118452",
     "worst_acceptable_price": "118689",
+    "take_profit_plan": [],
     "risk_policy_version": "risk-v1",
     "market_snapshot_id": "44444444-4444-4444-8444-444444444444",
     "strategy_version": "strategy-user-directed-v1",

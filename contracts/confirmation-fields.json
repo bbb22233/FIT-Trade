@@ -5,6 +5,8 @@
   "fields": [
     "schema_version",
     "confirmation_id",
+    "device_id",
+    "session_id",
     "intent.schema_version",
     "intent.intent_id",
     "intent.user_id",

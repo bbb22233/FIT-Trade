@@ -3,7 +3,7 @@
   "schema_version": "fit.mcp.v1",
   "tools": [
     {
-      "name": "market.get_context",
+      "name": "get_market_snapshot",
       "description": "Read verified market context for an approved perpetual symbol.",
       "risk_effect": "READ_ONLY",
       "server_injected_scope": ["user_id", "account_id", "session_id"],
@@ -23,8 +23,8 @@
       }
     },
     {
-      "name": "account.get_snapshot",
-      "description": "Read account, position, open-order, and risk-limit state for the authenticated scope.",
+      "name": "get_account_state",
+      "description": "Read equity and margin state for the authenticated account scope.",
       "risk_effect": "READ_ONLY",
       "server_injected_scope": ["user_id", "account_id", "session_id"],
       "input_schema": {
@@ -34,7 +34,44 @@
       }
     },
     {
-      "name": "trade.propose_intent",
+      "name": "get_positions",
+      "description": "Read current perpetual positions for the authenticated account scope.",
+      "risk_effect": "READ_ONLY",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "symbol": { "enum": ["BTC-PERP", "ETH-PERP", "SOL-PERP"] }
+        }
+      }
+    },
+    {
+      "name": "get_open_orders",
+      "description": "Read active orders for the authenticated account scope.",
+      "risk_effect": "READ_ONLY",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "symbol": { "enum": ["BTC-PERP", "ETH-PERP", "SOL-PERP"] }
+        }
+      }
+    },
+    {
+      "name": "get_risk_limits",
+      "description": "Read effective versioned risk limits for the authenticated account scope.",
+      "risk_effect": "READ_ONLY",
+      "server_injected_scope": ["user_id", "account_id", "session_id"],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_trade_intent",
       "description": "Propose a structured risk-increasing intent for deterministic server validation.",
       "risk_effect": "PROPOSE_INCREASE",
       "server_injected_scope": ["user_id", "account_id", "session_id"],
@@ -78,39 +115,31 @@
             "type": "string",
             "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|[1-9][0-9]{0,17}(?:\\.[0-9]{0,17}[1-9])?)$"
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "order_type": { "const": "MARKET" } },
+              "required": ["order_type"]
+            },
+            "then": {
+              "properties": { "time_in_force": { "const": "IOC" } }
+            }
+          },
+          {
+            "if": {
+              "properties": { "order_type": { "const": "LIMIT" } },
+              "required": ["order_type"]
+            },
+            "then": {
+              "properties": { "time_in_force": { "enum": ["GTC", "ALO"] } }
+            }
+          }
+        ]
       }
     },
     {
-      "name": "trade.request_confirmation",
-      "description": "Request a server-authored immutable confirmation ticket for an accepted intent.",
-      "risk_effect": "PROPOSE_INCREASE",
-      "server_injected_scope": ["user_id", "account_id", "session_id"],
-      "input_schema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["intent_id"],
-        "properties": {
-          "intent_id": { "type": "string", "format": "uuid" }
-        }
-      }
-    },
-    {
-      "name": "operation.get_status",
-      "description": "Read an operation status within the authenticated account scope.",
-      "risk_effect": "READ_ONLY",
-      "server_injected_scope": ["user_id", "account_id", "session_id"],
-      "input_schema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["operation_id"],
-        "properties": {
-          "operation_id": { "type": "string", "format": "uuid" }
-        }
-      }
-    },
-    {
-      "name": "position.reduce",
+      "name": "request_reduce_position",
       "description": "Request a reduce-only position reduction through the deterministic Go core.",
       "risk_effect": "REDUCE_RISK",
       "server_injected_scope": ["user_id", "account_id", "session_id"],
@@ -128,21 +157,7 @@
       }
     },
     {
-      "name": "position.close",
-      "description": "Request a full reduce-only close through the deterministic Go core.",
-      "risk_effect": "REDUCE_RISK",
-      "server_injected_scope": ["user_id", "account_id", "session_id"],
-      "input_schema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["position_id"],
-        "properties": {
-          "position_id": { "type": "string", "format": "uuid" }
-        }
-      }
-    },
-    {
-      "name": "order.cancel_entry",
+      "name": "cancel_entry_order",
       "description": "Request cancellation of an unfilled or partially filled risk-increasing entry order.",
       "risk_effect": "REDUCE_RISK",
       "server_injected_scope": ["user_id", "account_id", "session_id"],
@@ -156,7 +171,7 @@
       }
     },
     {
-      "name": "protection.tighten_stop",
+      "name": "tighten_stop",
       "description": "Request a risk-reducing Stop Market trigger adjustment without widening risk.",
       "risk_effect": "REDUCE_RISK",
       "server_injected_scope": ["user_id", "account_id", "session_id"],
@@ -174,18 +189,19 @@
       }
     },
     {
-      "name": "trade.submit_feedback",
-      "description": "Record user-authored trade feedback for later learning without changing live risk.",
+      "name": "submit_trade_feedback",
+      "description": "Record explicit user feedback for later learning without changing live risk.",
       "risk_effect": "LEARNING_ONLY",
       "server_injected_scope": ["user_id", "account_id", "session_id"],
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["operation_id", "rating", "comment"],
+        "required": ["operation_id", "rating", "comment", "include_in_learning"],
         "properties": {
           "operation_id": { "type": "string", "format": "uuid" },
           "rating": { "type": "integer", "minimum": -2, "maximum": 2 },
-          "comment": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          "comment": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "include_in_learning": { "type": "boolean" }
         }
       }
     }

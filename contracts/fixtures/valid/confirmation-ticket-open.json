@@ -3,6 +3,8 @@
   "value": {
     "schema_version": "fit.trade.v1",
     "confirmation_id": "55555555-5555-4555-8555-555555555555",
+    "device_id": "6789abcd-6789-4789-8789-6789abcdef01",
+    "session_id": "789abcde-789a-489a-889a-789abcdef012",
     "intent": {
       "schema_version": "fit.trade.v1",
       "intent_id": "11111111-1111-4111-8111-111111111111",
@@ -42,7 +44,7 @@
     "slippage_budget": "3",
     "expires_at": "2026-07-29T04:10:00Z",
     "confirmation_nonce": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
-    "confirmation_hash": "a87f116de8fc94e678ada1a755923c35ec9e36c14b1494a3aab298cd31c31042",
+    "confirmation_hash": "c4dfe4f2ffd65e04936c8734e12a31c96ceab1f7567b41c70d5da716a06dd865",
     "created_at": "2026-07-29T04:00:00Z"
   }
 }

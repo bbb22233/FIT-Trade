@@ -29,16 +29,16 @@
       "properties": {
         "name": {
           "enum": [
-            "market.get_context",
-            "account.get_snapshot",
-            "trade.propose_intent",
-            "trade.request_confirmation",
-            "operation.get_status",
-            "position.reduce",
-            "position.close",
-            "order.cancel_entry",
-            "protection.tighten_stop",
-            "trade.submit_feedback"
+            "get_market_snapshot",
+            "get_account_state",
+            "get_positions",
+            "get_open_orders",
+            "get_risk_limits",
+            "create_trade_intent",
+            "request_reduce_position",
+            "cancel_entry_order",
+            "tighten_stop",
+            "submit_trade_feedback"
           ]
         },
         "description": {

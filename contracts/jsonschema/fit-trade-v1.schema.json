@@ -15,6 +15,13 @@
     { "$ref": "#/$defs/AutomationGrant" },
     { "$ref": "#/$defs/ModelProposal" },
     { "$ref": "#/$defs/ModelReview" },
+    { "$ref": "#/$defs/RiskDecision" },
+    { "$ref": "#/$defs/ExecutionCommand" },
+    { "$ref": "#/$defs/ExecutionResult" },
+    { "$ref": "#/$defs/ProtectionStatus" },
+    { "$ref": "#/$defs/ReconciliationStatus" },
+    { "$ref": "#/$defs/AgentFeedback" },
+    { "$ref": "#/$defs/AutomationAuthorization" },
     { "$ref": "#/$defs/AuditEvent" }
   ],
   "$defs": {
@@ -46,6 +53,21 @@
     "PositiveDecimal": {
       "allOf": [
         { "$ref": "#/$defs/NonNegativeDecimal" },
+        { "not": { "type": "string", "pattern": "^0$" } }
+      ]
+    },
+    "Fraction": {
+      "allOf": [
+        { "$ref": "#/$defs/NonNegativeDecimal" },
+        {
+          "type": "string",
+          "pattern": "^(?:0(?:\\.[0-9]{0,17}[1-9])?|1)$"
+        }
+      ]
+    },
+    "PositiveFraction": {
+      "allOf": [
+        { "$ref": "#/$defs/Fraction" },
         { "not": { "type": "string", "pattern": "^0$" } }
       ]
     },
@@ -90,13 +112,7 @@
       "properties": {
         "trigger_price": { "$ref": "#/$defs/PositiveDecimal" },
         "quantity_fraction": {
-          "allOf": [
-            { "$ref": "#/$defs/PositiveDecimal" },
-            {
-              "type": "string",
-              "pattern": "^(?:0\\.[0-9]{0,17}[1-9]|1)$"
-            }
-          ]
+          "$ref": "#/$defs/PositiveFraction"
         },
         "reduce_only": { "const": true }
       }
@@ -121,6 +137,7 @@
         "leverage",
         "entry_price_or_bound",
         "worst_acceptable_price",
+        "take_profit_plan",
         "risk_policy_version",
         "market_snapshot_id",
         "strategy_version",
@@ -188,6 +205,17 @@
           "then": {
             "properties": { "time_in_force": { "const": "IOC" } }
           }
+        },
+        {
+          "if": {
+            "properties": { "order_type": { "const": "LIMIT" } },
+            "required": ["order_type"]
+          },
+          "then": {
+            "properties": {
+              "time_in_force": { "enum": ["GTC", "ALO"] }
+            }
+          }
         }
       ]
     },
@@ -197,6 +225,8 @@
       "required": [
         "schema_version",
         "confirmation_id",
+        "device_id",
+        "session_id",
         "intent",
         "maximum_loss",
         "maximum_loss_fraction",
@@ -213,12 +243,14 @@
       "properties": {
         "schema_version": { "$ref": "#/$defs/SchemaVersion" },
         "confirmation_id": { "$ref": "#/$defs/UUID" },
+        "device_id": { "$ref": "#/$defs/UUID" },
+        "session_id": { "$ref": "#/$defs/UUID" },
         "intent": { "$ref": "#/$defs/TradeIntent" },
         "maximum_loss": { "$ref": "#/$defs/NonNegativeDecimal" },
-        "maximum_loss_fraction": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "maximum_loss_fraction": { "$ref": "#/$defs/Fraction" },
         "post_trade_total_risk": { "$ref": "#/$defs/NonNegativeDecimal" },
         "post_trade_total_risk_fraction": {
-          "$ref": "#/$defs/NonNegativeDecimal"
+          "$ref": "#/$defs/Fraction"
         },
         "liquidation_price": { "$ref": "#/$defs/PositiveDecimal" },
         "estimated_fees": { "$ref": "#/$defs/NonNegativeDecimal" },
@@ -233,7 +265,24 @@
           "pattern": "^[a-f0-9]{64}$"
         },
         "created_at": { "$ref": "#/$defs/Timestamp" }
-      }
+      },
+      "allOf": [
+        {
+          "properties": {
+            "intent": {
+              "allOf": [
+                { "$ref": "#/$defs/TradeIntent" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "position_effect": { "enum": ["OPEN", "INCREASE"] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
     },
     "Operation": {
       "type": "object",
@@ -450,14 +499,15 @@
           "items": { "$ref": "#/$defs/Symbol" }
         },
         "maximum_trade_risk_fraction": {
-          "$ref": "#/$defs/PositiveDecimal"
+          "$ref": "#/$defs/PositiveFraction"
         },
         "maximum_total_risk_fraction": {
-          "$ref": "#/$defs/PositiveDecimal"
+          "$ref": "#/$defs/PositiveFraction"
         },
         "maximum_leverage_by_symbol": {
           "type": "object",
           "additionalProperties": false,
+          "required": ["BTC-PERP", "ETH-PERP", "SOL-PERP"],
           "properties": {
             "BTC-PERP": { "type": "integer", "minimum": 1, "maximum": 100 },
             "ETH-PERP": { "type": "integer", "minimum": 1, "maximum": 100 },
@@ -465,7 +515,7 @@
           }
         },
         "maximum_slippage_fraction": {
-          "$ref": "#/$defs/PositiveDecimal"
+          "$ref": "#/$defs/PositiveFraction"
         },
         "created_at": { "$ref": "#/$defs/Timestamp" }
       }
@@ -485,7 +535,6 @@
         "model_version",
         "review_model_version",
         "maximum_notional",
-        "expires_at",
         "authorization_hash"
       ],
       "properties": {
@@ -505,7 +554,6 @@
         "model_version": { "type": "string", "maxLength": 64 },
         "review_model_version": { "type": "string", "maxLength": 64 },
         "maximum_notional": { "$ref": "#/$defs/PositiveDecimal" },
-        "expires_at": { "$ref": "#/$defs/Timestamp" },
         "authorization_hash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
@@ -583,6 +631,350 @@
           }
         },
         "created_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "RiskDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "decision_id",
+        "intent_id",
+        "risk_policy_version",
+        "result",
+        "reason_codes",
+        "admitted_quantity",
+        "maximum_loss",
+        "maximum_loss_fraction",
+        "post_trade_total_risk",
+        "post_trade_total_risk_fraction",
+        "market_snapshot_id",
+        "decided_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "decision_id": { "$ref": "#/$defs/UUID" },
+        "intent_id": { "$ref": "#/$defs/UUID" },
+        "risk_policy_version": { "type": "string", "maxLength": 64 },
+        "result": { "enum": ["ADMITTED", "REJECTED"] },
+        "reason_codes": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+          }
+        },
+        "admitted_quantity": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "maximum_loss": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "maximum_loss_fraction": { "$ref": "#/$defs/Fraction" },
+        "post_trade_total_risk": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "post_trade_total_risk_fraction": { "$ref": "#/$defs/Fraction" },
+        "market_snapshot_id": { "$ref": "#/$defs/UUID" },
+        "decided_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "ExecutionCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "command_id",
+        "operation_id",
+        "attempt_id",
+        "authorization_type",
+        "authorization_id",
+        "action",
+        "reduce_only",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "command_id": { "$ref": "#/$defs/UUID" },
+        "operation_id": { "$ref": "#/$defs/UUID" },
+        "attempt_id": { "$ref": "#/$defs/UUID" },
+        "authorization_type": {
+          "enum": ["USER_CONFIRMATION", "AUTOMATION_GRANT", "RISK_REDUCTION"]
+        },
+        "authorization_id": { "$ref": "#/$defs/UUID" },
+        "action": {
+          "enum": ["PLACE_ORDER", "CANCEL_ENTRY", "REPLACE_STOP", "RECONCILE"]
+        },
+        "client_order_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "symbol": { "$ref": "#/$defs/Symbol" },
+        "side": { "$ref": "#/$defs/Side" },
+        "order_type": { "$ref": "#/$defs/OrderType" },
+        "time_in_force": { "$ref": "#/$defs/TimeInForce" },
+        "quantity": { "$ref": "#/$defs/PositiveDecimal" },
+        "worst_acceptable_price": { "$ref": "#/$defs/PositiveDecimal" },
+        "reduce_only": { "type": "boolean" },
+        "created_at": { "$ref": "#/$defs/Timestamp" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "action": { "const": "PLACE_ORDER" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "client_order_id": true,
+              "symbol": true,
+              "side": true,
+              "order_type": true,
+              "time_in_force": true,
+              "quantity": true,
+              "worst_acceptable_price": true
+            },
+            "required": [
+              "client_order_id",
+              "symbol",
+              "side",
+              "order_type",
+              "time_in_force",
+              "quantity",
+              "worst_acceptable_price"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "authorization_type": { "const": "RISK_REDUCTION" }
+            },
+            "required": ["authorization_type"]
+          },
+          "then": {
+            "properties": { "reduce_only": { "const": true } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": { "const": "PLACE_ORDER" },
+              "order_type": { "const": "MARKET" }
+            },
+            "required": ["action", "order_type"]
+          },
+          "then": {
+            "properties": { "time_in_force": { "const": "IOC" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": { "const": "PLACE_ORDER" },
+              "order_type": { "const": "LIMIT" }
+            },
+            "required": ["action", "order_type"]
+          },
+          "then": {
+            "properties": {
+              "time_in_force": { "enum": ["GTC", "ALO"] }
+            }
+          }
+        }
+      ]
+    },
+    "ExecutionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "result_id",
+        "command_id",
+        "attempt_id",
+        "status",
+        "observed_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "result_id": { "$ref": "#/$defs/UUID" },
+        "command_id": { "$ref": "#/$defs/UUID" },
+        "attempt_id": { "$ref": "#/$defs/UUID" },
+        "status": {
+          "enum": [
+            "ACKNOWLEDGED",
+            "REJECTED",
+            "NOT_DISPATCHED",
+            "UNKNOWN_REQUIRES_RECONCILIATION"
+          ]
+        },
+        "exchange_order_id": { "type": "string", "maxLength": 128 },
+        "error_code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,95}$"
+        },
+        "observed_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "ProtectionStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "position_id",
+        "state",
+        "absolute_live_position_quantity",
+        "protected_quantity",
+        "data_status",
+        "observed_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "position_id": { "$ref": "#/$defs/UUID" },
+        "state": {
+          "enum": [
+            "NO_POSITION",
+            "ENTRY_PENDING",
+            "PARTIALLY_FILLED",
+            "FILLED",
+            "PROTECTION_PENDING",
+            "PROTECTED",
+            "ADJUSTING_PROTECTION",
+            "PROTECTION_FAILED",
+            "EMERGENCY_CLOSING",
+            "MANUAL_RECONCILIATION",
+            "CLOSED"
+          ]
+        },
+        "absolute_live_position_quantity": {
+          "$ref": "#/$defs/NonNegativeDecimal"
+        },
+        "protected_quantity": { "$ref": "#/$defs/NonNegativeDecimal" },
+        "active_stop_order_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 32,
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "data_status": { "$ref": "#/$defs/DataStatus" },
+        "observed_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "ReconciliationStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "reconciliation_id",
+        "operation_id",
+        "attempt_id",
+        "client_order_id",
+        "state",
+        "evidence_sources",
+        "checked_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "reconciliation_id": { "$ref": "#/$defs/UUID" },
+        "operation_id": { "$ref": "#/$defs/UUID" },
+        "attempt_id": { "$ref": "#/$defs/UUID" },
+        "client_order_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "state": {
+          "enum": [
+            "PENDING",
+            "ACKNOWLEDGED",
+            "REJECTED",
+            "NOT_FOUND",
+            "MANUAL_RECONCILIATION"
+          ]
+        },
+        "evidence_sources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "CLOID",
+              "OID",
+              "OPEN_ORDERS",
+              "HISTORICAL_ORDERS",
+              "FILLS"
+            ]
+          }
+        },
+        "exchange_order_id": { "type": "string", "maxLength": 128 },
+        "checked_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "AgentFeedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "feedback_id",
+        "operation_id",
+        "user_id",
+        "account_id",
+        "rating",
+        "comment",
+        "include_in_learning",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "feedback_id": { "$ref": "#/$defs/UUID" },
+        "operation_id": { "$ref": "#/$defs/UUID" },
+        "user_id": { "$ref": "#/$defs/UUID" },
+        "account_id": { "$ref": "#/$defs/UUID" },
+        "rating": { "type": "integer", "minimum": -2, "maximum": 2 },
+        "comment": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "include_in_learning": { "type": "boolean" },
+        "created_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "AutomationAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "authorization_id",
+        "grant_id",
+        "user_id",
+        "account_id",
+        "device_id",
+        "session_id",
+        "risk_policy_version",
+        "strategy_version",
+        "model_version",
+        "review_model_version",
+        "allowed_symbols",
+        "maximum_notional",
+        "authorization_hash",
+        "authorized_at"
+      ],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/SchemaVersion" },
+        "authorization_id": { "$ref": "#/$defs/UUID" },
+        "grant_id": { "$ref": "#/$defs/UUID" },
+        "user_id": { "$ref": "#/$defs/UUID" },
+        "account_id": { "$ref": "#/$defs/UUID" },
+        "device_id": { "$ref": "#/$defs/UUID" },
+        "session_id": { "$ref": "#/$defs/UUID" },
+        "risk_policy_version": { "type": "string", "maxLength": 64 },
+        "strategy_version": { "type": "string", "maxLength": 64 },
+        "model_version": { "type": "string", "maxLength": 64 },
+        "review_model_version": { "type": "string", "maxLength": 64 },
+        "allowed_symbols": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Symbol" }
+        },
+        "maximum_notional": { "$ref": "#/$defs/PositiveDecimal" },
+        "authorization_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "authorized_at": { "$ref": "#/$defs/Timestamp" }
       }
     },
     "AuditEvent": {

@@ -47,18 +47,20 @@ message TradeIntent {
 message ConfirmationTicket {
   string schema_version = 1;
   string confirmation_id = 2;
-  TradeIntent intent = 3;
-  string maximum_loss = 4;
-  string maximum_loss_fraction = 5;
-  string post_trade_total_risk = 6;
-  string post_trade_total_risk_fraction = 7;
-  string liquidation_price = 8;
-  string estimated_fees = 9;
-  string slippage_budget = 10;
-  string expires_at = 11;
-  string confirmation_nonce = 12;
-  string confirmation_hash = 13;
-  string created_at = 14;
+  string device_id = 3;
+  string session_id = 4;
+  TradeIntent intent = 5;
+  string maximum_loss = 6;
+  string maximum_loss_fraction = 7;
+  string post_trade_total_risk = 8;
+  string post_trade_total_risk_fraction = 9;
+  string liquidation_price = 10;
+  string estimated_fees = 11;
+  string slippage_budget = 12;
+  string expires_at = 13;
+  string confirmation_nonce = 14;
+  string confirmation_hash = 15;
+  string created_at = 16;
 }
 
 message Operation {
@@ -73,6 +75,44 @@ message Operation {
   string updated_at = 9;
 }
 
+message ExecutionAttempt {
+  string schema_version = 1;
+  string attempt_id = 2;
+  string operation_id = 3;
+  string client_order_id = 4;
+  uint32 attempt_number = 5;
+  string state = 6;
+  string created_at = 7;
+}
+
+message Order {
+  string schema_version = 1;
+  string order_id = 2;
+  string operation_id = 3;
+  string client_order_id = 4;
+  string exchange_order_id = 5;
+  string symbol = 6;
+  string side = 7;
+  string quantity = 8;
+  string filled_quantity = 9;
+  string limit_price = 10;
+  bool reduce_only = 11;
+  string state = 12;
+  string updated_at = 13;
+}
+
+message Fill {
+  string schema_version = 1;
+  string fill_id = 2;
+  string order_id = 3;
+  string symbol = 4;
+  string side = 5;
+  string quantity = 6;
+  string price = 7;
+  string fee = 8;
+  string occurred_at = 9;
+}
+
 message PositionSnapshot {
   string schema_version = 1;
   string position_id = 2;
@@ -85,6 +125,180 @@ message PositionSnapshot {
   string protection_state = 9;
   string data_status = 10;
   string snapshot_at = 11;
+}
+
+message SymbolLeverage {
+  string symbol = 1;
+  uint32 maximum_leverage = 2;
+}
+
+message RiskPolicy {
+  string schema_version = 1;
+  string risk_policy_version = 2;
+  repeated string allowed_symbols = 3;
+  string maximum_trade_risk_fraction = 4;
+  string maximum_total_risk_fraction = 5;
+  repeated SymbolLeverage maximum_leverage_by_symbol = 6;
+  string maximum_slippage_fraction = 7;
+  string created_at = 8;
+}
+
+message AutomationGrant {
+  string schema_version = 1;
+  string grant_id = 2;
+  string user_id = 3;
+  string account_id = 4;
+  string state = 5;
+  repeated string allowed_symbols = 6;
+  string risk_policy_version = 7;
+  string strategy_version = 8;
+  string model_version = 9;
+  string review_model_version = 10;
+  string maximum_notional = 11;
+  string authorization_hash = 12;
+}
+
+message ModelProposal {
+  string schema_version = 1;
+  string proposal_id = 2;
+  string model_version = 3;
+  string decision = 4;
+  TradeIntent intent = 5;
+  string created_at = 6;
+}
+
+message ModelReview {
+  string schema_version = 1;
+  string review_id = 2;
+  string proposal_id = 3;
+  string review_model_version = 4;
+  string decision = 5;
+  repeated string reason_codes = 6;
+  string created_at = 7;
+}
+
+message AuditEvent {
+  string schema_version = 1;
+  string event_id = 2;
+  string event_type = 3;
+  string actor_type = 4;
+  string subject_type = 5;
+  string subject_id = 6;
+  string occurred_at = 7;
+  string payload_hash = 8;
+}
+
+message AuthenticatedScope {
+  string user_id = 1;
+  string account_id = 2;
+  string device_id = 3;
+  string session_id = 4;
+}
+
+message RiskDecision {
+  string schema_version = 1;
+  string decision_id = 2;
+  string intent_id = 3;
+  string risk_policy_version = 4;
+  string result = 5;
+  repeated string reason_codes = 6;
+  string admitted_quantity = 7;
+  string maximum_loss = 8;
+  string maximum_loss_fraction = 9;
+  string post_trade_total_risk = 10;
+  string post_trade_total_risk_fraction = 11;
+  string market_snapshot_id = 12;
+  string decided_at = 13;
+}
+
+message ExecutionCommand {
+  string schema_version = 1;
+  string command_id = 2;
+  string operation_id = 3;
+  string attempt_id = 4;
+  string authorization_type = 5;
+  string authorization_id = 6;
+  string action = 7;
+  string client_order_id = 8;
+  string symbol = 9;
+  string side = 10;
+  string order_type = 11;
+  string time_in_force = 12;
+  string quantity = 13;
+  string worst_acceptable_price = 14;
+  bool reduce_only = 15;
+  string created_at = 16;
+}
+
+message ExecutionResult {
+  string schema_version = 1;
+  string result_id = 2;
+  string command_id = 3;
+  string attempt_id = 4;
+  string status = 5;
+  string exchange_order_id = 6;
+  string error_code = 7;
+  string observed_at = 8;
+}
+
+message ProtectionStatus {
+  string schema_version = 1;
+  string position_id = 2;
+  string state = 3;
+  string absolute_live_position_quantity = 4;
+  string protected_quantity = 5;
+  repeated string active_stop_order_ids = 6;
+  string data_status = 7;
+  string observed_at = 8;
+}
+
+message ReconciliationStatus {
+  string schema_version = 1;
+  string reconciliation_id = 2;
+  string operation_id = 3;
+  string attempt_id = 4;
+  string client_order_id = 5;
+  string state = 6;
+  repeated string evidence_sources = 7;
+  string exchange_order_id = 8;
+  string checked_at = 9;
+}
+
+message AgentFeedback {
+  string schema_version = 1;
+  string feedback_id = 2;
+  string operation_id = 3;
+  string user_id = 4;
+  string account_id = 5;
+  sint32 rating = 6;
+  string comment = 7;
+  bool include_in_learning = 8;
+  string created_at = 9;
+}
+
+message AutomationAuthorization {
+  string schema_version = 1;
+  string authorization_id = 2;
+  string grant_id = 3;
+  string user_id = 4;
+  string account_id = 5;
+  string device_id = 6;
+  string session_id = 7;
+  string risk_policy_version = 8;
+  string strategy_version = 9;
+  string model_version = 10;
+  string review_model_version = 11;
+  repeated string allowed_symbols = 12;
+  string maximum_notional = 13;
+  string authorization_hash = 14;
+  string authorized_at = 15;
+}
+
+message ErrorDetail {
+  string code = 1;
+  string retry = 2;
+  string correlation_id = 3;
+  string redacted_message = 4;
 }
 
 message SubmitIntentRequest {
@@ -105,9 +319,10 @@ message RequestConfirmationResponse {
 }
 
 message ConsumeConfirmationRequest {
-  string confirmation_id = 1;
-  string confirmation_hash = 2;
-  string device_session_id = 3;
+  // Populated by authenticated server middleware, never by model output.
+  AuthenticatedScope scope = 1;
+  string confirmation_id = 2;
+  string confirmation_hash = 3;
   string idempotency_key = 4;
 }
 

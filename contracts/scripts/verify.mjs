@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -6,6 +7,8 @@ import { fileURLToPath } from "node:url";
 
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import SwaggerParser from "@apidevtools/swagger-parser";
+import protobuf from "protobufjs";
 import YAML from "yaml";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -78,6 +81,13 @@ function mutatedValue(value) {
   if (Array.isArray(value)) return [...value, { mutation: true }];
   if (value === null) return "mutation";
   return { ...value, mutation: true };
+}
+
+function setAtPath(value, dottedPath, replacement) {
+  const segments = dottedPath.split(".");
+  let current = value;
+  for (const segment of segments.slice(0, -1)) current = current[segment];
+  current[segments.at(-1)] = replacement;
 }
 
 function walkObject(value, visit, currentPath = []) {
@@ -174,6 +184,115 @@ async function verifyDomainFixtures() {
     );
   }
 
+  const coverageDocument = await readJson("fixtures/matrix/domain-values.json");
+  const { _matrix_version: matrixVersion, ...coverage } = coverageDocument;
+  assert.equal(matrixVersion, "fit.domain-coverage.v1");
+  const topLevelNames = schema.oneOf
+    .map(({ $ref }) => $ref.split("/").at(-1))
+    .sort();
+  assert.deepEqual(Object.keys(coverage).sort(), topLevelNames);
+
+  const boundaryMutations = {
+    TradeIntent: ["leverage", 101],
+    ConfirmationTicket: ["maximum_loss_fraction", "1.1"],
+    Operation: ["state_version", -1],
+    ExecutionAttempt: ["attempt_number", 0],
+    Order: ["client_order_id", "short"],
+    Fill: ["quantity", "0"],
+    PositionSnapshot: ["protected_quantity", "-1"],
+    RiskPolicy: ["maximum_trade_risk_fraction", "1.1"],
+    AutomationGrant: ["allowed_symbols", []],
+    ModelProposal: ["model_version", "x".repeat(65)],
+    ModelReview: ["reason_codes", []],
+    RiskDecision: ["post_trade_total_risk_fraction", "1.1"],
+    ExecutionCommand: ["quantity", "0"],
+    ExecutionResult: ["status", "SUCCESS"],
+    ProtectionStatus: ["data_status", "UNKNOWN"],
+    ReconciliationStatus: ["evidence_sources", []],
+    AgentFeedback: ["rating", 3],
+    AutomationAuthorization: ["allowed_symbols", []],
+    AuditEvent: ["event_type", ""],
+  };
+  const maliciousPaths = {
+    TradeIntent: "intent_id",
+    ConfirmationTicket: "confirmation_id",
+    Operation: "operation_id",
+    ExecutionAttempt: "attempt_id",
+    Order: "order_id",
+    Fill: "fill_id",
+    PositionSnapshot: "position_id",
+    RiskPolicy: "risk_policy_version",
+    AutomationGrant: "grant_id",
+    ModelProposal: "proposal_id",
+    ModelReview: "review_id",
+    RiskDecision: "decision_id",
+    ExecutionCommand: "command_id",
+    ExecutionResult: "result_id",
+    ProtectionStatus: "position_id",
+    ReconciliationStatus: "reconciliation_id",
+    AgentFeedback: "feedback_id",
+    AutomationAuthorization: "authorization_id",
+    AuditEvent: "event_id",
+  };
+
+  for (const name of topLevelNames) {
+    const validate = validators.get(name);
+    const validateRoot = ajv.getSchema(schema.$id);
+    const valid = coverage[name];
+    assert.ok(
+      validate(valid),
+      `${name}: coverage positive invalid: ${ajv.errorsText(validate.errors)}`,
+    );
+    assert.ok(
+      validateRoot(valid),
+      `${name}: root oneOf rejected valid object: ${ajv.errorsText(validateRoot.errors)}`,
+    );
+
+    const firstRequired = schema.$defs[name].required[0];
+    const missing = structuredClone(valid);
+    delete missing[firstRequired];
+    assert.equal(validate(missing), false, `${name}: missing-field case accepted`);
+
+    const unknown = { ...structuredClone(valid), unexpected_field: "rejected" };
+    assert.equal(validate(unknown), false, `${name}: unknown field accepted`);
+
+    const boundary = structuredClone(valid);
+    setAtPath(boundary, boundaryMutations[name][0], boundaryMutations[name][1]);
+    assert.equal(validate(boundary), false, `${name}: boundary case accepted`);
+
+    const malicious = structuredClone(valid);
+    setAtPath(malicious, maliciousPaths[name], "../../etc/passwd");
+    assert.equal(validate(malicious), false, `${name}: malicious case accepted`);
+  }
+
+  const confirmationValidator = validators.get("ConfirmationTicket");
+  const withoutTakeProfit = structuredClone(coverage.ConfirmationTicket);
+  delete withoutTakeProfit.intent.take_profit_plan;
+  assert.equal(confirmationValidator(withoutTakeProfit), false);
+  const closeTicket = structuredClone(coverage.ConfirmationTicket);
+  closeTicket.intent.position_effect = "CLOSE";
+  delete closeTicket.intent.stop;
+  assert.equal(confirmationValidator(closeTicket), false);
+
+  const intentValidator = validators.get("TradeIntent");
+  const limitIoc = structuredClone(coverage.TradeIntent);
+  limitIoc.order_type = "LIMIT";
+  limitIoc.time_in_force = "IOC";
+  assert.equal(intentValidator(limitIoc), false);
+  const proposalValidator = validators.get("ModelProposal");
+  const tradeProposal = {
+    ...structuredClone(coverage.ModelProposal),
+    decision: "PROPOSE_TRADE",
+    intent: structuredClone(coverage.TradeIntent),
+  };
+  assert.ok(proposalValidator(tradeProposal));
+
+  const commandValidator = validators.get("ExecutionCommand");
+  const limitIocCommand = structuredClone(coverage.ExecutionCommand);
+  limitIocCommand.order_type = "LIMIT";
+  limitIocCommand.time_in_force = "IOC";
+  assert.equal(commandValidator(limitIocCommand), false);
+
   return { schema, validators };
 }
 
@@ -225,16 +344,16 @@ async function verifyMcpInventory() {
   );
 
   const expectedNames = [
-    "account.get_snapshot",
-    "market.get_context",
-    "operation.get_status",
-    "order.cancel_entry",
-    "position.close",
-    "position.reduce",
-    "protection.tighten_stop",
-    "trade.propose_intent",
-    "trade.request_confirmation",
-    "trade.submit_feedback",
+    "cancel_entry_order",
+    "create_trade_intent",
+    "get_account_state",
+    "get_market_snapshot",
+    "get_open_orders",
+    "get_positions",
+    "get_risk_limits",
+    "request_reduce_position",
+    "submit_trade_feedback",
+    "tighten_stop",
   ];
   assert.deepEqual(
     inventory.tools.map(({ name }) => name).sort(),
@@ -242,16 +361,16 @@ async function verifyMcpInventory() {
   );
 
   const expectedRisk = {
-    "account.get_snapshot": "READ_ONLY",
-    "market.get_context": "READ_ONLY",
-    "operation.get_status": "READ_ONLY",
-    "order.cancel_entry": "REDUCE_RISK",
-    "position.close": "REDUCE_RISK",
-    "position.reduce": "REDUCE_RISK",
-    "protection.tighten_stop": "REDUCE_RISK",
-    "trade.propose_intent": "PROPOSE_INCREASE",
-    "trade.request_confirmation": "PROPOSE_INCREASE",
-    "trade.submit_feedback": "LEARNING_ONLY",
+    cancel_entry_order: "REDUCE_RISK",
+    create_trade_intent: "PROPOSE_INCREASE",
+    get_account_state: "READ_ONLY",
+    get_market_snapshot: "READ_ONLY",
+    get_open_orders: "READ_ONLY",
+    get_positions: "READ_ONLY",
+    get_risk_limits: "READ_ONLY",
+    request_reduce_position: "REDUCE_RISK",
+    submit_trade_feedback: "LEARNING_ONLY",
+    tighten_stop: "REDUCE_RISK",
   };
   const forbiddenToolPattern =
     /(raw|sign|private.?key|wallet|withdraw|transfer|sql|shell|exec|spawn)/i;
@@ -262,6 +381,13 @@ async function verifyMcpInventory() {
     assert.ok(!forbiddenToolPattern.test(tool.name), `forbidden MCP name ${tool.name}`);
     const validateInput = ajv.compile(tool.input_schema);
     assert.equal(typeof validateInput, "function");
+    for (const field of serverFields) {
+      assert.equal(
+        validateInput({ [field]: "22222222-2222-4222-8222-222222222222" }),
+        false,
+        `${tool.name}: model supplied ${field} was accepted`,
+      );
+    }
     walkObject(tool.input_schema, (key) => {
       assert.ok(
         !serverFields.has(key),
@@ -269,6 +395,46 @@ async function verifyMcpInventory() {
       );
     });
   }
+
+  const createIntent = inventory.tools.find(
+    ({ name }) => name === "create_trade_intent",
+  );
+  const validateCreateIntent = ajv.compile(createIntent.input_schema);
+  const validCreateInput = {
+    symbol: "BTC-PERP",
+    side: "BUY",
+    position_effect: "OPEN",
+    order_type: "MARKET",
+    time_in_force: "IOC",
+    quantity: "0.025",
+    margin_mode: "ISOLATED",
+    leverage: 5,
+    entry_price_or_bound: "118452",
+    worst_acceptable_price: "118689",
+    stop_trigger: "115200",
+  };
+  assert.ok(validateCreateIntent(validCreateInput));
+  assert.equal(
+    validateCreateIntent({ ...validCreateInput, user_id: "injected" }),
+    false,
+  );
+  assert.equal(
+    validateCreateIntent({
+      ...validCreateInput,
+      order_type: "LIMIT",
+      time_in_force: "IOC",
+    }),
+    false,
+  );
+
+  const architecture = await readText("../docs/02_SYSTEM_ARCHITECTURE.md");
+  const approvedBlock = architecture
+    .split("允许的工具：")[1]
+    .split("禁止的工具：")[0];
+  const approvedNames = [...approvedBlock.matchAll(/`([^`]+)`/g)]
+    .map(([, name]) => name)
+    .sort();
+  assert.deepEqual(approvedNames, expectedNames);
 }
 
 async function verifyStateMachines() {
@@ -288,15 +454,31 @@ async function verifyStateMachines() {
     !protectionTransitions.has("PROTECTION_FAILED->PROTECTED"),
     "failed protection cannot silently recover",
   );
+  assert.ok(protectionTransitions.has("PROTECTED->PARTIALLY_FILLED"));
+  assert.ok(protectionTransitions.has("PROTECTION_PENDING->PARTIALLY_FILLED"));
 
   verifyStateMachine(await readJson("state-machines/automation.json"));
 }
 
 async function verifyOpenApiAndProto() {
+  const openApiPath = path.join(root, "openapi/openapi.yaml");
   const api = YAML.parse(await readText("openapi/openapi.yaml"));
+  const parsedApi = await SwaggerParser.validate(openApiPath);
+  assert.equal(parsedApi.openapi, "3.1.0");
   assert.equal(api.openapi, "3.1.0");
   assert.ok(Object.keys(api.paths).length >= 6);
   assert.deepEqual(api["x-websocket"].client_messages, []);
+  assert.deepEqual(
+    api.paths["/v1/confirmations/{confirmation_id}/consume"].post[
+      "x-server-injected-scope"
+    ],
+    ["user_id", "account_id", "device_id", "session_id"],
+  );
+  const consumeBody =
+    api.paths["/v1/confirmations/{confirmation_id}/consume"].post.requestBody
+      .content["application/json"].schema;
+  assert.deepEqual(consumeBody.required, ["confirmation_hash"]);
+  assert.ok(!Object.hasOwn(consumeBody.properties, "device_challenge_signature"));
 
   const operationIds = [];
   for (const pathItem of Object.values(api.paths)) {
@@ -311,29 +493,114 @@ async function verifyOpenApiAndProto() {
   assert.ok(!Object.keys(api.paths).some((route) => /sign|withdraw|transfer/i.test(route)));
 
   const proto = await readText("proto/fit/v1/trading.proto");
+  const parsedProto = protobuf.parse(proto, { keepCase: true });
+  assert.ok(parsedProto.root.lookupType("fit.v1.TradeIntent"));
+  assert.ok(parsedProto.root.lookupService("fit.v1.TradingCore"));
+  const domainSchema = await readJson("jsonschema/fit-trade-v1.schema.json");
+  const topLevelDomainNames = domainSchema.oneOf.map(({ $ref }) =>
+    $ref.split("/").at(-1),
+  );
+  for (const name of topLevelDomainNames) {
+    const protoFields = Object.keys(
+      parsedProto.root.lookupType(`fit.v1.${name}`).fields,
+    ).sort();
+    const schemaFields = Object.keys(domainSchema.$defs[name].properties).sort();
+    assert.deepEqual(
+      protoFields,
+      schemaFields,
+      `${name}: Proto and JSON Schema fields diverge`,
+    );
+  }
   assert.match(proto, /^syntax = "proto3";/);
   assert.match(proto, /\bpackage fit\.v1;/);
   for (const message of [
     "TradeIntent",
     "ConfirmationTicket",
     "Operation",
+    "ExecutionAttempt",
+    "Order",
+    "Fill",
     "PositionSnapshot",
+    "RiskPolicy",
+    "AutomationGrant",
+    "ModelProposal",
+    "ModelReview",
+    "AuditEvent",
+    "AuthenticatedScope",
+    "RiskDecision",
+    "ExecutionCommand",
+    "ExecutionResult",
+    "ProtectionStatus",
+    "ReconciliationStatus",
+    "AgentFeedback",
+    "AutomationAuthorization",
+    "ErrorDetail",
   ]) {
     assert.match(proto, new RegExp(`\\bmessage ${message}\\b`));
   }
   assert.match(proto, /\bservice TradingCore\b/);
   assert.doesNotMatch(proto, /\b(?:float|double)\b/);
+  const consumeMessage = proto.match(
+    /message ConsumeConfirmationRequest \{([\s\S]*?)\n\}/,
+  )?.[1];
+  assert.ok(consumeMessage);
+  assert.match(consumeMessage, /AuthenticatedScope scope/);
+  assert.doesNotMatch(consumeMessage, /device_challenge_signature/);
+
+  const taxonomy = await readJson("error-taxonomy-v1.json");
+  const apiPairs =
+    api.components.schemas.Problem.allOf[0].oneOf.map(({ properties }) => ({
+      code: properties.code.const,
+      retry: properties.retry.const,
+    }));
+  assert.deepEqual(apiPairs, taxonomy.errors);
+  const problemAjv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(problemAjv);
+  const validateProblem = problemAjv.compile(api.components.schemas.Problem);
+  for (const { code, retry } of taxonomy.errors) {
+    assert.ok(
+      validateProblem({
+        code,
+        retry,
+        message: "Redacted",
+        correlation_id: "11111111-1111-4111-8111-111111111111",
+      }),
+      `${code}: OpenAPI Problem pair rejected`,
+    );
+  }
+  assert.equal(
+    validateProblem({
+      code: "UNKNOWN_REQUIRES_RECONCILIATION",
+      retry: "BOUNDED_BACKOFF_BEFORE_DISPATCH",
+      message: "Redacted",
+      correlation_id: "11111111-1111-4111-8111-111111111111",
+    }),
+    false,
+  );
 }
 
 async function verifyErrorAndFakeContracts() {
   const taxonomy = await readText("spec/error-taxonomy.md");
-  const codes = [...taxonomy.matchAll(/\| `([A-Z][A-Z0-9_]+)` \|/g)].map(
-    ([, code]) => code,
-  );
+  const markdownPairs = [
+    ...taxonomy.matchAll(
+      /^\| `([A-Z][A-Z0-9_]+)` \| [^|]+ \| `([A-Z][A-Z0-9_]+)` \|/gm,
+    ),
+  ].map(([, code, retry]) => ({ code, retry }));
+  const codes = markdownPairs.map(({ code }) => code);
   assert.ok(codes.length >= 12);
   assert.equal(new Set(codes).size, codes.length);
   assert.ok(codes.includes("UNKNOWN_REQUIRES_RECONCILIATION"));
   assert.match(taxonomy, /blind retry is forbidden/i);
+  const machineTaxonomy = await readJson("error-taxonomy-v1.json");
+  assert.equal(machineTaxonomy.schema_version, "fit.errors.v1");
+  assert.deepEqual(
+    machineTaxonomy.errors,
+    markdownPairs,
+  );
+  assert.equal(
+    new Set(machineTaxonomy.errors.map(({ code }) => code)).size,
+    machineTaxonomy.errors.length,
+  );
 
   const fake = await readJson("fake-hyperliquid-scenarios-v1.json");
   assert.equal(fake.schema_version, "fit.fake-hyperliquid.v1");
@@ -343,59 +610,99 @@ async function verifyErrorAndFakeContracts() {
     new Set(fake.scenarios.map(({ id }) => id)).size,
     fake.scenarios.length,
   );
-  for (const id of [
+  const requiredScenarioIds = [
     "dispatch_timeout_after_send",
     "duplicate_event",
+    "executor_crash_after_exchange_success",
+    "result_published_ack_lost",
+    "duplicate_client_order_id",
+    "partial_fill_then_parent_cancel",
+    "rapid_consecutive_partial_fills",
+    "protection_response_lost",
+    "replacement_stop_create_failed_old_stop_active",
     "partial_fill_protection_failed",
+    "emergency_close_residual_position",
+    "manual_native_position_change",
     "stale_market_snapshot",
-  ]) {
+  ];
+  for (const id of requiredScenarioIds) {
     assert.ok(fake.scenarios.some((scenario) => scenario.id === id));
   }
+
+  const logging = await readJson("logging-policy-v1.json");
+  assert.equal(logging.schema_version, "fit.logging.v1");
+  assert.equal(logging.drop_unknown_fields, true);
+  assert.equal(
+    logging.allowed_fields.some((field) => logging.redacted_fields.includes(field)),
+    false,
+  );
+  const redacted = {};
+  for (const [key, value] of Object.entries(logging.test_vector.input)) {
+    if (logging.allowed_fields.includes(key)) redacted[key] = value;
+    else if (logging.redacted_fields.includes(key)) {
+      redacted[key] = logging.replacement;
+    }
+  }
+  assert.deepEqual(redacted, logging.test_vector.expected);
 }
 
 async function verifySecretBaseline() {
-  const roots = [
-    "README.md",
-    "confirmation-fields.json",
-    "mcp-tools-v1.json",
-    "jsonschema",
-    "state-machines",
-    "fixtures",
-    "proto",
-    "openapi",
-    "spec",
-    "security",
-  ];
+  const repositoryRoot = path.resolve(root, "..");
   const files = [];
+  const skippedDirectories = new Set([".git", "node_modules"]);
+  const skippedExtensions = new Set([
+    ".gif",
+    ".ico",
+    ".jpg",
+    ".jpeg",
+    ".pdf",
+    ".png",
+    ".webp",
+  ]);
 
-  async function collect(relativePath) {
-    const absolute = path.join(root, relativePath);
-    const entries = await readdir(absolute, { withFileTypes: true }).catch(
-      () => null,
-    );
-    if (entries === null) {
-      files.push(relativePath);
-      return;
-    }
+  async function collect(absoluteDirectory) {
+    const entries = await readdir(absoluteDirectory, { withFileTypes: true });
     for (const entry of entries) {
-      const child = path.join(relativePath, entry.name);
-      if (entry.isDirectory()) await collect(child);
-      else files.push(child);
+      if (entry.isDirectory() && skippedDirectories.has(entry.name)) continue;
+      const child = path.join(absoluteDirectory, entry.name);
+      if (entry.isDirectory()) {
+        await collect(child);
+      } else if (!skippedExtensions.has(path.extname(entry.name).toLowerCase())) {
+        files.push(child);
+      }
     }
   }
 
-  for (const relativePath of roots) await collect(relativePath);
+  await collect(repositoryRoot);
   const patterns = [
     /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
     /\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{16,}/,
     /\b(?:API_KEY|SECRET_KEY|PRIVATE_KEY)\s*[:=]\s*["'][^"' \n]{8,}/,
     /\bBearer\s+[A-Za-z0-9._-]{20,}/,
+    /(?:mnemonic|seed[_-]?phrase)\s*[:=]\s*["'](?:[a-z]+\s+){11,23}[a-z]+["']/i,
   ];
-  for (const relativePath of files.sort()) {
-    const content = await readText(relativePath);
+  for (const absolutePath of files.sort()) {
+    const content = await readFile(absolutePath, "utf8");
     for (const pattern of patterns) {
-      assert.doesNotMatch(content, pattern, `${relativePath}: secret-like value`);
+      assert.doesNotMatch(
+        content,
+        pattern,
+        `${path.relative(repositoryRoot, absolutePath)}: secret-like value`,
+      );
     }
+  }
+
+  const history = execFileSync(
+    "git",
+    ["log", "-p", "--all", "--", "."],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      maxBuffer: 50 * 1024 * 1024,
+    },
+  );
+  for (const pattern of patterns) {
+    assert.doesNotMatch(history, pattern, "Git history contains a secret-like value");
   }
 }
 

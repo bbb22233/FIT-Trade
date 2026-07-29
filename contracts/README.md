@@ -24,6 +24,8 @@ must not redefine trading semantics independently.
 - `jsonschema/fit-trade-v1.schema.json`: canonical domain objects
 - `jsonschema/mcp-tools-v1.schema.json`: MCP inventory validation schema
 - `mcp-tools-v1.json`: complete allowed MCP inventory
+- `error-taxonomy-v1.json`: machine-readable code/retry pairs
+- `logging-policy-v1.json`: executable structured-log allowlist and redaction vector
 - `state-machines/*.json`: allowed transition graphs
 - `confirmation-fields.json`: confirmation-bound field order
 - `proto/fit/v1/trading.proto`: internal service contract

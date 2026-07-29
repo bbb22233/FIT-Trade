@@ -1,7 +1,7 @@
 {
   "name": "Operation",
   "initial": "DRAFT",
-  "terminal": ["FINAL"],
+  "terminal": ["MANUAL_RECONCILIATION", "FINAL"],
   "states": [
     "DRAFT",
     "AWAITING_CONFIRMATION",
