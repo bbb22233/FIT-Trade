@@ -52,9 +52,41 @@
     "components": {
       "type": "array",
       "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/Component"
-      }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "const": "postgresql"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "const": "recovery-tool"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
     },
     "verification_gates": {
       "type": "array",
@@ -169,6 +201,68 @@
                 "status"
               ]
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "BACKUP_CORRUPTION",
+                  "MISSING_WAL",
+                  "INCOMPATIBLE_MIGRATION",
+                  "PARTIAL_RESTORE",
+                  "MISSING_CREDENTIAL",
+                  "EXTERNAL_EGRESS"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        },
+        "required": [
+          "failure"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "const": "FAIL_CLOSED"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "FAIL_CLOSED"
+          }
+        },
+        "required": [
+          "result"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verification_gates": {
+            "contains": {
+              "properties": {
+                "status": {
+                  "const": "FAIL"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "minContains": 1
           }
         }
       }
@@ -315,9 +409,10 @@
       ],
       "properties": {
         "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
+          "enum": [
+            "postgresql",
+            "recovery-tool"
+          ]
         },
         "version": {
           "type": "string",

@@ -82,6 +82,7 @@
       "success_effect": "ATOMIC_CONSUME_NONCE_AND_REBIND",
       "invalid_effect": "CLOSE_4401",
       "deadline_equality_effect": "CLOSE_4401",
+      "pending_application_frame_before_expiry": "ALLOW",
       "expired_pending_application_frame": "REJECT",
       "revocation_maximum_seconds": 5
     },

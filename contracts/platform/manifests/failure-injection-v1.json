@@ -1,5 +1,5 @@
 {
-  "schema_version": "fit.platform.failure-injection.v2",
+  "schema_version": "fit.platform.failure-injection.v1",
   "coverage_model": "DERIVE_EVERY_CUT_FROM_TRANSACTION_BOUNDARIES_MANIFEST",
   "injection_methods": [
     "PROCESS_KILL",
@@ -46,6 +46,14 @@
       "external_boundaries": [
         "AFTER_POSTGRESQL_COMMIT_BEFORE_NATS_ACK",
         "AFTER_NATS_ACK"
+      ]
+    },
+    {
+      "workflow": "password_failure",
+      "transaction_groups": [
+        [
+          "single_postgresql_transaction"
+        ]
       ]
     },
     {

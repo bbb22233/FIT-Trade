@@ -115,7 +115,7 @@ function isoMilliseconds(value) {
 function parseStrictJson(raw) {
   let cursor = 0;
   const skipWhitespace = () => {
-    while (/\s/u.test(raw[cursor] ?? "")) cursor += 1;
+    while (/[ \t\r\n]/u.test(raw[cursor] ?? "")) cursor += 1;
   };
   const parseString = () => {
     assert.equal(raw[cursor], '"', "expected JSON string");
@@ -164,7 +164,7 @@ function parseStrictJson(raw) {
     }
   };
   const parseObject = () => {
-    const value = {};
+    const value = Object.create(null);
     const keys = new Set();
     cursor += 1;
     skipWhitespace();
@@ -176,6 +176,10 @@ function parseStrictJson(raw) {
       skipWhitespace();
       const key = parseString();
       assert(!keys.has(key), `duplicate JSON object key ${key}`);
+      assert(
+        !["__proto__", "constructor", "prototype"].includes(key),
+        `unsafe JSON object key ${key}`,
+      );
       keys.add(key);
       skipWhitespace();
       assert.equal(raw[cursor], ":", "expected object colon");
@@ -194,6 +198,66 @@ function parseStrictJson(raw) {
   skipWhitespace();
   assert.equal(cursor, raw.length, "trailing JSON bytes");
   return value;
+}
+
+function enrollmentStateFromFixture(fixture) {
+  return {
+    identities: new Map(
+      fixture.identity_directory.map((identity) => [
+        identity.identifier,
+        {
+          userId: identity.user_id,
+          passwordVerifierSha256: identity.password_verifier_sha256,
+        },
+      ]),
+    ),
+    challenges: new Map(),
+    devices: new Set(),
+    sessions: new Set(),
+    refreshFamilies: new Set(),
+    auditEvents: new Set(),
+    notifications: new Set(),
+    outboxRecords: new Set(),
+  };
+}
+
+function startEnrollment(state, input, wire) {
+  const identity = state.identities.get(input.identifier);
+  const passwordValid =
+    identity !== undefined &&
+    input.password_attempt_sha256 === identity.passwordVerifierSha256;
+  if (identity === undefined || !passwordValid) {
+    return { wire, persisted: false };
+  }
+  state.challenges.set(wire.subject_handle, {
+    userId: identity.userId,
+    purpose: input.purpose,
+    candidateFingerprint: wire.candidate_public_key_fingerprint,
+    attempted: false,
+  });
+  state.auditEvents.add(`challenge-audit:${wire.subject_handle}`);
+  state.outboxRecords.add(`challenge-outbox:${wire.subject_handle}`);
+  return { wire, persisted: true };
+}
+
+function completeEnrollment(state, subjectHandle, proofValid) {
+  const challenge = state.challenges.get(subjectHandle);
+  if (challenge === undefined) return "REJECT_NO_SERVER_STATE";
+  if (challenge.attempted) return "REJECT_REPLAY";
+  challenge.attempted = true;
+  if (!proofValid) {
+    state.auditEvents.add(`invalid-proof-audit:${subjectHandle}`);
+    state.outboxRecords.add(`invalid-proof-outbox:${subjectHandle}`);
+    return "CONSUMED_INVALID_PROOF";
+  }
+  state.devices.add(`device:${subjectHandle}`);
+  state.sessions.add(`session:${subjectHandle}`);
+  state.refreshFamilies.add(`family:${subjectHandle}`);
+  state.auditEvents.add(`enrollment-audit:${subjectHandle}`);
+  state.notifications.add(`enrollment-notification:${subjectHandle}`);
+  state.outboxRecords.add(`enrollment-audit-outbox:${subjectHandle}`);
+  state.outboxRecords.add(`enrollment-notification-outbox:${subjectHandle}`);
+  return "CONSUMED_SUCCESS";
 }
 
 function challengeOutcome(item) {
@@ -233,7 +297,9 @@ function websocketOutcome(item) {
     return "CLOSE_REVOKED_WITHIN_5_SECONDS";
   }
   if (item.event === "APPLICATION_FRAME_WHILE_REAUTH_PENDING") {
-    return "REJECT_APPLICATION_FRAME";
+    return item.current_access_expired
+      ? "REJECT_APPLICATION_FRAME"
+      : "ALLOW_APPLICATION_FRAME";
   }
   if (item.event === "REAUTH_DEADLINE_WITHOUT_RESPONSE") {
     return "CLOSE_4401";
@@ -281,29 +347,48 @@ function strictRequestDecodeOutcome(item) {
 }
 
 function newThrottleDimension() {
-  return { failures: 0, nextAllowedMs: 0, lockedUntilMs: 0 };
+  return {
+    failureTimesMs: [],
+    failures: 0,
+    nextAllowedMs: 0,
+    lockedUntilMs: 0,
+  };
 }
 
-function clearExpiredThrottleState(state, nowMs) {
+function normalizeThrottleState(state, nowMs, windowMs) {
   if (state.lockedUntilMs > 0 && nowMs >= state.lockedUntilMs) {
+    state.failureTimesMs = [];
     state.failures = 0;
     state.nextAllowedMs = 0;
     state.lockedUntilMs = 0;
+    return;
+  }
+  state.failureTimesMs = state.failureTimesMs.filter(
+    (failureAtMs) => failureAtMs > nowMs - windowMs,
+  );
+  state.failures = state.failureTimesMs.length;
+  if (state.failures === 0 && state.lockedUntilMs === 0) {
+    state.nextAllowedMs = 0;
   }
 }
 
 function runThrottleTimeline(timeline, throttle) {
-  const source = newThrottleDimension();
+  const sources = new Map();
   const accounts = new Map();
   for (const event of timeline.events) {
     const nowMs = event.at_seconds * 1000;
+    const sourceKey = event.source_key ?? timeline.source_key;
+    const source = sources.get(sourceKey) ?? newThrottleDimension();
+    sources.set(sourceKey, source);
     const account =
       event.user_id === null
         ? null
         : (accounts.get(event.user_id) ?? newThrottleDimension());
     if (account !== null) accounts.set(event.user_id, account);
-    clearExpiredThrottleState(source, nowMs);
-    if (account !== null) clearExpiredThrottleState(account, nowMs);
+    normalizeThrottleState(source, nowMs, throttle.window_seconds * 1000);
+    if (account !== null) {
+      normalizeThrottleState(account, nowMs, throttle.window_seconds * 1000);
+    }
     const dimensions = [source, ...(account === null ? [] : [account])];
     let decision;
     let appliedDelaySeconds = 0;
@@ -312,13 +397,16 @@ function runThrottleTimeline(timeline, throttle) {
     } else if (dimensions.some((state) => nowMs < state.nextAllowedMs)) {
       decision = "DENY_DELAY";
     } else if (event.password_valid) {
+      assert(account !== null, `${timeline.name} accepted unresolved password`);
+      account.failureTimesMs = [];
       account.failures = 0;
       account.nextAllowedMs = 0;
       account.lockedUntilMs = 0;
       decision = "PASSWORD_ACCEPTED";
     } else {
       for (const state of dimensions) {
-        state.failures += 1;
+        state.failureTimesMs.push(nowMs);
+        state.failures = state.failureTimesMs.length;
         if (state.failures >= throttle.lock_on_failure) {
           state.lockedUntilMs = nowMs + throttle.lock_seconds * 1000;
           state.nextAllowedMs = 0;
@@ -363,6 +451,20 @@ function runThrottleTimeline(timeline, throttle) {
           `${timeline.name} account lock expiry`,
         );
       }
+    }
+    if (Object.hasOwn(event, "expected_source_lock_until_seconds")) {
+      assert.equal(
+        source.lockedUntilMs / 1000,
+        event.expected_source_lock_until_seconds,
+        `${timeline.name} source-only lock expiry`,
+      );
+    }
+    if (Object.hasOwn(event, "expected_account_lock_until_seconds")) {
+      assert.equal(
+        account?.lockedUntilMs / 1000,
+        event.expected_account_lock_until_seconds,
+        `${timeline.name} account-only lock expiry`,
+      );
     }
   }
 }
@@ -551,15 +653,41 @@ ajv.addKeyword({
   type: "object",
   errors: false,
   validate: (rule, data) => {
-    const start = Date.parse(data[rule.start]);
-    const end = Date.parse(data[rule.end]);
-    return (
-      Number.isFinite(start) &&
-      Number.isFinite(end) &&
-      end - start === rule.seconds * 1000 &&
-      (!Object.hasOwn(data, "revoked_at") ||
-        Date.parse(data.revoked_at) >= start)
-    );
+    try {
+      const start = Date.parse(data[rule.start]);
+      const end = Date.parse(data[rule.end]);
+      return (
+        Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        end - start === rule.seconds * 1000 &&
+        (!Object.hasOwn(data, "revoked_at") ||
+          Date.parse(data.revoked_at) >= start)
+      );
+    } catch {
+      return false;
+    }
+  },
+});
+ajv.addKeyword({
+  keyword: "x-fit-time-order",
+  schemaType: "array",
+  type: "object",
+  errors: false,
+  validate: (rules, data) => {
+    try {
+      return rules.every(({ start, end }) => {
+        if (!Object.hasOwn(data, end)) return true;
+        const startMs = Date.parse(data[start]);
+        const endMs = Date.parse(data[end]);
+        return (
+          Number.isFinite(startMs) &&
+          Number.isFinite(endMs) &&
+          endMs >= startMs
+        );
+      });
+    } catch {
+      return false;
+    }
   },
 });
 ajv.addKeyword({
@@ -568,23 +696,33 @@ ajv.addKeyword({
   type: "object",
   errors: false,
   validate: (_rule, data) => {
-    const issuedAt = Date.parse(data.issued_at);
-    const familyDeadline = Date.parse(data.family_deadline);
-    const expiresAt = Date.parse(data.expires_at);
-    const revokedAt = Object.hasOwn(data, "revoked_at")
-      ? Date.parse(data.revoked_at)
-      : null;
-    return (
-      Number.isFinite(issuedAt) &&
-      Number.isFinite(familyDeadline) &&
-      Number.isFinite(expiresAt) &&
-      familyDeadline > issuedAt &&
-      expiresAt === Math.min(issuedAt + 604_800_000, familyDeadline) &&
-      (revokedAt === null ||
-        (Number.isFinite(revokedAt) &&
-          revokedAt >= issuedAt &&
-          revokedAt <= familyDeadline))
-    );
+    try {
+      const familyCreatedAt = Date.parse(data.family_created_at);
+      const issuedAt = Date.parse(data.issued_at);
+      const familyDeadline = Date.parse(data.family_deadline);
+      const expiresAt = Date.parse(data.expires_at);
+      const revokedAt = Object.hasOwn(data, "revoked_at")
+        ? Date.parse(data.revoked_at)
+        : null;
+      return (
+        Number.isFinite(familyCreatedAt) &&
+        Number.isFinite(issuedAt) &&
+        Number.isFinite(familyDeadline) &&
+        Number.isFinite(expiresAt) &&
+        issuedAt >= familyCreatedAt &&
+        issuedAt < familyDeadline &&
+        familyDeadline - familyCreatedAt === 2_592_000_000 &&
+        expiresAt === Math.min(issuedAt + 604_800_000, familyDeadline) &&
+        (!Object.hasOwn(data, "rotated_to_digest") ||
+          data.rotated_to_digest !== data.token_digest) &&
+        (revokedAt === null ||
+          (Number.isFinite(revokedAt) &&
+            revokedAt >= issuedAt &&
+            revokedAt <= familyDeadline))
+      );
+    } catch {
+      return false;
+    }
   },
 });
 ajv.addKeyword({
@@ -593,16 +731,20 @@ ajv.addKeyword({
   type: "object",
   errors: false,
   validate: (_rule, data) => {
-    const issuedAt = Date.parse(data.issued_at);
-    const deadline = Date.parse(data.deadline);
-    const accessExpiry = Date.parse(data.current_access_expires_at);
-    return (
-      Number.isFinite(issuedAt) &&
-      Number.isFinite(deadline) &&
-      Number.isFinite(accessExpiry) &&
-      issuedAt < accessExpiry &&
-      deadline === Math.min(issuedAt + 60_000, accessExpiry)
-    );
+    try {
+      const issuedAt = Date.parse(data.issued_at);
+      const deadline = Date.parse(data.deadline);
+      const accessExpiry = Date.parse(data.current_access_expires_at);
+      return (
+        Number.isFinite(issuedAt) &&
+        Number.isFinite(deadline) &&
+        Number.isFinite(accessExpiry) &&
+        issuedAt < accessExpiry &&
+        deadline === Math.min(issuedAt + 60_000, accessExpiry)
+      );
+    } catch {
+      return false;
+    }
   },
 });
 ajv.addKeyword({
@@ -610,9 +752,25 @@ ajv.addKeyword({
   schemaType: "boolean",
   type: "object",
   errors: false,
-  validate: (_rule, data) =>
-    data.payload?.schema_version === data.payload_schema_version &&
-    sha256(jcsCanonicalize(data.payload)) === data.payload_digest,
+  validate: (_rule, data) => {
+    try {
+      return (
+        data !== null &&
+        typeof data === "object" &&
+        data.payload !== null &&
+        typeof data.payload === "object" &&
+        !Array.isArray(data.payload) &&
+        data.payload.schema_version === "fit.platform.event-payload.v1" &&
+        data.payload.schema_version === data.payload_schema_version &&
+        data.payload.subject === data.subject &&
+        data.payload.event_kind === data.event_kind &&
+        jcsCanonicalize(data.payload.scope) === jcsCanonicalize(data.scope) &&
+        sha256(jcsCanonicalize(data.payload)) === data.payload_digest
+      );
+    } catch {
+      return false;
+    }
+  },
 });
 ajv.addKeyword({
   keyword: "x-fit-recovery-consistency",
@@ -620,30 +778,51 @@ ajv.addKeyword({
   type: "object",
   errors: false,
   validate: (_rule, data) => {
-    const committedAt = Date.parse(data.last_committed?.committed_at);
-    const recoveredAt = Date.parse(data.last_recovered?.committed_at);
-    const injectedAt = Date.parse(data.failure?.injected_at);
-    const invokedAt = Date.parse(data.restore?.invoked_at);
-    const completedAt = Date.parse(data.restore?.verification_completed_at);
-    return (
-      [
-        committedAt,
-        recoveredAt,
-        injectedAt,
-        invokedAt,
-        completedAt,
-      ].every(Number.isFinite) &&
-      data.last_committed.sequence === 6000 &&
-      data.last_recovered.sequence <= data.last_committed.sequence &&
-      recoveredAt <= committedAt &&
-      committedAt === injectedAt &&
-      injectedAt <= invokedAt &&
-      invokedAt <= completedAt &&
-      data.observed_rpo.sequence_gap ===
-        data.last_committed.sequence - data.last_recovered.sequence &&
-      data.observed_rpo.time_gap_ms === committedAt - recoveredAt &&
-      data.observed_rto_ms === completedAt - invokedAt
-    );
+    try {
+      const committedAt = Date.parse(data.last_committed.committed_at);
+      const recoveredAt = Date.parse(data.last_recovered.committed_at);
+      const injectedAt = Date.parse(data.failure.injected_at);
+      const invokedAt = Date.parse(data.restore.invoked_at);
+      const completedAt = Date.parse(data.restore.verification_completed_at);
+      const failClosedKinds = new Set([
+        "BACKUP_CORRUPTION",
+        "MISSING_WAL",
+        "INCOMPATIBLE_MIGRATION",
+        "PARTIAL_RESTORE",
+        "MISSING_CREDENTIAL",
+        "EXTERNAL_EGRESS",
+      ]);
+      const gateStatuses = data.verification_gates.map(({ status }) => status);
+      const componentNames = data.components.map(({ name }) => name).sort();
+      return (
+        [
+          committedAt,
+          recoveredAt,
+          injectedAt,
+          invokedAt,
+          completedAt,
+        ].every(Number.isFinite) &&
+        data.last_committed.sequence === 6000 &&
+        data.last_recovered.sequence <= data.last_committed.sequence &&
+        recoveredAt <= committedAt &&
+        committedAt === injectedAt &&
+        injectedAt <= invokedAt &&
+        invokedAt <= completedAt &&
+        data.restore.start_event_id !== data.restore.completion_event_id &&
+        data.observed_rpo.sequence_gap ===
+          data.last_committed.sequence - data.last_recovered.sequence &&
+        data.observed_rpo.time_gap_ms === committedAt - recoveredAt &&
+        data.observed_rto_ms === completedAt - invokedAt &&
+        jcsCanonicalize(componentNames) ===
+          jcsCanonicalize(["postgresql", "recovery-tool"]) &&
+        (!failClosedKinds.has(data.failure.kind) ||
+          data.result === "FAIL_CLOSED") &&
+        (data.result !== "FAIL_CLOSED" ||
+          gateStatuses.some((status) => status === "FAIL"))
+      );
+    } catch {
+      return false;
+    }
   },
 });
 ajv.addSchema(platformSchema);
@@ -698,18 +877,15 @@ const validateUntrustedMutation = validatorFor("UntrustedMutationInput");
 const validUntrustedMutation = validFixtureSet.cases.find(
   ({ schema }) => schema === "UntrustedMutationInput",
 ).value;
-for (const forbiddenField of [
-  "authorization",
-  "ownership_id",
-  "refresh_family_id",
-  "identity_origin",
-  "role",
-  "actor",
-  "scope",
-  "issued_at",
-  "revoked_at",
-  "signature_verified",
-]) {
+const recursiveAuthorityDenylist =
+  platformSchema.$defs.UntrustedJsonObject.propertyNames.not.enum;
+for (const serverOwnedField of transactions.server_owned_fields) {
+  assert(
+    recursiveAuthorityDenylist.includes(serverOwnedField),
+    `server-owned field ${serverOwnedField} missing recursive denylist`,
+  );
+}
+for (const forbiddenField of recursiveAuthorityDenylist) {
   const mutation = clone(validUntrustedMutation);
   mutation.body = {
     nested: [{ deeper: { [forbiddenField]: "client-forged-authority" } }],
@@ -758,9 +934,9 @@ assert.equal(
 );
 assert.equal(
   isoMilliseconds(validRefreshRecord.family_deadline) -
-    isoMilliseconds(validRefreshRecord.issued_at),
+    isoMilliseconds(validRefreshRecord.family_created_at),
   security.tokens.refresh_family_max_lifetime_seconds * 1000,
-  "initial refresh family deadline drifted",
+  "refresh family maximum lifetime drifted",
 );
 for (const mutation of [
   { ...validSession, access_expires_at: "2026-07-29T11:00:00Z" },
@@ -778,6 +954,19 @@ for (const mutation of [
 }
 for (const mutation of [
   { ...validRefreshRecord, expires_at: "2026-08-30T10:00:00Z" },
+  {
+    ...validRefreshRecord,
+    family_deadline: "2026-10-29T10:00:00Z",
+  },
+  {
+    ...validRefreshRecord,
+    family_created_at: "2026-07-29T10:00:01Z",
+  },
+  {
+    ...validRefreshRecord,
+    status: "ROTATED",
+    rotated_to_digest: validRefreshRecord.token_digest,
+  },
   { ...validRefreshRecord, revoked_at: "2026-07-29T10:01:00Z" },
   {
     ...validRefreshRecord,
@@ -788,6 +977,45 @@ for (const mutation of [
   assert(
     !validatorFor("RefreshTokenRecord")(mutation),
     "refresh record accepted contradictory state or invalid expiry formula",
+  );
+}
+const validOwnership = validFixtureSet.cases.find(
+  ({ schema }) => schema === "TradingAccountOwnership",
+).value;
+const validDevice = validFixtureSet.cases.find(
+  ({ schema }) => schema === "Device",
+).value;
+const validOutboxRecord = validFixtureSet.cases.find(
+  ({ schema }) => schema === "OutboxRecord",
+).value;
+for (const [schema, mutation] of [
+  [
+    "TradingAccountOwnership",
+    {
+      ...validOwnership,
+      status: "REVOKED",
+      revoked_at: "2026-07-29T09:59:59Z",
+    },
+  ],
+  [
+    "Device",
+    {
+      ...validDevice,
+      status: "REVOKED",
+      revoked_at: "2026-07-29T09:59:59Z",
+    },
+  ],
+  [
+    "OutboxRecord",
+    {
+      ...validOutboxRecord,
+      published_at: "2026-07-29T09:59:59Z",
+    },
+  ],
+]) {
+  assert(
+    !validatorFor(schema)(mutation),
+    `${schema} accepted lifecycle time before creation`,
   );
 }
 const validEnrollmentChallenge = validFixtureSet.cases.find(
@@ -930,32 +1158,41 @@ for (const scenario of scenarios.challenge_cases) {
   );
 }
 const syntheticHandles = new Set();
-for (const scenario of executableSecurity.synthetic_enrollment_cases) {
+for (const scenario of executableSecurity.enrollment_transition_cases) {
   assert(
     validatorFor("EnrollmentChallenge")(scenario.wire),
     `synthetic challenge wire is invalid: ${scenario.name}`,
   );
-  assert.equal(scenario.identifier_resolved, false, scenario.name);
-  assert.equal(scenario.server_state_exists, false, scenario.name);
-  assert.equal(scenario.persisted, false, scenario.name);
-  assert.equal(scenario.completion_attempted, true, scenario.name);
-  assert.equal(scenario.devices_after, scenario.devices_before, scenario.name);
-  assert.equal(scenario.sessions_after, scenario.sessions_before, scenario.name);
+  assert.match(scenario.input.password_attempt_sha256, /^[a-f0-9]{64}$/u);
+  assert.equal(scenario.wire.purpose, scenario.input.purpose, scenario.name);
+  const state = enrollmentStateFromFixture(executableSecurity);
+  const startResult = startEnrollment(state, scenario.input, scenario.wire);
   assert.equal(
-    scenario.refresh_families_after,
-    scenario.refresh_families_before,
+    startResult.persisted,
+    scenario.expected_start_persisted,
     scenario.name,
   );
   assert.equal(
-    challengeOutcome({
-      synthetic: true,
-      already_attempted: false,
-      now: scenario.wire.issued_at,
-      expires_at: scenario.wire.expires_at,
-      proof_valid: true,
-    }),
-    scenario.expected,
+    completeEnrollment(
+      state,
+      startResult.wire.subject_handle,
+      scenario.completion.proof_valid,
+    ),
+    scenario.expected_completion,
     scenario.name,
+  );
+  assertDeepEqual(
+    {
+      challenges: state.challenges.size,
+      devices: state.devices.size,
+      sessions: state.sessions.size,
+      refresh_families: state.refreshFamilies.size,
+      audit_events: state.auditEvents.size,
+      notifications: state.notifications.size,
+      outbox_records: state.outboxRecords.size,
+    },
+    scenario.expected_durable_counts,
+    `${scenario.name} durable state delta`,
   );
   assert(!syntheticHandles.has(scenario.wire.subject_handle), scenario.name);
   syntheticHandles.add(scenario.wire.subject_handle);
@@ -1136,7 +1373,14 @@ for (const scenario of executableSecurity.websocket_upgrade_cases) {
   const matches = Object.entries(tokenClaims).every(
     ([field, value]) => bindingFixture[field] === value,
   );
-  assert.equal(matches ? "ACCEPT" : "REJECT", scenario.expected, scenario.name);
+  const accepted =
+    matches &&
+    scenario.token_signature_valid &&
+    scenario.token_not_expired &&
+    scenario.session_active &&
+    scenario.device_active &&
+    scenario.refresh_family_active;
+  assert.equal(accepted ? "ACCEPT" : "REJECT", scenario.expected, scenario.name);
 }
 for (const scenario of executableSecurity.websocket_redaction_cases) {
   assert(
@@ -1151,6 +1395,24 @@ for (const scenario of executableSecurity.websocket_redaction_cases) {
     `${scenario.field} redaction sinks drifted`,
   );
 }
+assert.equal(
+  security.websocket_reauthorization.upgrade_binding_validation,
+  "VALID_UNEXPIRED_ACCESS_TOKEN_AND_ACTIVE_USER_ACCOUNT_DEVICE_SESSION_REFRESH_FAMILY_EXACT_MATCH",
+);
+assert.equal(
+  security.websocket_reauthorization.application_frame_while_reauth_pending,
+  "ALLOW_UNTIL_CURRENT_ACCESS_EXPIRY",
+);
+assert.equal(
+  stateMachines.machines.websocket_reauthorization
+    .pending_application_frame_before_expiry,
+  "ALLOW",
+);
+assert.equal(
+  security.websocket_reauthorization
+    .sensitive_control_data_in_logs_traces_metrics_application_messages,
+  false,
+);
 
 for (const scenario of scenarios.idempotency_cases) {
   assert.equal(
@@ -1172,6 +1434,9 @@ for (const [raw, accepted] of [
   ['{"body":{"decision":"CONFIRM","decision":"REJECT"},"path":{}}', false],
   ['{"body":{"nested":{"scope":"A","scope":"B"}},"path":{}}', false],
   ['{"items":[{"nonce":"A"},{"nonce":"B"}]}', true],
+  [' {"body":{}}', false],
+  ['{"body":{"__proto__":{"authority":"client"}}}', false],
+  ['{"body":{"constructor":{"authority":"client"}}}', false],
 ]) {
   let parsed = false;
   try {
@@ -1181,6 +1446,47 @@ for (const [raw, accepted] of [
     parsed = false;
   }
   assert.equal(parsed, accepted, `strict raw JSON decision drifted for ${raw}`);
+}
+assertDeepEqual(security.request_digest.strict_raw_json_decoder.entry_points, {
+  HTTP_MUTATION_BODY: "BEFORE_HANDLER_AND_SCHEMA_VALIDATION",
+  WEBSOCKET_CONTROL_FRAME:
+    "BEFORE_CONTROL_FRAME_DISPATCH_AND_SCHEMA_VALIDATION",
+});
+assertDeepEqual(
+  security.request_digest.strict_raw_json_decoder.allowed_whitespace_bytes,
+  ["0x20", "0x09", "0x0a", "0x0d"],
+);
+assertDeepEqual(
+  security.request_digest.strict_raw_json_decoder
+    .reject_prototype_mutation_keys,
+  ["__proto__", "constructor", "prototype"],
+);
+assert.equal(
+  security.request_digest.strict_raw_json_decoder
+    .reject_duplicate_keys_at_any_depth,
+  true,
+);
+assert.equal(
+  security.request_digest.strict_raw_json_decoder
+    .already_parsed_object_is_acceptable_evidence,
+  false,
+);
+for (const scenario of executableSecurity.raw_entrypoint_cases) {
+  assert(
+    Object.hasOwn(
+      security.request_digest.strict_raw_json_decoder.entry_points,
+      scenario.entry_point,
+    ),
+    `${scenario.name} uses an unbound strict-decoding entry point`,
+  );
+  let outcome = "REJECT";
+  try {
+    const decoded = parseStrictJson(scenario.raw);
+    outcome = validatorFor(scenario.schema)(decoded) ? "ACCEPT" : "REJECT";
+  } catch {
+    outcome = "REJECT";
+  }
+  assert.equal(outcome, scenario.expected, scenario.name);
 }
 
 for (const vector of scenarios.source_key_vectors) {
@@ -1473,13 +1779,58 @@ for (const mutate of [
     "recovery evidence accepted drifted workload, arithmetic, or ordering",
   );
 }
+for (const failureKind of recoveryPolicy.fail_closed_conditions) {
+  const falselyPassing = clone(recoveryFixture);
+  falselyPassing.failure.kind = failureKind;
+  assert(
+    !recoveryValidator(falselyPassing),
+    `${failureKind} accepted result=PASS`,
+  );
+  const failClosedWithNoFailedGate = clone(falselyPassing);
+  failClosedWithNoFailedGate.result = "FAIL_CLOSED";
+  assert(
+    !recoveryValidator(failClosedWithNoFailedGate),
+    `${failureKind} accepted FAIL_CLOSED without a failed verification gate`,
+  );
+  failClosedWithNoFailedGate.verification_gates[0].status = "FAIL";
+  assert(
+    recoveryValidator(failClosedWithNoFailedGate),
+    `${failureKind} rejected bound fail-closed evidence`,
+  );
+}
+for (const mutate of [
+  (value) => {
+    value.restore.completion_event_id = value.restore.start_event_id;
+  },
+  (value) => {
+    value.components = [value.components[0], clone(value.components[0])];
+    value.components[1].artifact_sha256 = "1".repeat(64);
+  },
+  (value) => {
+    value.components = [value.components[0]];
+  },
+]) {
+  const adversarial = clone(recoveryFixture);
+  mutate(adversarial);
+  assert(
+    !recoveryValidator(adversarial),
+    "recovery evidence accepted ambiguous restore markers or components",
+  );
+}
+for (const malformed of [{}, { schema_version: "fit.platform.recovery-evidence.v1" }]) {
+  assert.doesNotThrow(
+    () => recoveryValidator(malformed),
+    "RecoveryEvidence validator threw on malformed input",
+  );
+  assert(!recoveryValidator(malformed));
+}
 
 const validEventEnvelope = validFixtureSet.cases.find(
   ({ schema }) => schema === "EventEnvelope",
 ).value;
 for (const mutate of [
   (value) => {
-    value.payload.decision = "REJECT";
+    value.payload.data.decision = "REJECT";
   },
   (value) => {
     value.payload_schema_version = "fit.platform.changed.v1";
@@ -1494,6 +1845,45 @@ for (const mutate of [
     !validatorFor("EventEnvelope")(adversarial),
     "event envelope accepted an unbound payload mutation",
   );
+}
+const nonexistentPayloadSchema = clone(validEventEnvelope);
+nonexistentPayloadSchema.payload_schema_version =
+  "fit.platform.nonexistent-payload.v1";
+nonexistentPayloadSchema.payload.schema_version =
+  nonexistentPayloadSchema.payload_schema_version;
+nonexistentPayloadSchema.payload_digest = sha256(
+  jcsCanonicalize(nonexistentPayloadSchema.payload),
+);
+assert(
+  !validatorFor("EventEnvelope")(nonexistentPayloadSchema),
+  "event envelope accepted an unregistered payload schema",
+);
+for (const mutate of [
+  (value) => {
+    value.payload.subject = "fit.platform.v1.system.wal-archive-interrupted";
+  },
+  (value) => {
+    value.payload.event_kind = "WAL_ARCHIVE_INTERRUPTED";
+  },
+  (value) => {
+    value.payload.scope.trading_account_id =
+      "20000000-0000-4000-8000-000000000099";
+  },
+]) {
+  const adversarial = clone(validEventEnvelope);
+  mutate(adversarial);
+  adversarial.payload_digest = sha256(jcsCanonicalize(adversarial.payload));
+  assert(
+    !validatorFor("EventEnvelope")(adversarial),
+    "event envelope accepted recomputed payload identity drift",
+  );
+}
+for (const malformed of [{}, { schema_version: "fit.platform.event-envelope.v1" }]) {
+  assert.doesNotThrow(
+    () => validatorFor("EventEnvelope")(malformed),
+    "EventEnvelope validator threw on malformed input",
+  );
+  assert(!validatorFor("EventEnvelope")(malformed));
 }
 
 const canonicalGolden = jcsCanonicalize(golden.request_digest.value);
@@ -1779,8 +2169,11 @@ const exactSubjects = [
   "fit.platform.v1.auth-security.device-enrolled",
   "fit.platform.v1.auth-security.device-replaced",
   "fit.platform.v1.auth-security.device-revoked",
+  "fit.platform.v1.auth-security.enrollment-challenge-issued",
+  "fit.platform.v1.auth-security.enrollment-proof-rejected",
   "fit.platform.v1.auth-security.login-account-locked",
   "fit.platform.v1.auth-security.login-source-locked",
+  "fit.platform.v1.auth-security.login-succeeded",
   "fit.platform.v1.auth-security.refresh-reuse-detected",
   "fit.platform.v1.auth-security.session-revoked",
   "fit.platform.v1.notification.device-enrolled",
@@ -1788,6 +2181,7 @@ const exactSubjects = [
   "fit.platform.v1.notification.device-revoked",
   "fit.platform.v1.notification.login-account-locked",
   "fit.platform.v1.notification.login-source-locked",
+  "fit.platform.v1.notification.owner-mutation-committed",
   "fit.platform.v1.notification.refresh-reuse-detected",
   "fit.platform.v1.notification.session-revoked",
   "fit.platform.v1.notification.wal-archive-interrupted",
@@ -1970,12 +2364,15 @@ for (const [chainIndex, chain] of linkageChains.chains.entries()) {
   }
   const outboxRecords = durableRecords.map((durable, recordIndex) => {
     const payload = {
-      schema_version: "fit.platform.persistence-link.v1",
-      record_type: durable.recordType,
-      record_id: durable.recordId,
-      causation_id: chain.causation_id,
-      correlation_id: chain.correlation_id,
+      schema_version: "fit.platform.event-payload.v1",
+      subject: durable.subject,
+      event_kind: chain.kind,
       scope: chain.scope,
+      data: {
+        record_type: durable.recordType,
+        record_id: durable.recordId,
+        record: durable.record,
+      },
     };
     const event = {
       schema_version: "fit.platform.event-envelope.v1",
@@ -2018,9 +2415,14 @@ for (const [chainIndex, chain] of linkageChains.chains.entries()) {
     `${chain.name} outbox count`,
   );
   assertDeepEqual(
-    outboxRecords.map(({ event }) => event.payload.record_id),
+    outboxRecords.map(({ event }) => event.payload.data.record_id),
     durableRecords.map(({ recordId }) => recordId),
     `${chain.name} could not rebuild durable links from Outbox payloads`,
+  );
+  assertDeepEqual(
+    outboxRecords.map(({ event }) => event.payload.data.record),
+    durableRecords.map(({ record }) => record),
+    `${chain.name} could not rebuild complete durable records from Outbox`,
   );
   for (const { event } of outboxRecords) {
     assert.equal(event.causation_id, chain.causation_id, chain.name);
@@ -2042,9 +2444,18 @@ for (const [chainIndex, chain] of linkageChains.chains.entries()) {
   assert.equal(chain.recovery_projection.source, "POSTGRESQL_OUTBOX");
   assert.equal(chain.recovery_projection.scope_type, chain.scope.type);
   assert.equal(chain.recovery_projection.phantom_owner, false);
+  assert.equal(chain.trigger_context.phantom_owner_allowed, false);
   if (chain.trigger_context.identifier_resolved === false) {
     assert(!Object.hasOwn(chain.scope, "user_id"), chain.name);
     assert(!Object.hasOwn(chain.scope, "trading_account_id"), chain.name);
+  } else if (
+    chain.trigger_context.identifier_resolved === true &&
+    chain.scope.type === "AUTH_SECURITY"
+  ) {
+    assert(Object.hasOwn(chain.scope, "user_id"), chain.name);
+  } else if (chain.scope.type === "OWNER") {
+    assert(Object.hasOwn(chain.scope, "user_id"), chain.name);
+    assert(Object.hasOwn(chain.scope, "trading_account_id"), chain.name);
   }
 }
 
@@ -2061,14 +2472,24 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
             type: "AUTH_SECURITY",
             source_key:
               "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-            ...(binding.event_kind === "LOGIN_ACCOUNT_LOCKED"
+            ...([
+              "LOGIN_SUCCEEDED",
+              "LOGIN_ACCOUNT_LOCKED",
+              "ENROLLMENT_CHALLENGE_ISSUED",
+              "ENROLLMENT_PROOF_REJECTED",
+            ].includes(binding.event_kind)
               ? { user_id: "10000000-0000-4000-8000-000000000001" }
               : {}),
           }
         : { type: "SYSTEM" };
   const payload = {
-    schema_version: "fit.platform.synthetic-event.v1",
+    schema_version: "fit.platform.event-payload.v1",
     subject: binding.subject,
+    event_kind: binding.event_kind,
+    scope,
+    data: {
+      contract_probe: true,
+    },
   };
   const envelope = {
     schema_version: "fit.platform.event-envelope.v1",
@@ -2083,7 +2504,7 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
     causation_id: "17000000-0000-4000-8000-000000000001",
     correlation_id: "18000000-0000-4000-8000-000000000001",
     occurred_at: "2026-07-29T10:00:01Z",
-    payload_schema_version: "fit.platform.synthetic-event.v1",
+    payload_schema_version: "fit.platform.event-payload.v1",
     payload_digest: sha256(jcsCanonicalize(payload)),
     payload,
   };
@@ -2101,7 +2522,14 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
     !validateEventEnvelope({ ...envelope, event_kind: wrongKind }),
     `subject accepted wrong event kind ${binding.subject}`,
   );
-  if (binding.event_kind === "LOGIN_ACCOUNT_LOCKED") {
+  if (
+    [
+      "LOGIN_SUCCEEDED",
+      "LOGIN_ACCOUNT_LOCKED",
+      "ENROLLMENT_CHALLENGE_ISSUED",
+      "ENROLLMENT_PROOF_REJECTED",
+    ].includes(binding.event_kind)
+  ) {
     const unresolvedAccountScope = clone(envelope);
     delete unresolvedAccountScope.scope.user_id;
     assert(
@@ -2121,21 +2549,264 @@ assert.equal(
   transactions.idempotency.same_scope_same_key_different_digest,
   "IDEMPOTENCY_CONFLICT",
 );
+const transactionEventContracts = [
+  {
+    workflow: "successful_login",
+    kind: "LOGIN_SUCCEEDED",
+    subject: "fit.platform.v1.auth-security.login-succeeded",
+  },
+  {
+    workflow: "real_enrollment_challenge_creation",
+    kind: "ENROLLMENT_CHALLENGE_ISSUED",
+    subject: "fit.platform.v1.auth-security.enrollment-challenge-issued",
+  },
+  {
+    workflow: "failed_enrollment_proof",
+    kind: "ENROLLMENT_PROOF_REJECTED",
+    subject: "fit.platform.v1.auth-security.enrollment-proof-rejected",
+  },
+];
+for (const eventContract of transactionEventContracts) {
+  const workflow = transactions.workflows.find(
+    ({ name }) => name === eventContract.workflow,
+  );
+  assert.equal(workflow.audit_event_kind, eventContract.kind);
+  assert.equal(workflow.outbox_subject, eventContract.subject);
+  assert(
+    platformSchema.$defs.AuditCore.properties.kind.enum.includes(
+      eventContract.kind,
+    ),
+    `${eventContract.workflow} audit kind is not schema-expressible`,
+  );
+  assert(
+    platformSchema.$defs.EventEnvelope.properties.event_kind.enum.includes(
+      eventContract.kind,
+    ),
+    `${eventContract.workflow} event kind is not schema-expressible`,
+  );
+  assert(
+    platformSchema.$defs.EventEnvelope.properties.subject.enum.includes(
+      eventContract.subject,
+    ),
+    `${eventContract.workflow} subject is not schema-expressible`,
+  );
+  assert(
+    nats.subject_bindings.some(
+      ({ subject, event_kind: eventKind }) =>
+        subject === eventContract.subject && eventKind === eventContract.kind,
+    ),
+    `${eventContract.workflow} subject lacks an exact NATS binding`,
+  );
+  const auditProbe = {
+    schema_version: "fit.platform.audit-intent.v1",
+    kind: eventContract.kind,
+    actor: { type: "SERVICE", id: "auth-service" },
+    scope: {
+      type: "AUTH_SECURITY",
+      source_key:
+        "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      user_id: "10000000-0000-4000-8000-000000000001",
+    },
+    trigger: "REQUEST",
+    causation_id: "80000000-0000-4000-8000-000000000001",
+    correlation_id: "b0000000-0000-4000-8000-000000000001",
+    request_id: "21000000-0000-4000-8000-000000000010",
+  };
+  assert(
+    validateAuditIntent(auditProbe),
+    `${eventContract.workflow} cannot construct a valid AuditIntent: ${ajv.errorsText(
+      validateAuditIntent.errors,
+    )}`,
+  );
+}
+const ownerMutationWorkflow = transactions.workflows.find(
+  ({ name }) => name === "owner_mutation",
+);
+assert.equal(
+  ownerMutationWorkflow.notification_event_kind,
+  "OWNER_MUTATION_COMMITTED",
+);
+assert.equal(
+  ownerMutationWorkflow.notification_outbox_subject,
+  "fit.platform.v1.notification.owner-mutation-committed",
+);
+assert(
+  platformSchema.$defs.NotificationCore.properties.kind.enum.includes(
+    ownerMutationWorkflow.notification_event_kind,
+  ),
+  "owner mutation notification kind is not schema-expressible",
+);
+assert(
+  nats.subject_bindings.some(
+    ({ subject, event_kind: eventKind, consumer }) =>
+      subject === ownerMutationWorkflow.notification_outbox_subject &&
+      eventKind === ownerMutationWorkflow.notification_event_kind &&
+      consumer === "internal-notification-consumer",
+  ),
+  "owner mutation notification lacks an exact NATS binding",
+);
+assert(
+  validateNotificationIntent({
+    schema_version: "fit.platform.notification-intent.v1",
+    kind: "OWNER_MUTATION_COMMITTED",
+    severity: "INFO",
+    scope: {
+      type: "OWNER",
+      user_id: "10000000-0000-4000-8000-000000000001",
+      trading_account_id: "20000000-0000-4000-8000-000000000001",
+    },
+    message_code: "owner.mutation.committed",
+    message_args: {
+      operation_id: "70000000-0000-4000-8000-000000000001",
+    },
+    causation_id: "80000000-0000-4000-8000-000000000001",
+    correlation_id: "b0000000-0000-4000-8000-000000000001",
+  }),
+  `owner mutation cannot construct a valid NotificationIntent: ${ajv.errorsText(
+    validateNotificationIntent.errors,
+  )}`,
+);
+const successfulLoginWorkflow = transactions.workflows.find(
+  ({ name }) => name === "successful_login",
+);
+for (const requiredStep of [
+  "prune_failures_outside_rolling_window",
+  "clear_resolved_user_failures_only",
+  "preserve_source_failures",
+]) {
+  assert(
+    successfulLoginWorkflow.single_postgresql_transaction.includes(requiredStep),
+    `successful login transaction lacks ${requiredStep}`,
+  );
+}
+const passwordFailureWorkflow = transactions.workflows.find(
+  ({ name }) => name === "password_failure",
+);
+assert.equal(
+  passwordFailureWorkflow.rolling_window_seconds,
+  security.password_throttle.window_seconds,
+);
+for (const requiredStep of [
+  "lock_source_throttle_dimension",
+  "lock_resolved_user_throttle_dimension_if_present",
+  "prune_failures_outside_rolling_window",
+  "record_source_failure",
+  "record_resolved_user_failure_if_present",
+  "set_next_allowed_or_lock_each_dimension",
+]) {
+  assert(
+    passwordFailureWorkflow.single_postgresql_transaction.includes(requiredStep),
+    `password failure transaction lacks ${requiredStep}`,
+  );
+}
+const natsConsumerWorkflow = transactions.workflows.find(
+  ({ name }) => name === "nats_consumer_business_effect",
+);
+assert.equal(natsConsumerWorkflow.ack_after_commit, true);
+const outboxPublishWorkflow = transactions.workflows.find(
+  ({ name }) => name === "outbox_publish",
+);
+assertDeepEqual(outboxPublishWorkflow.broker_phase, [
+  "publish_exact_event_id_and_payload_digest",
+  "receive_broker_ack",
+]);
+assert.equal(outboxPublishWorkflow.duplicate_publish_allowed, true);
+assert.equal(outboxPublishWorkflow.duplicate_business_effect_allowed, false);
+assert.equal(
+  outboxPublishWorkflow.delete_business_event_allowed_in_phase_1,
+  false,
+);
+assert.equal(
+  failureInjection.schema_version,
+  "fit.platform.failure-injection.v1",
+);
 assert.equal(
   failureInjection.coverage_model,
   "DERIVE_EVERY_CUT_FROM_TRANSACTION_BOUNDARIES_MANIFEST",
 );
+assertDeepEqual(failureInjection.transaction_cut_rule, {
+  before_first_statement: "NO_DURABLE_EFFECT",
+  after_every_statement_before_next_or_commit:
+    "INJECT_TRANSACTION_ABORT_AND_REQUIRE_COMPLETE_ROLLBACK",
+  after_commit:
+    "RETRY_MUST_OBSERVE_COMPLETE_DURABLE_TRANSACTION_WITH_NO_PARTIAL_EFFECT",
+  statement_order_source: "transaction-boundaries-v1.json",
+  conditional_statement_policy: "EXERCISE_BOTH_ABSENT_AND_PRESENT_PATHS",
+});
+assertDeepEqual(failureInjection.external_cut_rule, {
+  publish_retry_identity: ["event_id", "payload_digest"],
+  ack_loss:
+    "REDELIVERY_MUST_HIT_INBOX_AND_CREATE_NO_DUPLICATE_BUSINESS_EFFECT",
+  event_retention: "NEVER_DELETE_IN_PHASE_1",
+});
 assertDeepEqual(
   failureInjection.workflow_requirements.map(({ workflow }) => workflow).sort(),
   transactions.workflows.map(({ name }) => name).sort(),
   "failure injection must cover every transaction workflow",
 );
 const failureCutEvidence = [];
+function derivedTransactionGroups(workflow) {
+  if (workflow.must_not_persist === true) return [];
+  if (Array.isArray(workflow.single_postgresql_transaction)) {
+    return [
+      [
+        "single_postgresql_transaction",
+        ...(Array.isArray(workflow.conditional_same_transaction)
+          ? ["conditional_same_transaction"]
+          : []),
+      ],
+    ];
+  }
+  const groups = [];
+  for (const field of [
+    "claim_postgresql_transaction",
+    "mark_postgresql_transaction",
+  ]) {
+    if (Array.isArray(workflow[field])) groups.push([field]);
+  }
+  return groups;
+}
+
+function derivedExternalBoundaries(workflow) {
+  if (workflow.ack_after_commit === true) {
+    return [
+      "AFTER_POSTGRESQL_COMMIT_BEFORE_NATS_ACK",
+      "AFTER_NATS_ACK",
+    ];
+  }
+  if (Array.isArray(workflow.broker_phase)) {
+    assertDeepEqual(workflow.broker_phase, [
+      "publish_exact_event_id_and_payload_digest",
+      "receive_broker_ack",
+    ]);
+    assert(Array.isArray(workflow.claim_postgresql_transaction));
+    assert(Array.isArray(workflow.mark_postgresql_transaction));
+    return [
+      "AFTER_CLAIM_COMMIT_BEFORE_PUBLISH",
+      "AFTER_PUBLISH_BEFORE_BROKER_ACK",
+      "AFTER_BROKER_ACK_BEFORE_MARK_TRANSACTION",
+      "AFTER_MARK_COMMIT",
+    ];
+  }
+  return [];
+}
+
 for (const workflow of transactions.workflows) {
   const requirement = failureInjection.workflow_requirements.find(
     ({ workflow: name }) => name === workflow.name,
   );
   assert(requirement, `missing failure requirement for ${workflow.name}`);
+  assertDeepEqual(
+    requirement.transaction_groups,
+    derivedTransactionGroups(workflow),
+    `${workflow.name} failure transaction groups were not derived from the transaction manifest`,
+  );
+  const expectedExternalBoundaries = derivedExternalBoundaries(workflow);
+  assertDeepEqual(
+    requirement.external_boundaries ?? [],
+    expectedExternalBoundaries,
+    `${workflow.name} external cuts were not derived from publish/ack behavior`,
+  );
   if (requirement.must_not_persist === true) {
     assert.equal(workflow.must_not_persist, true, workflow.name);
     assertDeepEqual(requirement.transaction_groups, [], workflow.name);
@@ -2167,7 +2838,7 @@ for (const workflow of transactions.workflows) {
     }
     failureCutEvidence.push(`${workflow.name}:${transactionName}:AFTER_COMMIT`);
   }
-  for (const boundary of requirement.external_boundaries ?? []) {
+  for (const boundary of expectedExternalBoundaries) {
     failureCutEvidence.push(`${workflow.name}:EXTERNAL:${boundary}`);
   }
 }
@@ -2216,6 +2887,13 @@ assert(
   ),
   "recovery restore must contain no trading capability",
 );
+assertDeepEqual(recoveryPolicy.fail_closed_evidence_contract, {
+  required_result: "FAIL_CLOSED",
+  minimum_failed_verification_gates: 1,
+  pass_requires_every_verification_gate: "PASS",
+  restore_start_and_completion_event_ids_must_differ: true,
+  required_components: ["postgresql", "recovery-tool"],
+});
 
 assert(
   failureCutEvidence.some((cut) => cut.includes("AFTER_STATEMENT_")),

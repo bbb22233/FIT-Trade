@@ -166,6 +166,12 @@
     },
     "TradingAccountOwnership": {
       "type": "object",
+      "x-fit-time-order": [
+        {
+          "start": "created_at",
+          "end": "revoked_at"
+        }
+      ],
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -231,6 +237,12 @@
     },
     "Device": {
       "type": "object",
+      "x-fit-time-order": [
+        {
+          "start": "enrolled_at",
+          "end": "revoked_at"
+        }
+      ],
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -382,6 +394,7 @@
         "token_digest",
         "family_id",
         "session_id",
+        "family_created_at",
         "issued_at",
         "expires_at",
         "family_deadline",
@@ -399,6 +412,9 @@
         },
         "session_id": {
           "$ref": "#/$defs/Uuid"
+        },
+        "family_created_at": {
+          "$ref": "#/$defs/Timestamp"
         },
         "issued_at": {
           "$ref": "#/$defs/Timestamp"
@@ -757,17 +773,36 @@
             "ownership_id",
             "role",
             "refresh_family_id",
+            "family_id",
+            "family_created_at",
+            "family_deadline",
+            "rotated_to_digest",
             "identity_origin",
             "actor",
             "actor_id",
             "scope",
+            "request_id",
+            "event_id",
+            "outbox_id",
+            "aggregate_id",
+            "aggregate_version",
+            "causation_id",
+            "correlation_id",
+            "source_key_digest",
+            "canonical_request_digest",
+            "payload_digest",
             "created_at",
             "updated_at",
             "occurred_at",
             "issued_at",
             "expires_at",
             "revoked_at",
-            "signature_verified"
+            "published_at",
+            "completed_at",
+            "signature_verified",
+            "__proto__",
+            "constructor",
+            "prototype"
           ]
         }
       },
@@ -974,6 +1009,36 @@
         }
       }
     },
+    "EventPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "subject",
+        "event_kind",
+        "scope",
+        "data"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.event-payload.v1"
+        },
+        "subject": {
+          "type": "string",
+          "pattern": "^fit\\.platform\\.v1\\."
+        },
+        "event_kind": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "data": {
+          "$ref": "#/$defs/JsonObject"
+        }
+      }
+    },
     "EventEnvelope": {
       "type": "object",
       "x-fit-payload-integrity": true,
@@ -1002,8 +1067,11 @@
         "subject": {
           "enum": [
             "fit.platform.v1.owner.owner-mutation-committed",
+            "fit.platform.v1.auth-security.login-succeeded",
             "fit.platform.v1.auth-security.login-account-locked",
             "fit.platform.v1.auth-security.login-source-locked",
+            "fit.platform.v1.auth-security.enrollment-challenge-issued",
+            "fit.platform.v1.auth-security.enrollment-proof-rejected",
             "fit.platform.v1.auth-security.device-enrolled",
             "fit.platform.v1.auth-security.device-replaced",
             "fit.platform.v1.auth-security.device-revoked",
@@ -1017,7 +1085,8 @@
             "fit.platform.v1.notification.device-revoked",
             "fit.platform.v1.notification.session-revoked",
             "fit.platform.v1.notification.refresh-reuse-detected",
-            "fit.platform.v1.notification.wal-archive-interrupted"
+            "fit.platform.v1.notification.wal-archive-interrupted",
+            "fit.platform.v1.notification.owner-mutation-committed"
           ]
         },
         "stream": {
@@ -1029,8 +1098,11 @@
         "event_kind": {
           "enum": [
             "OWNER_MUTATION_COMMITTED",
+            "LOGIN_SUCCEEDED",
             "LOGIN_ACCOUNT_LOCKED",
             "LOGIN_SOURCE_LOCKED",
+            "ENROLLMENT_CHALLENGE_ISSUED",
+            "ENROLLMENT_PROOF_REJECTED",
             "DEVICE_ENROLLED",
             "DEVICE_REPLACED",
             "DEVICE_REVOKED",
@@ -1065,14 +1137,13 @@
           "$ref": "#/$defs/Timestamp"
         },
         "payload_schema_version": {
-          "type": "string",
-          "pattern": "^fit\\.platform\\.[a-z0-9-]+\\.v[0-9]+$"
+          "const": "fit.platform.event-payload.v1"
         },
         "payload_digest": {
           "$ref": "#/$defs/Digest"
         },
         "payload": {
-          "$ref": "#/$defs/JsonObject"
+          "$ref": "#/$defs/EventPayload"
         }
       },
       "allOf": [
@@ -1116,7 +1187,10 @@
                 "subject": {
                   "enum": [
                     "fit.platform.v1.auth-security.login-account-locked",
-                    "fit.platform.v1.notification.login-account-locked"
+                    "fit.platform.v1.notification.login-account-locked",
+                    "fit.platform.v1.auth-security.login-succeeded",
+                    "fit.platform.v1.auth-security.enrollment-challenge-issued",
+                    "fit.platform.v1.auth-security.enrollment-proof-rejected"
                   ]
                 },
                 "scope": {
@@ -1136,6 +1210,16 @@
                   "$ref": "#/$defs/SystemScope"
                 }
               }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "const": "fit.platform.v1.notification.owner-mutation-committed"
+                },
+                "scope": {
+                  "$ref": "#/$defs/OwnerScope"
+                }
+              }
             }
           ]
         },
@@ -1148,6 +1232,36 @@
                 },
                 "event_kind": {
                   "const": "OWNER_MUTATION_COMMITTED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "const": "fit.platform.v1.auth-security.login-succeeded"
+                },
+                "event_kind": {
+                  "const": "LOGIN_SUCCEEDED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "const": "fit.platform.v1.auth-security.enrollment-challenge-issued"
+                },
+                "event_kind": {
+                  "const": "ENROLLMENT_CHALLENGE_ISSUED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "const": "fit.platform.v1.auth-security.enrollment-proof-rejected"
+                },
+                "event_kind": {
+                  "const": "ENROLLMENT_PROOF_REJECTED"
                 }
               }
             },
@@ -1254,6 +1368,16 @@
                   "const": "WAL_ARCHIVE_INTERRUPTED"
                 }
               }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "const": "fit.platform.v1.notification.owner-mutation-committed"
+                },
+                "event_kind": {
+                  "const": "OWNER_MUTATION_COMMITTED"
+                }
+              }
             }
           ]
         }
@@ -1300,6 +1424,12 @@
     },
     "OutboxRecord": {
       "type": "object",
+      "x-fit-time-order": [
+        {
+          "start": "created_at",
+          "end": "published_at"
+        }
+      ],
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -1373,8 +1503,11 @@
         "kind": {
           "enum": [
             "OWNER_MUTATION_COMMITTED",
+            "LOGIN_SUCCEEDED",
             "LOGIN_ACCOUNT_LOCKED",
             "LOGIN_SOURCE_LOCKED",
+            "ENROLLMENT_CHALLENGE_ISSUED",
+            "ENROLLMENT_PROOF_REJECTED",
             "DEVICE_ENROLLED",
             "DEVICE_REPLACED",
             "DEVICE_REVOKED",
@@ -1604,8 +1737,13 @@
             },
             {
               "properties": {
-                "kind": {
-                  "const": "LOGIN_ACCOUNT_LOCKED"
+              "kind": {
+                "enum": [
+                  "LOGIN_SUCCEEDED",
+                  "LOGIN_ACCOUNT_LOCKED",
+                  "ENROLLMENT_CHALLENGE_ISSUED",
+                  "ENROLLMENT_PROOF_REJECTED"
+                ]
                 },
                 "scope": {
                   "$ref": "#/$defs/ResolvedAuthSecurityScope"
@@ -1708,6 +1846,7 @@
           "enum": [
             "LOGIN_ACCOUNT_LOCKED",
             "LOGIN_SOURCE_LOCKED",
+            "OWNER_MUTATION_COMMITTED",
             "DEVICE_ENROLLED",
             "DEVICE_REPLACED",
             "DEVICE_REVOKED",
@@ -1730,6 +1869,7 @@
           "enum": [
             "security.login.account_locked",
             "security.login.source_locked",
+            "owner.mutation.committed",
             "security.device.enrolled",
             "security.device.replaced",
             "security.device.revoked",
@@ -1803,6 +1943,25 @@
     },
     "NotificationKindRules": {
       "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "OWNER_MUTATION_COMMITTED"
+            },
+            "severity": {
+              "const": "INFO"
+            },
+            "message_code": {
+              "const": "owner.mutation.committed"
+            },
+            "scope": {
+              "$ref": "#/$defs/OwnerScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/JsonObject"
+            }
+          }
+        },
         {
           "properties": {
             "kind": {

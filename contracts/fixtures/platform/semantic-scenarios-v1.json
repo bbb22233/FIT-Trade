@@ -430,8 +430,16 @@
       "expected": "CLOSE_4401"
     },
     {
-      "name": "application frame while pending is rejected",
+      "name": "application frame before token expiry remains allowed",
       "event": "APPLICATION_FRAME_WHILE_REAUTH_PENDING",
+      "current_access_expired": false,
+      "revoked": false,
+      "expected": "ALLOW_APPLICATION_FRAME"
+    },
+    {
+      "name": "application frame after token expiry is rejected",
+      "event": "APPLICATION_FRAME_WHILE_REAUTH_PENDING",
+      "current_access_expired": true,
       "revoked": false,
       "expected": "REJECT_APPLICATION_FRAME"
     },

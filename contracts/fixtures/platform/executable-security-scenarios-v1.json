@@ -1,8 +1,20 @@
 {
   "schema_version": "fit.platform.executable-security-scenarios.v1",
-  "synthetic_enrollment_cases": [
+  "identity_directory": [
     {
-      "name": "unknown identifier gets nonpersisted opaque challenge one",
+      "identifier": "known-user@example.invalid",
+      "user_id": "10000000-0000-4000-8000-000000000001",
+      "password_verifier_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7"
+    }
+  ],
+  "enrollment_transition_cases": [
+    {
+      "name": "unknown identifier ordinary path has no server state",
+      "input": {
+        "identifier": "unknown-user@example.invalid",
+        "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
+        "purpose": "ADDITIONAL_DEVICE"
+      },
       "wire": {
         "schema_version": "fit.platform.enrollment-challenge.v1",
         "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
@@ -14,20 +26,28 @@
         "expires_at": "2026-07-29T10:02:00Z",
         "single_use": true
       },
-      "identifier_resolved": false,
-      "server_state_exists": false,
-      "persisted": false,
-      "completion_attempted": true,
-      "devices_before": 0,
-      "devices_after": 0,
-      "sessions_before": 0,
-      "sessions_after": 0,
-      "refresh_families_before": 0,
-      "refresh_families_after": 0,
-      "expected": "REJECT_SYNTHETIC_NO_STATE"
+      "completion": {
+        "proof_valid": true
+      },
+      "expected_start_persisted": false,
+      "expected_completion": "REJECT_NO_SERVER_STATE",
+      "expected_durable_counts": {
+        "challenges": 0,
+        "devices": 0,
+        "sessions": 0,
+        "refresh_families": 0,
+        "audit_events": 0,
+        "notifications": 0,
+        "outbox_records": 0
+      }
     },
     {
-      "name": "repeated unknown identifier gets unrelated nonpersisted handle",
+      "name": "repeated unknown identifier gets unrelated process-local handle",
+      "input": {
+        "identifier": "unknown-user@example.invalid",
+        "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
+        "purpose": "ADDITIONAL_DEVICE"
+      },
       "wire": {
         "schema_version": "fit.platform.enrollment-challenge.v1",
         "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
@@ -39,17 +59,119 @@
         "expires_at": "2026-07-29T10:02:00Z",
         "single_use": true
       },
-      "identifier_resolved": false,
-      "server_state_exists": false,
-      "persisted": false,
-      "completion_attempted": true,
-      "devices_before": 0,
-      "devices_after": 0,
-      "sessions_before": 0,
-      "sessions_after": 0,
-      "refresh_families_before": 0,
-      "refresh_families_after": 0,
-      "expected": "REJECT_SYNTHETIC_NO_STATE"
+      "completion": {
+        "proof_valid": true
+      },
+      "expected_start_persisted": false,
+      "expected_completion": "REJECT_NO_SERVER_STATE",
+      "expected_durable_counts": {
+        "challenges": 0,
+        "devices": 0,
+        "sessions": 0,
+        "refresh_families": 0,
+        "audit_events": 0,
+        "notifications": 0,
+        "outbox_records": 0
+      }
+    },
+    {
+      "name": "known identifier wrong password ordinary path has no state",
+      "input": {
+        "identifier": "known-user@example.invalid",
+        "password_attempt_sha256": "206dd14d96d6a45816ef1bfb7180a59ac803858b7035f16411404233eeb7bfbd",
+        "purpose": "ADDITIONAL_DEVICE"
+      },
+      "wire": {
+        "schema_version": "fit.platform.enrollment-challenge.v1",
+        "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+        "purpose": "ADDITIONAL_DEVICE",
+        "subject_handle": "synthetic_wrong_password_ordinary_3FaR6hJq9",
+        "candidate_public_key_fingerprint": "ed25519:3333333333333333333333333333333333333333333333333333333333333333",
+        "nonce": "synthetic_wrong_password_nonce_Q7dG2kM5pS8uX",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-07-29T10:02:00Z",
+        "single_use": true
+      },
+      "completion": {
+        "proof_valid": true
+      },
+      "expected_start_persisted": false,
+      "expected_completion": "REJECT_NO_SERVER_STATE",
+      "expected_durable_counts": {
+        "challenges": 0,
+        "devices": 0,
+        "sessions": 0,
+        "refresh_families": 0,
+        "audit_events": 0,
+        "notifications": 0,
+        "outbox_records": 0
+      }
+    },
+    {
+      "name": "known identifier wrong password replacement path has no state",
+      "input": {
+        "identifier": "known-user@example.invalid",
+        "password_attempt_sha256": "206dd14d96d6a45816ef1bfb7180a59ac803858b7035f16411404233eeb7bfbd",
+        "purpose": "REPLACEMENT_DEVICE"
+      },
+      "wire": {
+        "schema_version": "fit.platform.enrollment-challenge.v1",
+        "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+        "purpose": "REPLACEMENT_DEVICE",
+        "subject_handle": "synthetic_wrong_password_replacement_4GbT7kLp2",
+        "candidate_public_key_fingerprint": "ed25519:4444444444444444444444444444444444444444444444444444444444444444",
+        "nonce": "synthetic_wrong_replacement_nonce_R8eH3mN6qT9",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-07-29T10:02:00Z",
+        "single_use": true
+      },
+      "completion": {
+        "proof_valid": true
+      },
+      "expected_start_persisted": false,
+      "expected_completion": "REJECT_NO_SERVER_STATE",
+      "expected_durable_counts": {
+        "challenges": 0,
+        "devices": 0,
+        "sessions": 0,
+        "refresh_families": 0,
+        "audit_events": 0,
+        "notifications": 0,
+        "outbox_records": 0
+      }
+    },
+    {
+      "name": "known identifier correct password persists and completes",
+      "input": {
+        "identifier": "known-user@example.invalid",
+        "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
+        "purpose": "ADDITIONAL_DEVICE"
+      },
+      "wire": {
+        "schema_version": "fit.platform.enrollment-challenge.v1",
+        "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+        "purpose": "ADDITIONAL_DEVICE",
+        "subject_handle": "real_known_subject_handle_5HcU8mQp3Vz6Y",
+        "candidate_public_key_fingerprint": "ed25519:5555555555555555555555555555555555555555555555555555555555555555",
+        "nonce": "real_known_nonce_S9fJ4nP7rU2xA6cD8g",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-07-29T10:02:00Z",
+        "single_use": true
+      },
+      "completion": {
+        "proof_valid": true
+      },
+      "expected_start_persisted": true,
+      "expected_completion": "CONSUMED_SUCCESS",
+      "expected_durable_counts": {
+        "challenges": 1,
+        "devices": 1,
+        "sessions": 1,
+        "refresh_families": 1,
+        "audit_events": 2,
+        "notifications": 1,
+        "outbox_records": 3
+      }
     }
   ],
   "password_throttle_timelines": [
@@ -204,52 +326,299 @@
           "expected_source_failures": 5
         }
       ]
+    },
+    {
+      "name": "resolved account locks across distinct sources",
+      "events": [
+        {
+          "at_seconds": 0,
+          "source_key": "SOURCE_C1",
+          "user_id": "USER_C",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 1,
+          "source_key": "SOURCE_C2",
+          "user_id": "USER_C",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 2,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 2
+        },
+        {
+          "at_seconds": 3,
+          "source_key": "SOURCE_C3",
+          "user_id": "USER_C",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 3,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 4
+        },
+        {
+          "at_seconds": 7,
+          "source_key": "SOURCE_C4",
+          "user_id": "USER_C",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 4,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 8
+        },
+        {
+          "at_seconds": 15,
+          "source_key": "SOURCE_C5",
+          "user_id": "USER_C",
+          "password_valid": false,
+          "expected_decision": "LOCKED",
+          "expected_account_failures": 5,
+          "expected_source_failures": 1,
+          "expected_account_lock_until_seconds": 915,
+          "expected_source_lock_until_seconds": 0
+        },
+        {
+          "at_seconds": 16,
+          "source_key": "SOURCE_C6",
+          "user_id": "USER_C",
+          "password_valid": true,
+          "expected_decision": "DENY_LOCK",
+          "expected_account_failures": 5,
+          "expected_source_failures": 0
+        }
+      ]
+    },
+    {
+      "name": "failures outside rolling window do not accumulate",
+      "source_key": "SOURCE_D",
+      "events": [
+        {
+          "at_seconds": 0,
+          "user_id": "USER_D",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 901,
+          "user_id": "USER_D",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 1802,
+          "user_id": "USER_D",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 2703,
+          "user_id": "USER_D",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 3604,
+          "user_id": "USER_D",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        }
+      ]
     }
   ],
   "websocket_upgrade_cases": [
     {
       "name": "exact server binding is accepted",
       "mismatch_field": null,
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
       "expected": "ACCEPT"
     },
     {
       "name": "user mismatch rejects",
       "mismatch_field": "user_id",
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
       "expected": "REJECT"
     },
     {
       "name": "account mismatch rejects",
       "mismatch_field": "trading_account_id",
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
       "expected": "REJECT"
     },
     {
       "name": "device mismatch rejects",
       "mismatch_field": "device_id",
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
       "expected": "REJECT"
     },
     {
       "name": "session mismatch rejects",
       "mismatch_field": "session_id",
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
       "expected": "REJECT"
     },
     {
       "name": "family mismatch rejects",
       "mismatch_field": "refresh_family_id",
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
+      "expected": "REJECT"
+    },
+    {
+      "name": "invalid token signature rejects",
+      "mismatch_field": null,
+      "token_signature_valid": false,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
+      "expected": "REJECT"
+    },
+    {
+      "name": "expired access token rejects",
+      "mismatch_field": null,
+      "token_signature_valid": true,
+      "token_not_expired": false,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": true,
+      "expected": "REJECT"
+    },
+    {
+      "name": "revoked session rejects",
+      "mismatch_field": null,
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": false,
+      "device_active": true,
+      "refresh_family_active": true,
+      "expected": "REJECT"
+    },
+    {
+      "name": "revoked device rejects",
+      "mismatch_field": null,
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": false,
+      "refresh_family_active": true,
+      "expected": "REJECT"
+    },
+    {
+      "name": "revoked refresh family rejects",
+      "mismatch_field": null,
+      "token_signature_valid": true,
+      "token_not_expired": true,
+      "session_active": true,
+      "device_active": true,
+      "refresh_family_active": false,
       "expected": "REJECT"
     }
   ],
   "websocket_redaction_cases": [
     {
       "field": "access_token_transport",
-      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages"]
+      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages", "application_messages"]
     },
     {
       "field": "nonce",
-      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages"]
+      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages", "application_messages"]
     },
     {
       "field": "raw_control_frame",
-      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages"]
+      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages", "application_messages"]
+    }
+  ],
+  "raw_entrypoint_cases": [
+    {
+      "name": "HTTP mutation valid strict JSON",
+      "entry_point": "HTTP_MUTATION_BODY",
+      "schema": "UntrustedMutationInput",
+      "raw": "{\"idempotency_key\":\"60000000-0000-4000-8000-000000000001\",\"path\":{\"operation_id\":\"70000000-0000-4000-8000-000000000001\"},\"query\":{},\"body\":{\"decision\":\"CONFIRM\"}}",
+      "expected": "ACCEPT"
+    },
+    {
+      "name": "HTTP nested duplicate key rejects before handler",
+      "entry_point": "HTTP_MUTATION_BODY",
+      "schema": "UntrustedMutationInput",
+      "raw": "{\"idempotency_key\":\"60000000-0000-4000-8000-000000000001\",\"path\":{},\"query\":{},\"body\":{\"decision\":\"CONFIRM\",\"decision\":\"REJECT\"}}",
+      "expected": "REJECT"
+    },
+    {
+      "name": "HTTP NBSP is not JSON whitespace",
+      "entry_point": "HTTP_MUTATION_BODY",
+      "schema": "UntrustedMutationInput",
+      "raw": " {\"idempotency_key\":\"60000000-0000-4000-8000-000000000001\",\"path\":{},\"query\":{},\"body\":{}}",
+      "expected": "REJECT"
+    },
+    {
+      "name": "HTTP prototype mutation key rejects",
+      "entry_point": "HTTP_MUTATION_BODY",
+      "schema": "UntrustedMutationInput",
+      "raw": "{\"idempotency_key\":\"60000000-0000-4000-8000-000000000001\",\"path\":{},\"query\":{},\"body\":{\"__proto__\":{\"authority\":\"client\"}}}",
+      "expected": "REJECT"
+    },
+    {
+      "name": "WebSocket valid control frame strict JSON",
+      "entry_point": "WEBSOCKET_CONTROL_FRAME",
+      "schema": "WebSocketReauth",
+      "raw": "{\"schema_version\":\"fit.platform.websocket-control.v1\",\"type\":\"REAUTH\",\"nonce\":\"synthetic_websocket_nonce_000000000000001\",\"access_token_transport\":\"synthetic-access-credential-not-valid-anywhere\"}",
+      "expected": "ACCEPT"
+    },
+    {
+      "name": "WebSocket duplicate nonce rejects before dispatch",
+      "entry_point": "WEBSOCKET_CONTROL_FRAME",
+      "schema": "WebSocketReauth",
+      "raw": "{\"schema_version\":\"fit.platform.websocket-control.v1\",\"type\":\"REAUTH\",\"nonce\":\"synthetic_websocket_nonce_000000000000001\",\"nonce\":\"synthetic_websocket_nonce_000000000000002\",\"access_token_transport\":\"synthetic-access-credential-not-valid-anywhere\"}",
+      "expected": "REJECT"
+    },
+    {
+      "name": "WebSocket constructor key rejects before dispatch",
+      "entry_point": "WEBSOCKET_CONTROL_FRAME",
+      "schema": "WebSocketReauth",
+      "raw": "{\"schema_version\":\"fit.platform.websocket-control.v1\",\"type\":\"REAUTH\",\"nonce\":\"synthetic_websocket_nonce_000000000000001\",\"access_token_transport\":\"synthetic-access-credential-not-valid-anywhere\",\"constructor\":{}}",
+      "expected": "REJECT"
     }
   ]
 }

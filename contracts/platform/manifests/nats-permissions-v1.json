@@ -8,8 +8,11 @@
       "fit.platform.v1.auth-security.device-enrolled",
       "fit.platform.v1.auth-security.device-replaced",
       "fit.platform.v1.auth-security.device-revoked",
+      "fit.platform.v1.auth-security.enrollment-challenge-issued",
+      "fit.platform.v1.auth-security.enrollment-proof-rejected",
       "fit.platform.v1.auth-security.login-account-locked",
       "fit.platform.v1.auth-security.login-source-locked",
+      "fit.platform.v1.auth-security.login-succeeded",
       "fit.platform.v1.auth-security.refresh-reuse-detected",
       "fit.platform.v1.auth-security.session-revoked",
       "fit.platform.v1.notification.device-enrolled",
@@ -17,6 +20,7 @@
       "fit.platform.v1.notification.device-revoked",
       "fit.platform.v1.notification.login-account-locked",
       "fit.platform.v1.notification.login-source-locked",
+      "fit.platform.v1.notification.owner-mutation-committed",
       "fit.platform.v1.notification.refresh-reuse-detected",
       "fit.platform.v1.notification.session-revoked",
       "fit.platform.v1.notification.wal-archive-interrupted",
@@ -44,6 +48,18 @@
       "consumer": "platform-consumer"
     },
     {
+      "subject": "fit.platform.v1.auth-security.enrollment-challenge-issued",
+      "event_kind": "ENROLLMENT_CHALLENGE_ISSUED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.auth-security.enrollment-proof-rejected",
+      "event_kind": "ENROLLMENT_PROOF_REJECTED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
       "subject": "fit.platform.v1.auth-security.login-account-locked",
       "event_kind": "LOGIN_ACCOUNT_LOCKED",
       "scope": "AUTH_SECURITY",
@@ -52,6 +68,12 @@
     {
       "subject": "fit.platform.v1.auth-security.login-source-locked",
       "event_kind": "LOGIN_SOURCE_LOCKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.auth-security.login-succeeded",
+      "event_kind": "LOGIN_SUCCEEDED",
       "scope": "AUTH_SECURITY",
       "consumer": "platform-consumer"
     },
@@ -95,6 +117,12 @@
       "subject": "fit.platform.v1.notification.login-source-locked",
       "event_kind": "LOGIN_SOURCE_LOCKED",
       "scope": "AUTH_SECURITY",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.owner-mutation-committed",
+      "event_kind": "OWNER_MUTATION_COMMITTED",
+      "scope": "OWNER",
       "consumer": "internal-notification-consumer"
     },
     {
@@ -164,8 +192,11 @@
         "fit.platform.v1.auth-security.device-enrolled",
         "fit.platform.v1.auth-security.device-replaced",
         "fit.platform.v1.auth-security.device-revoked",
+        "fit.platform.v1.auth-security.enrollment-challenge-issued",
+        "fit.platform.v1.auth-security.enrollment-proof-rejected",
         "fit.platform.v1.auth-security.login-account-locked",
         "fit.platform.v1.auth-security.login-source-locked",
+        "fit.platform.v1.auth-security.login-succeeded",
         "fit.platform.v1.auth-security.refresh-reuse-detected",
         "fit.platform.v1.auth-security.session-revoked",
         "fit.platform.v1.notification.device-enrolled",
@@ -173,6 +204,7 @@
         "fit.platform.v1.notification.device-revoked",
         "fit.platform.v1.notification.login-account-locked",
         "fit.platform.v1.notification.login-source-locked",
+        "fit.platform.v1.notification.owner-mutation-committed",
         "fit.platform.v1.notification.refresh-reuse-detected",
         "fit.platform.v1.notification.session-revoked",
         "fit.platform.v1.notification.wal-archive-interrupted",
@@ -190,8 +222,11 @@
         "fit.platform.v1.auth-security.device-enrolled",
         "fit.platform.v1.auth-security.device-replaced",
         "fit.platform.v1.auth-security.device-revoked",
+        "fit.platform.v1.auth-security.enrollment-challenge-issued",
+        "fit.platform.v1.auth-security.enrollment-proof-rejected",
         "fit.platform.v1.auth-security.login-account-locked",
         "fit.platform.v1.auth-security.login-source-locked",
+        "fit.platform.v1.auth-security.login-succeeded",
         "fit.platform.v1.auth-security.refresh-reuse-detected",
         "fit.platform.v1.auth-security.session-revoked",
         "fit.platform.v1.owner.owner-mutation-committed",
@@ -209,6 +244,7 @@
         "fit.platform.v1.notification.device-revoked",
         "fit.platform.v1.notification.login-account-locked",
         "fit.platform.v1.notification.login-source-locked",
+        "fit.platform.v1.notification.owner-mutation-committed",
         "fit.platform.v1.notification.refresh-reuse-detected",
         "fit.platform.v1.notification.session-revoked",
         "fit.platform.v1.notification.wal-archive-interrupted"

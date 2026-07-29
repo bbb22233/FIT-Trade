@@ -41,19 +41,28 @@ validator must implement them before accepting a record:
 
 - `x-fit-time-window` requires the named UTC timestamps to differ by exactly
   the frozen number of seconds.
+- `x-fit-time-order` rejects optional lifecycle timestamps that precede their
+  creation or enrollment timestamp.
 - `x-fit-refresh-window` requires
   `expires_at = min(issued_at + 604800 seconds, family_deadline)` and a family
-  deadline after issuance.
+  deadline exactly 2592000 seconds after `family_created_at`; rotated records
+  retain that original family creation time and cannot point to their own
+  digest.
 - `x-fit-websocket-deadline` requires
   `deadline = min(issued_at + 60 seconds, current_access_expires_at)`.
-- `x-fit-payload-integrity` requires an embedded payload, matching payload
-  schema version, and SHA-256 over its RFC 8785 JCS bytes.
+- `x-fit-payload-integrity` requires the registered
+  `fit.platform.event-payload.v1` payload, exact subject/kind/scope agreement,
+  and SHA-256 over its RFC 8785 JCS bytes. Unknown payload schema versions are
+  invalid even when their digest is recomputed.
 - `x-fit-recovery-consistency` checks the frozen workload, temporal ordering,
-  observed RPO arithmetic, and observed RTO arithmetic.
+  observed RPO/RTO arithmetic, distinct restore markers, exact component set,
+  and fail-closed result/gate binding.
 
 Raw mutation bodies must be decoded with duplicate-object-key detection at
-every nesting depth before ordinary JSON decoding. An already-parsed object is
-not sufficient evidence that the input was unambiguous.
+every nesting depth before HTTP handler or WebSocket control-frame dispatch.
+Only JSON's four whitespace bytes are accepted, prototype-mutation keys are
+rejected, and an already-parsed object is not sufficient evidence that the
+input was unambiguous.
 
 Ed25519 signing uses
 `UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))`. Public keys are raw

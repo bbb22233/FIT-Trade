@@ -155,6 +155,7 @@
         "token_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "family_id": "50000000-0000-4000-8000-000000000001",
         "session_id": "40000000-0000-4000-8000-000000000001",
+        "family_created_at": "2026-07-29T10:00:00Z",
         "issued_at": "2026-07-29T10:00:00Z",
         "expires_at": "2026-08-05T10:00:00Z",
         "family_deadline": "2026-08-28T10:00:00Z",
@@ -171,6 +172,7 @@
         "token_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "family_id": "50000000-0000-4000-8000-000000000001",
         "session_id": "40000000-0000-4000-8000-000000000001",
+        "family_created_at": "2026-07-29T10:00:00Z",
         "issued_at": "2026-07-29T10:00:00Z",
         "expires_at": "2026-08-05T10:00:00Z",
         "family_deadline": "2026-08-28T10:00:00Z",
@@ -197,12 +199,21 @@
         "causation_id": "80000000-0000-4000-8000-000000000001",
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_schema_version": "fit.platform.operation-confirmed.v1",
-        "payload_digest": "aac085282270fb3d66455badcea56b4accb3a2b4d798a20756ea1732d78b2ba1",
+        "payload_schema_version": "fit.platform.event-payload.v1",
+        "payload_digest": "64f6d2619890aa0778a0c31e24b784bccaf022bc6f875e00db3bab87b0d0c6d5",
         "payload": {
-          "schema_version": "fit.platform.operation-confirmed.v1",
-          "operation_id": "70000000-0000-4000-8000-000000000001",
-          "decision": "CONFIRM"
+          "schema_version": "fit.platform.event-payload.v1",
+          "subject": "fit.platform.v1.owner.owner-mutation-committed",
+          "event_kind": "OWNER_MUTATION_COMMITTED",
+          "scope": {
+            "type": "OWNER",
+            "user_id": "10000000-0000-4000-8000-000000000001",
+            "trading_account_id": "20000000-0000-4000-8000-000000000001"
+          },
+          "data": {
+            "operation_id": "70000000-0000-4000-8000-000000000001",
+            "decision": "CONFIRM"
+          }
         }
       }
     },
@@ -445,12 +456,19 @@
           "causation_id": "f0000000-0000-4000-8000-000000000002",
           "correlation_id": "b0000000-0000-4000-8000-000000000002",
           "occurred_at": "2026-07-29T10:00:01Z",
-          "payload_schema_version": "fit.platform.wal-incident.v1",
-          "payload_digest": "b6a075cdbba2e772672a7106ea9fdf6c96f02c21f2963b687abf022d9d5f1b60",
+          "payload_schema_version": "fit.platform.event-payload.v1",
+          "payload_digest": "ee474caca197d2177f8855ddfc5a1ba1a9a97ad370f12210a0a485a86b8609c6",
           "payload": {
-            "schema_version": "fit.platform.wal-incident.v1",
-            "incident_id": "f0000000-0000-4000-8000-000000000002",
-            "archive_age_seconds": 61
+            "schema_version": "fit.platform.event-payload.v1",
+            "subject": "fit.platform.v1.system.wal-archive-interrupted",
+            "event_kind": "WAL_ARCHIVE_INTERRUPTED",
+            "scope": {
+              "type": "SYSTEM"
+            },
+            "data": {
+              "incident_id": "f0000000-0000-4000-8000-000000000002",
+              "archive_age_seconds": 61
+            }
           }
         },
         "created_at": "2026-07-29T10:00:01Z",

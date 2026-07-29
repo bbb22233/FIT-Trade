@@ -243,7 +243,27 @@
       "route_template",
       "idempotency_key"
     ],
-    "same_key_different_digest": "IDEMPOTENCY_CONFLICT"
+    "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
+    "strict_raw_json_decoder": {
+      "implementation_contract": "parseStrictJson",
+      "allowed_whitespace_bytes": [
+        "0x20",
+        "0x09",
+        "0x0a",
+        "0x0d"
+      ],
+      "reject_duplicate_keys_at_any_depth": true,
+      "reject_prototype_mutation_keys": [
+        "__proto__",
+        "constructor",
+        "prototype"
+      ],
+      "entry_points": {
+        "HTTP_MUTATION_BODY": "BEFORE_HANDLER_AND_SCHEMA_VALIDATION",
+        "WEBSOCKET_CONTROL_FRAME": "BEFORE_CONTROL_FRAME_DISPATCH_AND_SCHEMA_VALIDATION"
+      },
+      "already_parsed_object_is_acceptable_evidence": false
+    }
   },
   "websocket_reauthorization": {
     "fresh_token_transport": "HTTPS_REFRESH_ONLY",
@@ -260,8 +280,8 @@
       "refresh_family_id"
     ],
     "success": "ATOMIC_REBIND_AND_CONSUME_NONCE",
-    "upgrade_binding_validation": "EXACT_USER_ACCOUNT_DEVICE_SESSION_REFRESH_FAMILY_MATCH",
-    "application_frame_while_reauth_pending": "REJECT",
+    "upgrade_binding_validation": "VALID_UNEXPIRED_ACCESS_TOKEN_AND_ACTIVE_USER_ACCOUNT_DEVICE_SESSION_REFRESH_FAMILY_EXACT_MATCH",
+    "application_frame_while_reauth_pending": "ALLOW_UNTIL_CURRENT_ACCESS_EXPIRY",
     "redacted_fields": [
       "access_token_transport",
       "nonce",
@@ -271,7 +291,8 @@
       "logs",
       "traces",
       "metrics",
-      "error_messages"
+      "error_messages",
+      "application_messages"
     ],
     "failure_close_code": 4401,
     "expired_pending_application_frames": "REJECT",

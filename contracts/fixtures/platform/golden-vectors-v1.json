@@ -27,17 +27,20 @@
     "canonicalization": "RFC8785_JCS",
     "algorithm": "SHA-256",
     "value": {
-      "schema_version": "fit.platform.synthetic-event.v1",
+      "schema_version": "fit.platform.event-payload.v1",
+      "subject": "fit.platform.v1.auth-security.device-enrolled",
       "event_kind": "DEVICE_ENROLLED",
       "scope": {
         "type": "AUTH_SECURITY",
         "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         "user_id": "10000000-0000-4000-8000-000000000001"
       },
-      "device_id": "30000000-0000-4000-8000-000000000001"
+      "data": {
+        "device_id": "30000000-0000-4000-8000-000000000001"
+      }
     },
-    "canonical_utf8": "{\"device_id\":\"30000000-0000-4000-8000-000000000001\",\"event_kind\":\"DEVICE_ENROLLED\",\"schema_version\":\"fit.platform.synthetic-event.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\",\"user_id\":\"10000000-0000-4000-8000-000000000001\"}}",
-    "sha256": "c16612094da1e4952b460d90516f8d9d7be3be5a14e36b24f87ef5c24d1b46e5"
+    "canonical_utf8": "{\"data\":{\"device_id\":\"30000000-0000-4000-8000-000000000001\"},\"event_kind\":\"DEVICE_ENROLLED\",\"schema_version\":\"fit.platform.event-payload.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\",\"user_id\":\"10000000-0000-4000-8000-000000000001\"},\"subject\":\"fit.platform.v1.auth-security.device-enrolled\"}",
+    "sha256": "d2f8b21b334ca547d62d831aaf8f5d17e103bd93e766255623bc73e91bfd03e8"
   },
   "ed25519_proofs": {
     "signature_input_formula": "UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))",

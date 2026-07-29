@@ -11,22 +11,39 @@
     "session_id",
     "device_id",
     "source_key",
+    "source_key_digest",
     "server_time",
     "token_digest",
-    "device_verification"
+    "family_id",
+    "family_created_at",
+    "family_deadline",
+    "refresh_family_id",
+    "rotated_to_digest",
+    "canonical_request_digest",
+    "device_verification",
+    "confirmation_id",
+    "confirmation_hash",
+    "identity_origin",
+    "signature_verified"
   ],
   "workflows": [
     {
       "name": "successful_login",
       "single_postgresql_transaction": [
-        "lock_resolved_user_authentication_state",
-        "verify_not_locked",
+        "lock_source_and_resolved_user_throttle_dimensions",
+        "prune_failures_outside_rolling_window",
+        "verify_neither_dimension_delayed_or_locked",
+        "verify_password",
+        "clear_resolved_user_failures_only",
+        "preserve_source_failures",
         "invalidate_preauthentication_identifier",
         "create_server_random_session",
         "create_server_random_refresh_family_with_fixed_deadline",
         "persist_initial_refresh_digest",
         "write_immutable_audit_and_outbox"
       ],
+      "audit_event_kind": "LOGIN_SUCCEEDED",
+      "outbox_subject": "fit.platform.v1.auth-security.login-succeeded",
       "new_session_and_family_required": true,
       "commit_before_credential_response": true
     },
@@ -38,6 +55,8 @@
         "persist_single_use_challenge_and_candidate_fingerprint",
         "write_challenge_audit_and_outbox"
       ],
+      "audit_event_kind": "ENROLLMENT_CHALLENGE_ISSUED",
+      "outbox_subject": "fit.platform.v1.auth-security.enrollment-challenge-issued",
       "commit_before_challenge_response": true
     },
     {
@@ -63,6 +82,8 @@
         "write_invalid_proof_outbox",
         "assert_no_device_session_or_family_created"
       ],
+      "audit_event_kind": "ENROLLMENT_PROOF_REJECTED",
+      "outbox_subject": "fit.platform.v1.auth-security.enrollment-proof-rejected",
       "commit_before_rejection_response": true
     },
     {
@@ -99,6 +120,8 @@
       "conditional_same_transaction": [
         "write_internal_notification"
       ],
+      "notification_event_kind": "OWNER_MUTATION_COMMITTED",
+      "notification_outbox_subject": "fit.platform.v1.notification.owner-mutation-committed",
       "commit_before_response": true
     },
     {
@@ -112,6 +135,21 @@
         "mark_inbox_applied"
       ],
       "ack_after_commit": true
+    },
+    {
+      "name": "password_failure",
+      "single_postgresql_transaction": [
+        "lock_source_throttle_dimension",
+        "resolve_user_without_disclosure",
+        "lock_resolved_user_throttle_dimension_if_present",
+        "prune_failures_outside_rolling_window",
+        "record_source_failure",
+        "record_resolved_user_failure_if_present",
+        "set_next_allowed_or_lock_each_dimension",
+        "persist_lock_audit_notification_and_outbox_only_if_threshold_reached"
+      ],
+      "rolling_window_seconds": 900,
+      "commit_before_rejection_response": true
     },
     {
       "name": "password_lock",

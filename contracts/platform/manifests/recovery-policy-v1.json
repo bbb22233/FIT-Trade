@@ -42,5 +42,15 @@
     "PARTIAL_RESTORE",
     "MISSING_CREDENTIAL",
     "EXTERNAL_EGRESS"
-  ]
+  ],
+  "fail_closed_evidence_contract": {
+    "required_result": "FAIL_CLOSED",
+    "minimum_failed_verification_gates": 1,
+    "pass_requires_every_verification_gate": "PASS",
+    "restore_start_and_completion_event_ids_must_differ": true,
+    "required_components": [
+      "postgresql",
+      "recovery-tool"
+    ]
+  }
 }
