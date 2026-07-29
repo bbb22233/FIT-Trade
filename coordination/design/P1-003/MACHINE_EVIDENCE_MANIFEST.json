@@ -1,0 +1,130 @@
+{
+  "schema_version": "fit.p1-003.design-evidence.v2",
+  "task": "P1-003-DESIGN-R2",
+  "status": "DESIGN_ONLY_NOT_RUN",
+  "fixed_inputs": {
+    "candidate_base": "19b778785565d31dc095996ce4d4b0f7d58bebdf",
+    "interface_capsule": "f61474ba4f96624f34ff478bd0047c28e72becab",
+    "capsule_path": "coordination/design/P1-INTERFACE-CAPSULE/INTERFACE_CAPSULE.md"
+  },
+  "authorization": {
+    "merge": false,
+    "deploy": false,
+    "production": false,
+    "live": false
+  },
+  "result_policy": {
+    "allowed_statuses": ["NOT_RUN", "PASS", "FAIL", "BLOCKED"],
+    "current_status": "NOT_RUN",
+    "pass_requires": ["fixed_commit", "copyable_command", "observed_output", "artifact_sha256", "reviewed_findings"]
+  },
+  "oracles": [
+    {
+      "id": "P1R2-ORACLE-BASE-001",
+      "runner": "static",
+      "requirement_ids": ["P1R2-GATE-001"],
+      "command": "git merge-base --is-ancestor 19b778785565d31dc095996ce4d4b0f7d58bebdf HEAD",
+      "expected": "exit 0 only when candidate base is an ancestor",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-CAPSULE-001",
+      "runner": "static",
+      "requirement_ids": ["P1R2-GATE-001", "P1R2-GATE-002"],
+      "command": "git show f61474ba4f96624f34ff478bd0047c28e72becab:coordination/design/P1-INTERFACE-CAPSULE/INTERFACE_CAPSULE.md | rg -n 'Eleven request workflow|ResponseCacheAADDTO|AuthorityScopeDTO|TransportLimitsDTO'",
+      "expected": "all four capsule anchors are present; implementation evidence maps each to typed code/tests",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-CACHE-001",
+      "runner": "go",
+      "requirement_ids": ["P1R2-CACHE-001", "P1R2-CACHE-004", "P1R2-CACHE-005", "P1R2-CACHE-006", "P1R2-CACHE-007", "P1R2-IDEMP-002", "P1R2-IDEMP-003", "P1R2-REJECT-001", "P1R2-REJECT-002"],
+      "command": "cd services/trading-core && go test -count=1 -race ./... -run 'Test(ExactResponseAAD|CacheReplay|CacheTTL|GenericRejectionCache|ResponseLossReplay|StableKeyKind|IdempotencyConflict|SourceOnlyRejectClaim)'",
+      "expected": "typed stable-key selection is exact; changed first digest conflicts before decrypt/effect; cache TTL/AES-GCM/AAD/rejection rules and response-loss reconciliation never reexecute",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-NONCE-001",
+      "runner": "go",
+      "requirement_ids": ["P1R2-CACHE-002", "P1R2-CACHE-003", "P1R2-WF-ROLLBACK"],
+      "command": "cd services/trading-core && go test -count=1 -race ./... -run 'Test(AEADNonceReservation|NonceCollisionRollback)'",
+      "expected": "reservation precedes encryption; three collision exhaustion rolls back; expired cache does not delete ledger",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-AUTH-001",
+      "runner": "go",
+      "requirement_ids": ["P1R2-AUTH-001", "P1R2-AUTH-002", "P1R2-AUTH-003", "P1R2-AUTH-004", "P1R2-IDEMP-001"],
+      "command": "cd services/trading-core && go test -count=1 -race ./... -run 'Test(AuthorityScope|SourceOnlyNoOwnerLookup|OwnerScopeCompositeKey|SystemAuthority)'",
+      "expected": "source-only performs no owner lookup and cannot collapse or write owner facts; owner scope requires full tuple; system authority requires server-created operation plus control-plane aggregate",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-CLOCK-001",
+      "runner": "go",
+      "requirement_ids": ["P1R2-CLOCK-001", "P1R2-CLOCK-002", "P1R2-LIMIT-001", "P1R2-LIMIT-002", "P1R2-WS-001", "P1R2-WS-002"],
+      "command": "cd services/trading-core && go test -count=1 -race ./... -run 'Test(ClockSnapshot|ClockRollback|TransportLimits|ShutdownBoundaries|WebSocketAuthorization|WebSocketReauth)'",
+      "expected": "one injected snapshot, equality expiry, watermark rollback rejection, exact immutable limits, server-authored WS binding/revocation, and one-use bounded reauth",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-WF-001",
+      "runner": "go",
+      "requirement_ids": ["P1R2-WF-01", "P1R2-WF-02", "P1R2-WF-03", "P1R2-WF-04", "P1R2-WF-05", "P1R2-WF-06", "P1R2-WF-07", "P1R2-WF-08", "P1R2-WF-09", "P1R2-WF-10", "P1R2-WF-11", "P1R2-WF-ROLLBACK"],
+      "command": "cd services/trading-core && go test -count=1 -race ./... -run 'Test(WorkflowAtomicity|FailureInjection|PasswordFailureSourceOnly|RefreshRotation)'",
+      "expected": "eleven workflow write sets are atomic; source throttle is first but all other applicable facts rollback together",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-CONFIRM-001",
+      "runner": "go",
+      "requirement_ids": ["P1R2-CONF-001", "P1R2-CONF-002", "P1R2-CONF-003", "P1R2-CONF-004", "P1R2-CONF-005"],
+      "command": "cd services/trading-core && go test -count=1 -race ./... -run 'Test(ConfirmationConsume|ConfirmationCompositeFK|ConfirmationReplay|ConfirmationExpiry)'",
+      "expected": "complete authority/FKs gate one-time CAS; cache loss reconciles durable Operation without reexecution",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-OUTBOX-001",
+      "runner": "go",
+      "requirement_ids": ["P1R2-OUTBOX-001", "P1R2-OUTBOX-002", "P1R2-OUTBOX-003", "P1R2-OUTBOX-004"],
+      "command": "cd services/trading-core && go test -count=1 -race ./... -run 'Test(OutboxPlan|EventParity|SubjectBinding|ApplicableAuthorityBeforeOutbox)'",
+      "expected": "typed plan uses exact version/predecessor/CAS and only accepted 20 subject bindings",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-SCOPE-001",
+      "runner": "static",
+      "requirement_ids": ["P1R2-GATE-004", "P1R2-GAP-001"],
+      "command": "git diff --name-only 19b778785565d31dc095996ce4d4b0f7d58bebdf..HEAD && rg -n -i 'logout|submit.*order|exchange|signer|wallet' services/trading-core/api services/trading-core/auth services/trading-core/session services/trading-core/ownership",
+      "expected": "reviewer classifies every match; no logout implementation or live/execution capability is accepted without a new contract",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-MODULE-QUALITY-001",
+      "runner": "module_quality",
+      "requirement_ids": ["P1R2-GATE-003"],
+      "command": "cd services/trading-core && test -z \"$(gofmt -l .)\" && go vet ./... && go clean -testcache && go test -count=1 -race ./... -run 'Test(WorkflowAtomicity|FailureInjection|PasswordFailureSourceOnly|RefreshRotation)'",
+      "expected": "module-local formatting, vet, clean-cache, race, and focused atomic/failure-path suite complete at one fixed commit; implementation supplies separate recorded unit/integration suite artifacts",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "P1R2-ORACLE-MODULE-CWD-001",
+      "runner": "static",
+      "requirement_ids": ["P1R2-GATE-003"],
+      "command": "jq -e --arg runner go --arg prefix 'cd services/trading-core && go test ' --arg go_test 'go test ' --arg repo_services './services/' --arg module_cd 'cd services/trading-core' --arg module_c '-C services/trading-core' '[.oracles[] | select(.runner == $runner) | .command] as $commands | (($commands | length) == 7) and ($commands | all(startswith($prefix))) and (([.oracles[].command | (contains($go_test) and contains($repo_services) and ((contains($module_cd) or contains($module_c)) | not))] | any) | not)' coordination/design/P1-003/MACHINE_EVIDENCE_MANIFEST.json",
+      "expected": "exactly seven focused Go oracles execute from services/trading-core and no oracle command retains repository-root go test ./services/... form",
+      "status": "NOT_RUN"
+    }
+  ],
+  "bidirectional_field_mappings": [
+    {"id": "P1R2-MAP-001", "api_to_db": "RequestEnvelope.request_id -> idempotency_records.original_request_id", "db_to_api": "claim lookup returns only replay decision; request_id is never authority", "jetstream": "never published"},
+    {"id": "P1R2-MAP-002", "api_to_db": "canonical_request_digest -> idempotency_records.first_request_digest", "db_to_api": "same scoped key compares immutable first digest", "jetstream": "never published"},
+    {"id": "P1R2-MAP-003", "api_to_db": "OwnerAuthority user/account/ownership -> non-null claim and target composite FKs", "db_to_api": "server-loaded active tuple constructs authority; client tuple is ignored", "jetstream": "OWNER event scope only; never client authority"},
+    {"id": "P1R2-MAP-004", "api_to_db": "source key ID/digest and control-plane aggregate -> source_key_records and control-plane claim columns", "db_to_api": "server record reconstructs source-only/resolved-user authority", "jetstream": "AUTH_SECURITY scope; never raw IP/key"},
+    {"id": "P1R2-MAP-005", "api_to_db": "stable key kind/digest and result class -> idempotency_records", "db_to_api": "claim state selects exact replay/conflict/reconciliation", "jetstream": "never published"},
+    {"id": "P1R2-MAP-006", "api_to_db": "ResponseCacheAAD and sealed response -> commit_response_cache; key/nonce -> aead_nonce_ledger", "db_to_api": "decrypt only after authority/scope/AAD validation", "jetstream": "never published"},
+    {"id": "P1R2-MAP-007", "api_to_db": "confirmation path ID/hash -> lookup/comparison only; full server tuple -> confirmations/operations/consumptions FKs", "db_to_api": "full tuple plus immutable links returns accepted Operation or reconciliation", "jetstream": "only owner audit aggregate identity"},
+    {"id": "P1R2-MAP-008", "api_to_db": "EventDraft schema/subject/id/kind/scope/aggregate/version/predecessor/causation/correlation/time/payload/digest -> history and outbox exact columns", "db_to_api": "P1-004 returns materialized immutable event only after head CAS", "jetstream": "same EventEnvelope fields, exact subject equality"}
+  ],
+  "handoff_required": ["exact_base", "exact_branch", "exact_worktree", "exact_commit", "changed_paths", "commands", "observed_results", "artifact_sha256", "p0_p1_p2", "unresolved_risks", "dependencies"]
+}
