@@ -1,7 +1,7 @@
 """RFC 8785 confirmation hash binding for FIT-Trade v1.
 
 Implements deterministic confirmation binding using:
-  - RFC 8785 JSON Canonicalization Scheme (JCS) for serialization
+  - RFC 8785 JSON Canonicalization Scheme (JCS) via rfc8785==0.1.4 (Trail of Bits)
   - SHA-256 for hashing
   - Exact parity with contracts/scripts/verify.mjs
 
@@ -12,47 +12,22 @@ must match for cross-language agreement.
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
+
+from rfc8785 import CanonicalizationError, dumps as rfc8785_dumps
 
 
 def canonicalize(value: Any) -> str:
     """RFC 8785 JSON Canonicalization Scheme (JCS) serializer.
 
-    Rules:
-      - null, boolean, number: JSON literals (no non-finite numbers)
-      - string: JSON quoted string
-      - array: [element,…] in order
-      - object: {key:value,…} sorted by JSON key string (UTF-16 code unit order)
+    Delegates to Trail of Bits' rfc8785==0.1.4 for a correct,
+    independently tested, pinned implementation.
 
-    Per JCS, no whitespace is emitted.
+    Returns JCS canonical bytes decoded to UTF-8 str.
+    Raises CanonicalizationError (including FloatDomainError /
+    IntegerDomainError) on non-finite numbers or unsupported types.
     """
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        # JCS: integers stay as integers (no decimal point)
-        return str(value)
-    if isinstance(value, float):
-        # JCS forbids non-finite
-        import math
-        if not math.isfinite(value):
-            raise ValueError(f"JCS forbids non-finite number: {value}")
-        return json.dumps(value)
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    if isinstance(value, list):
-        items = ",".join(canonicalize(v) for v in value)
-        return f"[{items}]"
-    if isinstance(value, dict):
-        keys = sorted(value.keys())
-        members = ",".join(
-            f"{json.dumps(k, ensure_ascii=False)}:{canonicalize(v)}"
-            for k, v in ((k, value[k]) for k in keys)
-        )
-        return f"{{{members}}}"
-    raise TypeError(f"unsupported JCS value type: {type(value)}")
+    return rfc8785_dumps(value).decode("utf-8")
 
 
 def confirmation_binding(ticket: dict[str, Any], fields: list[str]) -> dict[str, Any]:

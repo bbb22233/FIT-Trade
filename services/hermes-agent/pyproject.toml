@@ -9,6 +9,7 @@ dependencies = [
     "pydantic==2.8.2",
     "jsonschema==4.26.0",
     "referencing==0.37.0",
+    "rfc8785==0.1.4",
 ]
 
 [project.optional-dependencies]
