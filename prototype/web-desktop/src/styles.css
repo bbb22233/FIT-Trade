@@ -871,6 +871,26 @@ button.system-item {
   white-space: nowrap;
 }
 
+.ticket-identity {
+  display: block;
+  margin-top: 3px;
+  color: #758491;
+  font-family: "Roboto Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+}
+
+.ticket-binding-notice {
+  margin: 0 12px 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(221, 164, 64, 0.3);
+  border-radius: 4px;
+  background: rgba(93, 64, 18, 0.22);
+  color: #d6b875;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 .ticket-warning {
   display: flex;
   min-height: 34px;

@@ -3,10 +3,10 @@
 ## Scope
 
 - Source visual truth: `reference/institutional-risk-desk.png`
-- Browser-rendered implementation: `qa-command-center-shell.png`
-- Combined comparison: `qa-command-center-shell-compare.png`
+- Browser-rendered implementation: `qa-confirmation-ticket-freeze.png`
+- Combined comparison: `qa-confirmation-ticket-freeze-compare.png`
 - Interactive implementation: `http://localhost:4174/`
-- Screen state: `BTC-PERP / 1h / LIVE / AWAITING_CONFIRMATION`
+- Screen state: `SOL-PERP chart / ETH-PERP frozen ticket / LIVE / PROTECTED`
 - Theme: dark graphite
 
 This QA verifies the local simulated frontend shell only. It does not verify a
@@ -104,6 +104,14 @@ Browser checks completed:
 8. Repeated confirmation is disabled while the simulated Operation is active.
 9. Kill Switch requires a second explicit action, stops new risk, leaves
    reduce-only `减仓` available, and exposes no one-click all-close action.
+10. `SIM-0001 · BTC-PERP` retains its BTC pair, direction, quantity, leverage,
+    stop and risk fields after the chart changes to `ETH-PERP`.
+11. A new `ETH 加仓` instruction creates `SIM-0002 · ETH-PERP`; after the chart
+    changes to `SOL-PERP`, the ticket remains bound to ETH and displays an
+    explicit pair-mismatch notice.
+12. After the simulated operation reaches `PROTECTED`, the secondary action is
+    visibly disabled and reads `已完成，不能修改`. The same code path disables
+    it for `REJECTED` with `已拒绝，不能修改`.
 
 App-origin browser console errors or warnings: 0. Chrome-extension-origin
 warnings were observed and excluded from the application result.
@@ -133,6 +141,36 @@ Post-change findings:
 - P0: 0
 - P1: 0
 - P2: 0
+
+### Confirmation-ticket safety iteration
+
+Independent review raised two blocking interaction-safety findings. For this
+QA pass they were treated as P1:
+
+- the pending confirmation ticket was rendered from the active chart profile,
+  so changing symbols silently rebound the ticket;
+- completed and rejected operations exposed an enabled `返回修改` button whose
+  handler intentionally did nothing.
+
+Fixes made:
+
+- a new immutable `ConfirmationTicketSnapshot` now freezes ticket ID, symbol,
+  pair, effect, direction, quantity, notional, leverage, margin mode, margin,
+  reference price, worst fill, Stop Market, liquidation price, maximum loss,
+  total risk and fee budget when the intent is generated;
+- chart switching no longer resets or rewrites the pending ticket, and a
+  visible notice names both the active chart pair and frozen ticket pair;
+- completed, rejected and in-progress states now disable the secondary action
+  with explicit state-specific labels.
+
+Post-fix browser evidence:
+
+- `qa-confirmation-ticket-freeze.png` shows a `SOL-PERP` chart beside the frozen
+  `SIM-0002 · ETH-PERP` ticket, its ETH quantity and Stop Market, the mismatch
+  notice, final `PROTECTED` progress, and the disabled completion action;
+- `qa-confirmation-ticket-freeze-compare.png` places that rendered state beside
+  the visual source at the same 1487 × 1058 frame;
+- post-fix P0: 0, P1: 0, P2: 0.
 
 Intentional differences from the visual target:
 

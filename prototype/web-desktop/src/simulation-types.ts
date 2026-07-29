@@ -14,6 +14,29 @@ export type OperationState =
 
 export type PositionEffect = "OPEN" | "ADD";
 
+export type ConfirmationTicketSnapshot = Readonly<{
+  ticketId: string;
+  symbol: "BTC" | "ETH" | "SOL";
+  pair: string;
+  positionEffect: PositionEffect;
+  direction: "BUY_LONG";
+  directionLabel: string;
+  quantity: string;
+  notional: string;
+  leverage: "5x";
+  marginMode: "逐仓";
+  margin: string;
+  referencePrice: string;
+  worstFillPrice: string;
+  stopMarket: string;
+  liquidationPrice: string;
+  maxLoss: string;
+  maxLossPercent: string;
+  totalRisk: string;
+  totalRiskPercent: string;
+  feeBudget: string;
+}>;
+
 export type ChatMessage = {
   id: number;
   role: "you" | "hermes";

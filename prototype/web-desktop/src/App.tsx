@@ -55,12 +55,12 @@ export function App() {
 
         <HermesPanel
           profile={simulation.profile}
+          confirmationTicket={simulation.confirmationTicket}
           dataState={simulation.dataState}
           messages={simulation.messages}
           thinking={simulation.thinking}
           confirmationVisible={simulation.confirmationVisible}
           operationState={simulation.operationState}
-          positionEffect={simulation.positionEffect}
           expiresIn={simulation.expiresIn}
           canIncreaseRisk={simulation.canIncreaseRisk}
           inputRef={simulation.inputRef}

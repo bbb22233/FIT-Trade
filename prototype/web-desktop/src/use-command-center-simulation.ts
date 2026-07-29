@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  formatPrice,
   symbolProfiles,
+  type SymbolProfile,
   type SymbolKey,
   type Timeframe,
 } from "./market-data";
 import type {
   ChatMessage,
+  ConfirmationTicketSnapshot,
   DataState,
   OperationState,
   PositionEffect,
@@ -41,6 +44,35 @@ const executionSequence: Array<[number, OperationState]> = [
 
 const dataStates: DataState[] = ["LIVE", "STALE", "RECONCILING"];
 
+function createConfirmationTicketSnapshot(
+  profile: SymbolProfile,
+  positionEffect: PositionEffect,
+  sequence: number,
+): ConfirmationTicketSnapshot {
+  return Object.freeze({
+    ticketId: `SIM-${String(sequence).padStart(4, "0")}`,
+    symbol: profile.symbol,
+    pair: profile.pair,
+    positionEffect,
+    direction: "BUY_LONG",
+    directionLabel: positionEffect === "ADD" ? "买入加多" : "买入开多",
+    quantity: profile.quantity,
+    notional: profile.notional,
+    leverage: "5x",
+    marginMode: "逐仓",
+    margin: profile.margin,
+    referencePrice: formatPrice(profile, profile.entry),
+    worstFillPrice: formatPrice(profile, profile.worstFill),
+    stopMarket: formatPrice(profile, profile.stop),
+    liquidationPrice: formatPrice(profile, profile.liquidation),
+    maxLoss: profile.maxLoss,
+    maxLossPercent: profile.maxLossPercent,
+    totalRisk: profile.totalRisk,
+    totalRiskPercent: profile.totalRiskPercent,
+    feeBudget: profile.feeBudget,
+  });
+}
+
 export function useCommandCenterSimulation() {
   const [symbol, setSymbol] = useState<SymbolKey>("BTC");
   const [timeframe, setTimeframe] = useState<Timeframe>("1h");
@@ -51,8 +83,10 @@ export function useCommandCenterSimulation() {
   const [messages, setMessages] = useState(defaultMessages);
   const [thinking, setThinking] = useState(false);
   const [confirmationVisible, setConfirmationVisible] = useState(true);
-  const [positionEffect, setPositionEffect] =
-    useState<PositionEffect>("OPEN");
+  const [confirmationTicket, setConfirmationTicket] =
+    useState<ConfirmationTicketSnapshot>(() =>
+      createConfirmationTicketSnapshot(symbolProfiles.BTC, "OPEN", 1),
+    );
   const [operationState, setOperationState] =
     useState<OperationState>("AWAITING_CONFIRMATION");
   const [expiresIn, setExpiresIn] = useState(600);
@@ -61,6 +95,7 @@ export function useCommandCenterSimulation() {
   const [toast, setToast] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const timersRef = useRef<number[]>([]);
+  const ticketSequenceRef = useRef(1);
   const profile = useMemo(() => symbolProfiles[symbol], [symbol]);
 
   const clearExecutionTimers = () => {
@@ -68,9 +103,9 @@ export function useCommandCenterSimulation() {
     timersRef.current = [];
   };
 
-  const resetConfirmation = (effect: PositionEffect = positionEffect) => {
+  const replaceConfirmation = (ticket: ConfirmationTicketSnapshot) => {
     clearExecutionTimers();
-    setPositionEffect(effect);
+    setConfirmationTicket(ticket);
     setOperationState("AWAITING_CONFIRMATION");
     setExpiresIn(600);
     setConfirmationVisible(true);
@@ -101,8 +136,11 @@ export function useCommandCenterSimulation() {
   const cycleSymbol = () => {
     const symbols = Object.keys(symbolProfiles) as SymbolKey[];
     const nextIndex = (symbols.indexOf(symbol) + 1) % symbols.length;
-    setSymbol(symbols[nextIndex]);
-    resetConfirmation(positionEffect);
+    const nextSymbol = symbols[nextIndex];
+    setSymbol(nextSymbol);
+    setToast(
+      `图表已切换为 ${symbolProfiles[nextSymbol].pair}；待确认票据仍锁定 ${confirmationTicket.pair}，不会静默改写。`,
+    );
   };
 
   const cycleDataState = () => {
@@ -141,6 +179,17 @@ export function useCommandCenterSimulation() {
 
   const sendMessage = (content: string) => {
     const effect: PositionEffect = content.includes("加仓") ? "ADD" : "OPEN";
+    const normalized = content.toUpperCase();
+    const mentionedSymbol = (
+      Object.keys(symbolProfiles) as SymbolKey[]
+    ).find((candidate) => normalized.includes(candidate));
+    const intentProfile = symbolProfiles[mentionedSymbol ?? symbol];
+    ticketSequenceRef.current += 1;
+    const ticket = createConfirmationTicketSnapshot(
+      intentProfile,
+      effect,
+      ticketSequenceRef.current,
+    );
     setMessages((current) => [
       ...current,
       { id: current.length + 1, role: "you", content },
@@ -152,11 +201,11 @@ export function useCommandCenterSimulation() {
         {
           id: current.length + 1,
           role: "hermes",
-          content: `已按 ${profile.pair} 本地模拟上下文生成${effect === "ADD" ? "加仓" : "开仓"}意图。模拟 Go 风控会重新计算仓位、止损与最大亏损。`,
+          content: `已按 ${ticket.pair} 本地模拟上下文生成${effect === "ADD" ? "加仓" : "开仓"}意图。交易意图和全部风险字段已冻结到票据 ${ticket.ticketId}。`,
         },
       ]);
       setThinking(false);
-      resetConfirmation(effect);
+      replaceConfirmation(ticket);
     }, 700);
   };
 
@@ -177,7 +226,7 @@ export function useCommandCenterSimulation() {
     messages,
     thinking,
     confirmationVisible,
-    positionEffect,
+    confirmationTicket,
     operationState,
     expiresIn,
     killDialogOpen,

@@ -14,29 +14,29 @@ import {
   type FormEvent,
   type RefObject,
 } from "react";
-import { formatPrice, type SymbolProfile } from "../market-data";
+import type { SymbolProfile } from "../market-data";
 import {
   operationLabels,
   type ChatMessage,
+  type ConfirmationTicketSnapshot,
   type DataState,
   type OperationState,
-  type PositionEffect,
 } from "../simulation-types";
 
 function ConfirmationTicket({
-  profile,
+  ticket,
+  activePair,
   dataState,
   operationState,
-  positionEffect,
   expiresIn,
   canIncreaseRisk,
   onConfirm,
   onEdit,
 }: {
-  profile: SymbolProfile;
+  ticket: ConfirmationTicketSnapshot;
+  activePair: string;
   dataState: DataState;
   operationState: OperationState;
-  positionEffect: PositionEffect;
   expiresIn: number;
   canIncreaseRisk: boolean;
   onConfirm: () => void;
@@ -53,9 +53,18 @@ function ConfirmationTicket({
   const isFinal = operationState === "PROTECTED";
   const isExpired = operationState === "EXPIRED";
   const isRejected = operationState === "REJECTED";
+  const isBindingMismatch = activePair !== ticket.pair;
   const minutes = String(Math.floor(expiresIn / 60)).padStart(2, "0");
   const seconds = String(expiresIn % 60).padStart(2, "0");
-  const effectLabel = positionEffect === "ADD" ? "加仓" : "开仓";
+  const effectLabel = ticket.positionEffect === "ADD" ? "加仓" : "开仓";
+  const editDisabled = isProcessing || isFinal || isRejected;
+  const editLabel = isFinal
+    ? "已完成，不能修改"
+    : isRejected
+      ? "已拒绝，不能修改"
+      : isProcessing
+        ? "执行中，不能修改"
+        : "返回修改";
 
   let disabledCopy = "";
   if (!canIncreaseRisk) {
@@ -74,16 +83,27 @@ function ConfirmationTicket({
       <div className="ticket-header">
         <div>
           <span className="ticket-kicker">
-            MAINNET 界面演练 · 本地模拟 · 不可修改
+            MAINNET 界面演练 · 本地模拟 · 意图已冻结
           </span>
           <h2 id="confirmation-title">
-            {profile.symbol} {effectLabel}确认
+            {ticket.symbol} {effectLabel}确认
           </h2>
+          <span className="ticket-identity">
+            {ticket.ticketId} · {ticket.pair}
+          </span>
         </div>
-        <span className="side-label">
-          买入{positionEffect === "ADD" ? "加多" : "开多"}
-        </span>
+        <span className="side-label">{ticket.directionLabel}</span>
       </div>
+
+      {isBindingMismatch ? (
+        <div
+          className="ticket-binding-notice"
+          role="status"
+          data-testid="ticket-binding-notice"
+        >
+          图表已切换到 {activePair}；本票据仍锁定 {ticket.pair}，不会随图表改写。
+        </div>
+      ) : null}
 
       <div className="ticket-warning">
         <Warning size={17} weight="regular" aria-hidden="true" />
@@ -97,24 +117,24 @@ function ConfirmationTicket({
         <div className="ledger-row critical">
           <span>最大亏损</span>
           <strong>
-            {profile.maxLoss}
-            <small>{profile.maxLossPercent}</small>
+            {ticket.maxLoss}
+            <small>{ticket.maxLossPercent}</small>
           </strong>
         </div>
         <div className="ledger-row critical">
           <span>交易后总风险</span>
           <strong>
-            {profile.totalRisk}
-            <small>{profile.totalRiskPercent}</small>
+            {ticket.totalRisk}
+            <small>{ticket.totalRiskPercent}</small>
           </strong>
         </div>
         <div className="ledger-row">
           <span>Stop Market</span>
-          <strong>{formatPrice(profile, profile.stop)}</strong>
+          <strong>{ticket.stopMarket}</strong>
         </div>
         <div className="ledger-row">
           <span>强平价</span>
-          <strong>{formatPrice(profile, profile.liquidation)}</strong>
+          <strong>{ticket.liquidationPrice}</strong>
         </div>
       </div>
 
@@ -122,28 +142,29 @@ function ConfirmationTicket({
         <div>
           <span>数量 / 名义价值</span>
           <strong>
-            {profile.quantity} / {profile.notional}
+            {ticket.quantity} / {ticket.notional}
           </strong>
         </div>
         <div>
           <span>杠杆 / 保证金</span>
-          <strong>5x 逐仓 / {profile.margin}</strong>
+          <strong>
+            {ticket.leverage} {ticket.marginMode} / {ticket.margin}
+          </strong>
         </div>
         <div>
           <span>参考 / 最差成交</span>
           <strong>
-            {formatPrice(profile, profile.entry)} /{" "}
-            {formatPrice(profile, profile.worstFill)}
+            {ticket.referencePrice} / {ticket.worstFillPrice}
           </strong>
         </div>
         <div>
           <span>费用与滑点预算</span>
-          <strong>{profile.feeBudget}</strong>
+          <strong>{ticket.feeBudget}</strong>
         </div>
       </div>
 
       <p className="ticket-footnote">
-        本票据由本地状态模拟器生成，不会连接钱包、模型或交易所。接入后端后，全部字段必须由服务端权威状态替换。
+        本票据的品种、方向、数量、杠杆、止损和风险字段均已冻结；切换图表不会改写。接入后端后，全部字段必须由服务端权威状态替换。
       </p>
 
       {isProcessing || isFinal || isRejected ? (
@@ -175,9 +196,10 @@ function ConfirmationTicket({
           type="button"
           className="ticket-secondary"
           onClick={onEdit}
-          disabled={isProcessing}
+          disabled={editDisabled}
+          data-testid="edit-confirmation"
         >
-          返回修改
+          {editLabel}
         </button>
         <button
           type="button"
@@ -222,12 +244,12 @@ function ConfirmationTicket({
 }
 export function HermesPanel({
   profile,
+  confirmationTicket,
   dataState,
   messages,
   thinking,
   confirmationVisible,
   operationState,
-  positionEffect,
   expiresIn,
   canIncreaseRisk,
   inputRef,
@@ -236,12 +258,12 @@ export function HermesPanel({
   onEdit,
 }: {
   profile: SymbolProfile;
+  confirmationTicket: ConfirmationTicketSnapshot;
   dataState: DataState;
   messages: ChatMessage[];
   thinking: boolean;
   confirmationVisible: boolean;
   operationState: OperationState;
-  positionEffect: PositionEffect;
   expiresIn: number;
   canIncreaseRisk: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
@@ -291,10 +313,10 @@ export function HermesPanel({
 
       {confirmationVisible ? (
         <ConfirmationTicket
-          profile={profile}
+          ticket={confirmationTicket}
+          activePair={profile.pair}
           dataState={dataState}
           operationState={operationState}
-          positionEffect={positionEffect}
           expiresIn={expiresIn}
           canIncreaseRisk={canIncreaseRisk}
           onConfirm={onConfirm}
