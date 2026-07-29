@@ -1,0 +1,133 @@
+{
+  "schema_version": "fit.coordination.review-results.v1",
+  "round_id": "ROUND-01",
+  "recorded_at": "2026-07-29",
+  "reviews": [
+    {
+      "workstream": "P1_PLATFORM_CONTRACTS",
+      "branch": "codex/p1-platform-contracts",
+      "attempts": [
+        {
+          "commit": "8a2105edbee0bf2dbdf32097ab96807728d50d9e",
+          "verdict": "CHANGES_REQUIRED",
+          "severity_counts": {
+            "P0": 0,
+            "P1": 2,
+            "P2": 0
+          }
+        },
+        {
+          "commit": "9b4b113a4032f7f0eee88297781e3b2d069b1f18",
+          "verdict": "PASS",
+          "severity_counts": {
+            "P0": 0,
+            "P1": 0,
+            "P2": 0
+          }
+        }
+      ],
+      "independent_reviewer_role": "FIXED_COMMIT_REVIEW_AGENT",
+      "verified_commands": [
+        "npm test",
+        "npx --yes node@24 scripts/verify-platform.mjs",
+        "git diff --check"
+      ],
+      "not_authorized": [
+        "MERGE",
+        "DEPLOY",
+        "PRODUCTION",
+        "EXCHANGE_WRITE",
+        "WALLET_OR_SIGNER"
+      ]
+    },
+    {
+      "workstream": "FRONTEND_COMMAND_CENTER_SHELL",
+      "branch": "codex/frontend-command-center-shell",
+      "attempts": [
+        {
+          "commit": "dbc65315d5b728b622fad748c99837746aae3b1d",
+          "verdict": "CHANGES_REQUIRED",
+          "severity_counts": {
+            "P0": 0,
+            "P1": 1,
+            "P2": 1
+          }
+        },
+        {
+          "commit": "42f9222ab3b44f3e92337602c7a4e79df020fdea",
+          "verdict": "CHANGES_REQUIRED",
+          "severity_counts": {
+            "P0": 0,
+            "P1": 1,
+            "P2": 0
+          }
+        },
+        {
+          "commit": "b18aa1f18d2c646cfcac569a1a6af81b91ca8743",
+          "verdict": "PASS",
+          "severity_counts": {
+            "P0": 0,
+            "P1": 0,
+            "P2": 0
+          }
+        }
+      ],
+      "independent_reviewer_role": "OSS_INTAKE_AGENT_READ_ONLY_REVIEW",
+      "verified_commands": [
+        "npm run typecheck",
+        "npm run build",
+        "npm run test:sites",
+        "git diff --check",
+        "browser adversarial state verification"
+      ],
+      "not_authorized": [
+        "MERGE",
+        "DEPLOY",
+        "PRODUCTION",
+        "EXCHANGE_WRITE",
+        "WALLET_OR_SIGNER"
+      ]
+    },
+    {
+      "workstream": "OSS_DEPENDENCY_INTAKE",
+      "branch": "codex/oss-dependency-intake",
+      "attempts": [
+        {
+          "commit": "65febfbaeacf20d8569995557de6cf9615da5c4b",
+          "verdict": "CHANGES_REQUIRED",
+          "severity_counts": {
+            "P0": 0,
+            "P1": 1,
+            "P2": 1
+          }
+        },
+        {
+          "commit": "d3a219a305930e6f9019e90c9301900493a60084",
+          "verdict": "PASS",
+          "severity_counts": {
+            "P0": 0,
+            "P1": 0,
+            "P2": 0
+          }
+        }
+      ],
+      "independent_reviewer_role": "FRONTEND_AGENT_READ_ONLY_REVIEW",
+      "verified_commands": [
+        "13 tag-to-commit checks",
+        "13 fixed-version license checks",
+        "Markdown-to-JSON field comparison",
+        "classification count assertion",
+        "secret scan",
+        "git diff --check"
+      ],
+      "not_authorized": [
+        "MERGE",
+        "INSTALL",
+        "DEPLOY",
+        "PRODUCTION",
+        "EXCHANGE_WRITE",
+        "WALLET_OR_SIGNER"
+      ]
+    }
+  ]
+}

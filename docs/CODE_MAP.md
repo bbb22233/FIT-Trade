@@ -16,29 +16,36 @@ FIT-Trade/
 │   ├── fixtures/                 正向、负向、黄金向量和安全场景
 │   └── scripts/                  契约、秘密和语义验证器
 ├── prototype/web-desktop/        React/Vite 网页与桌面主界面原型
+├── services/
+│   ├── trading-core/             Phase 0 Go 领域契约一致性代码和测试
+│   └── hermes-agent/             Phase 0 Python 契约/安全一致性代码和测试
 ├── docs/                         产品、架构、验收、计划和状态文档
 └── coordination/                 多代理任务包、范围和验收证据
 ```
 
-以下计划目录尚未实现，不能把文档或原型误认为运行时：
+以下运行时能力或计划目录尚未实现，不能把 Phase 0 一致性代码、文档或原型
+误认为可运行平台：
 
 ```text
-services/trading-core/            尚未开始
-services/hyperliquid-adapter/     尚未开始
-services/hermes-agent/            尚未开始
-apps/ios/                         尚未开始
-infra/                            尚未开始
+services/trading-core 的 API、PostgreSQL、NATS 和平台运行时    尚未实现
+services/hyperliquid-adapter/                                  目录不存在
+services/hermes-agent 的真实 Agent runtime、模型路由和隔离     尚未实现
+apps/ios/                                                     目录不存在
+infra/                                                       目录不存在
 ```
 
 ## 2. 当前代码事实
 
 | 区域 | 当前事实 | 权威边界 |
 | --- | --- | --- |
-| Phase 0 交易契约 | 已在 `main@60850b6` 建立 Go/Python/TypeScript 共用的领域契约、状态机、MCP 工具清单和安全验证 | 业务实现不能自行重定义交易语义 |
+| Phase 0 交易契约 | 已在 `main@60850b6` 建立共用领域契约，并在 `services/trading-core` 与 `services/hermes-agent` 建立 Go/Python 一致性代码和测试 | 这些服务目录目前只证明契约一致性，不是平台或 Agent 运行时；业务实现不能自行重定义交易语义 |
 | Phase 1 平台契约 | `codex/p1-platform-contracts@9b4b113` 已通过独立固定提交审查并推送，尚未合并 | 定义 PostgreSQL 事务、身份、会话、事件、Inbox/Outbox、NATS、恢复和故障语义；没有 Go 平台运行时 |
 | 网页/桌面原型 | `codex/frontend-command-center-shell@b18aa1f` 已通过独立固定提交审查并推送，尚未合并 | 仅本地模拟；没有钱包、签名器、交易所、模型 API 或生产后端 |
 | 开源准入 | `codex/oss-dependency-intake@d3a219a` 固定 13 个候选的版本、许可证和使用边界，已通过独立固定提交审查并推送，尚未合并 | 准入不等于已经安装，也不授权交易所写入或生产 |
 | 产品与架构文档 | `docs/00`—`07` 是当前产品和技术基线 | 文档不能替代实现、测试、合并、部署或实盘授权 |
+
+三条功能分支的审查链和命令证据记录在
+[`coordination/evidence/ROUND-01/review-results.json`](../coordination/evidence/ROUND-01/review-results.json)。
 
 ## 3. 关键依赖关系
 

@@ -1,6 +1,6 @@
 # 当前项目进度
 
-更新日期：2026-07-29  
+更新日期：2026-07-29
 当前轮次：第 1 轮（预计约 15 轮的完整产品计划）
 
 ## 1. 本轮结果
@@ -21,6 +21,9 @@
 - 前端确认票据冻结交易意图，切换品种或发送新聊天不能覆盖活跃 Operation；
 - Kill Switch、`STALE`、`RECONCILING` 和保护状态保持 fail-closed；
 - 13 个开源候选固定版本、commit、许可证和 `ADOPT / REFERENCE_ONLY / PROHIBITED` 分类。
+
+本表的独立审查链、严重级别、验证命令和授权边界已持久化到
+[`review-results.json`](../coordination/evidence/ROUND-01/review-results.json)。
 
 ## 2. 验证证据
 
