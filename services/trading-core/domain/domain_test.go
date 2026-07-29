@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -243,6 +244,142 @@ func TestFixtureOptionalPropertiesRejectExplicitNull(t *testing.T) {
 	assertInvalidFixture(t, "ModelProposal", proposal)
 }
 
+func TestUUIDFormatMatchesContractOracle(t *testing.T) {
+	const (
+		nilUUID = "00000000-0000-0000-0000-000000000000"
+		allF    = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+	)
+	for _, id := range []string{nilUUID, allF, strings.ToUpper(allF)} {
+		t.Run(id, func(t *testing.T) {
+			intent := ticketFromFixture(t).Intent
+			intent.IntentID = id
+			if err := intent.Validate(); err != nil {
+				t.Fatalf("TradeIntent rejected AJV-valid UUID: %v", err)
+			}
+
+			ticket := ticketFromFixture(t)
+			ticket.ConfirmationID = id
+			ticket.ConfirmationHash = mustConfirmationDigest(t, ticket)
+			if err := ticket.Validate(time.Date(2026, 7, 29, 4, 5, 0, 0, time.UTC)); err != nil {
+				t.Fatalf("ConfirmationTicket rejected AJV-valid UUID: %v", err)
+			}
+
+			var operationFixture fixtureEnvelope
+			if err := StrictDecode(readFixture(t, "fixtures/valid/operation-awaiting-confirmation.json"), &operationFixture); err != nil {
+				t.Fatal(err)
+			}
+			var operation map[string]any
+			if err := json.Unmarshal(operationFixture.Value, &operation); err != nil {
+				t.Fatal(err)
+			}
+			operation["operation_id"] = id
+			if err := ValidateFixture(marshalFixture(t, "Operation", operation), time.Time{}); err != nil {
+				t.Fatalf("Operation rejected AJV-valid UUID: %v", err)
+			}
+
+			var proposalFixture fixtureEnvelope
+			if err := StrictDecode(readFixture(t, "fixtures/valid/model-proposal-no-trade.json"), &proposalFixture); err != nil {
+				t.Fatal(err)
+			}
+			var proposal map[string]any
+			if err := json.Unmarshal(proposalFixture.Value, &proposal); err != nil {
+				t.Fatal(err)
+			}
+			proposal["proposal_id"] = id
+			if err := ValidateFixture(marshalFixture(t, "ModelProposal", proposal), time.Time{}); err != nil {
+				t.Fatalf("ModelProposal rejected AJV-valid UUID: %v", err)
+			}
+		})
+	}
+}
+
+func TestScopedTimestampsMatchUTCContractOracle(t *testing.T) {
+	valid := []string{
+		"2026-07-29T04:00:00Z",
+		"2026-07-29t04:00:00z",
+		"2026-07-29 04:00:00Z",
+		"2026-07-29T04:00:00.123456789Z",
+		"2026-07-29T23:59:60Z",
+	}
+	invalid := []string{
+		"2026-07-29T04:00:00+00:00",
+		"2026-07-29T00:00:00-04:00",
+		"2026-07-29T05:00:00+01:00",
+		"2026-07-29T04:00:00",
+	}
+	for _, timestamp := range valid {
+		if _, err := parseUTCTimestamp(timestamp); err != nil {
+			t.Errorf("AJV-valid UTC timestamp %q rejected: %v", timestamp, err)
+		}
+	}
+	for _, timestamp := range invalid {
+		if _, err := parseUTCTimestamp(timestamp); err == nil {
+			t.Errorf("non-UTC-designated timestamp %q accepted", timestamp)
+		}
+	}
+
+	for _, timestamp := range append(valid, invalid...) {
+		wantValid := len(timestamp) > 0 && (timestamp[len(timestamp)-1] == 'Z' || timestamp[len(timestamp)-1] == 'z')
+		t.Run(timestamp, func(t *testing.T) {
+			intent := ticketFromFixture(t).Intent
+			intent.CreatedAt = timestamp
+			assertValidationResult(t, "TradeIntent.created_at", intent.Validate(), wantValid)
+
+			ticket := ticketFromFixture(t)
+			ticket.CreatedAt = timestamp
+			ticket.ConfirmationHash = mustConfirmationDigest(t, ticket)
+			assertValidationResult(t, "ConfirmationTicket.created_at",
+				ticket.Validate(time.Date(2026, 7, 29, 3, 0, 0, 0, time.UTC)), wantValid)
+
+			ticket = ticketFromFixture(t)
+			ticket.ExpiresAt = timestamp
+			ticket.ConfirmationHash = mustConfirmationDigest(t, ticket)
+			expires, parseErr := parseUTCTimestamp(timestamp)
+			expiryValid := wantValid && parseErr == nil && expires.After(time.Date(2026, 7, 29, 3, 0, 0, 0, time.UTC))
+			assertValidationResult(t, "ConfirmationTicket.expires_at",
+				ticket.Validate(time.Date(2026, 7, 29, 3, 0, 0, 0, time.UTC)), expiryValid)
+
+			assertFixtureTimestamp(t, "Operation", "fixtures/valid/operation-awaiting-confirmation.json", "created_at", timestamp, wantValid)
+			assertFixtureTimestamp(t, "Operation", "fixtures/valid/operation-awaiting-confirmation.json", "updated_at", timestamp, wantValid)
+			assertFixtureTimestamp(t, "ModelProposal", "fixtures/valid/model-proposal-no-trade.json", "created_at", timestamp, wantValid)
+		})
+	}
+}
+
+func assertFixtureTimestamp(t *testing.T, schema, fixturePath, field, timestamp string, wantValid bool) {
+	t.Helper()
+	var fixture fixtureEnvelope
+	if err := StrictDecode(readFixture(t, fixturePath), &fixture); err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(fixture.Value, &value); err != nil {
+		t.Fatal(err)
+	}
+	value[field] = timestamp
+	assertValidationResult(t, schema+"."+field, ValidateFixture(marshalFixture(t, schema, value), time.Time{}), wantValid)
+}
+
+func assertValidationResult(t *testing.T, field string, err error, wantValid bool) {
+	t.Helper()
+	if wantValid && err != nil {
+		t.Errorf("%s rejected: %v", field, err)
+	}
+	if !wantValid && err == nil {
+		t.Errorf("%s accepted", field)
+	}
+}
+
+func mustConfirmationDigest(t *testing.T, ticket ConfirmationTicket) string {
+	t.Helper()
+	ticket.ConfirmationHash = strings.Repeat("0", 64)
+	digest, err := ConfirmationDigest(ticket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
 func TestFixtureOptionalPropertiesMayBeOmitted(t *testing.T) {
 	var intentFixture fixtureEnvelope
 	if err := StrictDecode(readFixture(t, "fixtures/valid/trade-intent-open.json"), &intentFixture); err != nil {
@@ -315,7 +452,10 @@ func TestNestedTradeIntentRejectsExplicitNullStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	ticket["intent"] = intent
-	assertInvalidFixture(t, "ConfirmationTicket", ticket)
+	err := ValidateFixture(marshalFixture(t, "ConfirmationTicket", ticket), time.Date(2026, 7, 29, 4, 5, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "stop must not be null") {
+		t.Fatalf("ConfirmationTicket nested stop:null error = %v", err)
+	}
 }
 
 func TestRequiredZeroValuePropertiesTrackPresence(t *testing.T) {
@@ -608,32 +748,66 @@ func TestTakeProfitPlanSchemaSemantics(t *testing.T) {
 }
 
 func TestExactProtectionCoverage(t *testing.T) {
-	position := PositionSnapshot{"position", "-0.025", "protection", ProtectionProtected}
-	protection := ProtectionStatus{"protection", "position", ProtectionProtected, "0.025", []string{"stop"}, strings.Repeat("a", 64)}
+	positionID := "00000000-0000-0000-0000-000000000000"
+	protectionID := "ffffffff-ffff-ffff-ffff-ffffffffffff"
+	position := PositionSnapshot{positionID, "-0.025", protectionID, ProtectionProtected}
+	protection := ProtectionStatus{protectionID, positionID, ProtectionProtected, "0.025", []string{"界"}, strings.Repeat("a", 64)}
 	if err := ValidateProtectionCoverage(position, protection); err != nil {
 		t.Fatal(err)
 	}
-	mutations := []func(*ProtectionStatus){
-		func(p *ProtectionStatus) { p.State = ProtectionPending },
-		func(p *ProtectionStatus) { p.ProtectionStatusID = "other" },
-		func(p *ProtectionStatus) { p.PositionID = "other" },
-		func(p *ProtectionStatus) { p.AbsoluteLivePositionAmount = "0.024999999999999999" },
-		func(p *ProtectionStatus) { p.ActiveStopOrderIDs = nil },
-		func(p *ProtectionStatus) { p.CoverageEvidenceHash = "BAD" },
+	boundary := protection
+	boundary.ActiveStopOrderIDs = make([]string, 32)
+	for i := range boundary.ActiveStopOrderIDs {
+		boundary.ActiveStopOrderIDs[i] = fmt.Sprintf("%03d-%s", i, strings.Repeat("界", 124))
 	}
-	for i, mutation := range mutations {
-		copy := protection
-		mutation(&copy)
-		if err := ValidateProtectionCoverage(position, copy); err == nil {
-			t.Fatalf("mutation %d accepted", i)
-		}
+	if err := ValidateProtectionCoverage(position, boundary); err != nil {
+		t.Fatalf("valid 32-item/128-code-point boundary rejected: %v", err)
 	}
-	for _, id := range []string{"", " ", "\t\r\n"} {
-		copy := protection
-		copy.ActiveStopOrderIDs = []string{id}
-		if err := ValidateProtectionCoverage(position, copy); err == nil {
-			t.Fatalf("blank stop order identifier %q accepted", id)
-		}
+
+	tests := map[string]func(*PositionSnapshot, *ProtectionStatus){
+		"33 IDs": func(_ *PositionSnapshot, p *ProtectionStatus) {
+			p.ActiveStopOrderIDs = make([]string, 33)
+			for i := range p.ActiveStopOrderIDs {
+				p.ActiveStopOrderIDs[i] = fmt.Sprintf("stop-%d", i)
+			}
+		},
+		"duplicate IDs": func(_ *PositionSnapshot, p *ProtectionStatus) {
+			p.ActiveStopOrderIDs = []string{"same", "same"}
+		},
+		"129 Unicode code points": func(_ *PositionSnapshot, p *ProtectionStatus) {
+			p.ActiveStopOrderIDs = []string{strings.Repeat("界", 129)}
+		},
+		"blank ID":              func(_ *PositionSnapshot, p *ProtectionStatus) { p.ActiveStopOrderIDs = []string{" \t\n"} },
+		"invalid position UUID": func(pos *PositionSnapshot, _ *ProtectionStatus) { pos.PositionID = "not-a-uuid" },
+		"invalid position protection UUID": func(pos *PositionSnapshot, _ *ProtectionStatus) {
+			pos.ProtectionStatusID = "not-a-uuid"
+		},
+		"invalid status position UUID": func(_ *PositionSnapshot, p *ProtectionStatus) {
+			p.PositionID = "not-a-uuid"
+		},
+		"invalid status protection UUID": func(_ *PositionSnapshot, p *ProtectionStatus) {
+			p.ProtectionStatusID = "not-a-uuid"
+		},
+		"wrong position identity": func(_ *PositionSnapshot, p *ProtectionStatus) { p.PositionID = protectionID },
+		"wrong protection identity": func(_ *PositionSnapshot, p *ProtectionStatus) {
+			p.ProtectionStatusID = positionID
+		},
+		"malformed hash":    func(_ *PositionSnapshot, p *ProtectionStatus) { p.CoverageEvidenceHash = strings.Repeat("A", 64) },
+		"quantity mismatch": func(_ *PositionSnapshot, p *ProtectionStatus) { p.AbsoluteLivePositionAmount = "0.024999999999999999" },
+		"zero position": func(pos *PositionSnapshot, p *ProtectionStatus) {
+			pos.SignedQuantity, p.AbsoluteLivePositionAmount = "0", "0"
+		},
+		"no stop IDs": func(_ *PositionSnapshot, p *ProtectionStatus) { p.ActiveStopOrderIDs = nil },
+		"wrong state": func(_ *PositionSnapshot, p *ProtectionStatus) { p.State = ProtectionPending },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			positionCopy, protectionCopy := position, protection
+			mutate(&positionCopy, &protectionCopy)
+			if err := ValidateProtectionCoverage(positionCopy, protectionCopy); err == nil {
+				t.Fatal("schema-invalid protection evidence accepted")
+			}
+		})
 	}
 }
 
