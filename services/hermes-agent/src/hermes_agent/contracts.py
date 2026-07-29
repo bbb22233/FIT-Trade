@@ -6,6 +6,13 @@ All financial values are represented as canonical decimal strings.
 
 The constants and enums are derived solely from the frozen schema;
 no independent enums, tool-name lists, or effect maps exist.
+
+P0-003 hardening:
+  - integer fields use strict=True to block string/number coercion
+  - boolean fields use strict=True to block string/number coercion
+  - const-true fields have strict bool + true-only validation
+  - explicit None is rejected on every non-nullable field
+  - schema-required fields carry no Pydantic default so omission fails
 """
 
 from __future__ import annotations
@@ -13,15 +20,15 @@ from __future__ import annotations
 import datetime as _datetime
 import re
 from enum import Enum
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
     Field,
     StringConstraints,
     field_validator,
-    model_validator,
     functional_validators,
+    model_validator,
 )
 
 # ---------------------------------------------------------------------------
@@ -314,13 +321,53 @@ StopOrderIdStr = Annotated[
 EventTypeStr = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{2,95}$")]
 
 
+# ---------------------------------------------------------------------------
+# Helper: validate const-true fields (strict bool + true-only)
+# ---------------------------------------------------------------------------
+
+
+def _validate_const_true(v: object) -> bool:
+    """Reject anything that is not a Python bool True.
+
+    Pydantic v2 Literal[True] accepts truthy values (1, "true", etc.)
+    in non-strict mode.  This validator is called from field_validator(mode='before')
+    so it runs before any coercion and rejects strings, ints, and False.
+    """
+    if v is True:
+        return v
+    raise ValueError(f"must be true (strict boolean), got {type(v).__name__}: {v!r}")
+
+
+# ---------------------------------------------------------------------------
+# Base domain model
+# ---------------------------------------------------------------------------
+
+
 class BaseDomain(BaseModel):
-    """Base for all domain objects — forbids unknown fields and silences model_ namespace warning."""
+    """Base for all domain objects — forbids unknown fields and silences model_ namespace warning.
+
+    Post-validation rule: reject any field that was explicitly set to None.
+    The frozen JSON Schema has no nullable properties, so None is never a
+    valid value.  Fields that are optional in the schema must simply be omitted
+    (not provided at all), not set to null.
+    """
 
     model_config = {
         "extra": "forbid",
         "protected_namespaces": (),
     }
+
+    @model_validator(mode="after")
+    def _reject_explicit_none(self) -> Self:
+        """Reject any field that was explicitly present in the input and set to None."""
+        for field_name, field_info in self.model_fields.items():
+            if field_name in self.__pydantic_fields_set__:
+                if getattr(self, field_name) is None:
+                    raise ValueError(
+                        f"'{field_name}' must not be explicitly null "
+                        f"(schema has no nullable properties; omit the field instead)"
+                    )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -329,20 +376,30 @@ class BaseDomain(BaseModel):
 
 
 class StopMarket(BaseDomain):
-    type: Literal["STOP_MARKET"] = "STOP_MARKET"
+    type: Literal["STOP_MARKET"]  # schema-required, no default
     trigger_price: PositiveDecimalStr
-    reduce_only: Literal[True] = True
+    reduce_only: Literal[True]  # schema-required, no default; const-true validated below
+
+    @field_validator("reduce_only", mode="before")
+    @classmethod
+    def _validate_reduce_only_strict_true(cls, v: object) -> bool:
+        return _validate_const_true(v)
 
 
 class TakeProfitLeg(BaseDomain):
     trigger_price: PositiveDecimalStr
     quantity_fraction: PositiveFractionStr
-    reduce_only: Literal[True] = True
+    reduce_only: Literal[True]  # schema-required, no default; const-true validated below
+
+    @field_validator("reduce_only", mode="before")
+    @classmethod
+    def _validate_reduce_only_strict_true(cls, v: object) -> bool:
+        return _validate_const_true(v)
 
 
 class SymbolLeverage(BaseDomain):
     symbol: Symbol
-    maximum_leverage: int = Field(ge=1, le=100)
+    maximum_leverage: int = Field(ge=1, le=100, strict=True)
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +408,7 @@ class SymbolLeverage(BaseDomain):
 
 
 class TradeIntent(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default — omission must fail
     intent_id: UUIDStr
     user_id: UUIDStr
     account_id: UUIDStr
@@ -364,11 +421,11 @@ class TradeIntent(BaseDomain):
     quantity: PositiveDecimalStr
     notional: PositiveDecimalStr
     margin_mode: MarginMode
-    leverage: int = Field(ge=1, le=100)
+    leverage: int = Field(ge=1, le=100, strict=True)
     entry_price_or_bound: PositiveDecimalStr
     worst_acceptable_price: PositiveDecimalStr
     stop: StopMarket | None = None
-    take_profit_plan: list[TakeProfitLeg] = Field(default_factory=list, max_length=8)
+    take_profit_plan: list[TakeProfitLeg] = Field(max_length=8)  # no default — omission must fail
     risk_policy_version: RiskPolicyVersionStr
     market_snapshot_id: UUIDStr
     strategy_version: StrategyVersionStr
@@ -377,7 +434,7 @@ class TradeIntent(BaseDomain):
     created_at: TimestampStr
 
     @model_validator(mode="after")
-    def _enforce_conditional_rules(self) -> "TradeIntent":
+    def _enforce_conditional_rules(self) -> Self:
         # Stop is mandatory for OPEN / INCREASE
         if self.position_effect in (PositionEffect.OPEN, PositionEffect.INCREASE):
             if self.stop is None:
@@ -397,7 +454,7 @@ class TradeIntent(BaseDomain):
 
 
 class ConfirmationTicket(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     confirmation_id: UUIDStr
     device_id: UUIDStr
     session_id: UUIDStr
@@ -415,7 +472,7 @@ class ConfirmationTicket(BaseDomain):
     created_at: TimestampStr
 
     @model_validator(mode="after")
-    def _intent_must_be_risk_increasing(self) -> "ConfirmationTicket":
+    def _intent_must_be_risk_increasing(self) -> Self:
         if self.intent.position_effect not in (
             PositionEffect.OPEN,
             PositionEffect.INCREASE,
@@ -428,29 +485,29 @@ class ConfirmationTicket(BaseDomain):
 
 
 class Operation(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     operation_id: UUIDStr
     intent_id: UUIDStr
     confirmation_id: UUIDStr | None = None
     state: OperationState
-    state_version: int = Field(ge=0)
+    state_version: int = Field(ge=0, strict=True)
     rejection_code: str | None = Field(default=None, max_length=96)
     created_at: TimestampStr
     updated_at: TimestampStr
 
 
 class ExecutionAttempt(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     attempt_id: UUIDStr
     operation_id: UUIDStr
     client_order_id: ClientOrderIdStr
-    attempt_number: int = Field(ge=1, le=32)
+    attempt_number: int = Field(ge=1, le=32, strict=True)
     state: AttemptState
     created_at: TimestampStr
 
 
 class Order(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     order_id: UUIDStr
     operation_id: UUIDStr
     client_order_id: ClientOrderIdStr
@@ -460,13 +517,13 @@ class Order(BaseDomain):
     quantity: PositiveDecimalStr
     filled_quantity: NonNegativeDecimalStr
     limit_price: PositiveDecimalStr | None = None
-    reduce_only: bool
+    reduce_only: bool = Field(strict=True)
     state: OrderState
     updated_at: TimestampStr
 
 
 class Fill(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     fill_id: UUIDStr
     order_id: UUIDStr
     symbol: Symbol
@@ -478,7 +535,7 @@ class Fill(BaseDomain):
 
 
 class PositionSnapshot(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     position_id: UUIDStr
     account_id: UUIDStr
     symbol: Symbol
@@ -499,7 +556,7 @@ class PositionSnapshot(BaseDomain):
 
 
 class RiskPolicy(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     risk_policy_version: RiskPolicyVersionStr
     allowed_symbols: list[Symbol] = Field(min_length=1)
     maximum_trade_risk_fraction: PositiveFractionStr
@@ -535,7 +592,7 @@ class RiskPolicy(BaseDomain):
 
 
 class AutomationGrant(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     grant_id: UUIDStr
     user_id: UUIDStr
     account_id: UUIDStr
@@ -557,7 +614,7 @@ class AutomationGrant(BaseDomain):
 
 
 class ModelProposal(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     proposal_id: UUIDStr
     model_version: VersionStr
     decision: Literal["PROPOSE_TRADE", "NO_TRADE"]
@@ -565,7 +622,7 @@ class ModelProposal(BaseDomain):
     created_at: TimestampStr
 
     @model_validator(mode="after")
-    def _enforce_decision_rules(self) -> "ModelProposal":
+    def _enforce_decision_rules(self) -> Self:
         if self.decision == "PROPOSE_TRADE" and self.intent is None:
             raise ValueError("PROPOSE_TRADE requires intent")
         if self.decision == "NO_TRADE" and self.intent is not None:
@@ -574,7 +631,7 @@ class ModelProposal(BaseDomain):
 
 
 class ModelReview(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     review_id: UUIDStr
     proposal_id: UUIDStr
     review_model_version: VersionStr
@@ -584,12 +641,12 @@ class ModelReview(BaseDomain):
 
 
 class RiskDecision(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     decision_id: UUIDStr
     intent_id: UUIDStr
     risk_policy_version: VersionStr
     result: Literal["ADMITTED", "REJECTED"]
-    reason_codes: list[ReasonCodeStr] = Field(default_factory=list, max_length=32)
+    reason_codes: list[ReasonCodeStr] = Field(max_length=32)  # no default — omission must fail
     admitted_quantity: NonNegativeDecimalStr
     maximum_loss: NonNegativeDecimalStr
     maximum_loss_fraction: FractionStr
@@ -607,7 +664,7 @@ class RiskDecision(BaseDomain):
 
 
 class ExecutionCommand(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     command_id: UUIDStr
     operation_id: UUIDStr
     attempt_id: UUIDStr
@@ -622,11 +679,11 @@ class ExecutionCommand(BaseDomain):
     time_in_force: TimeInForce | None = None
     quantity: PositiveDecimalStr | None = None
     worst_acceptable_price: PositiveDecimalStr | None = None
-    reduce_only: bool = False
+    reduce_only: bool = Field(strict=True)  # schema-required, no default
     created_at: TimestampStr
 
     @model_validator(mode="after")
-    def _enforce_conditional_rules(self) -> "ExecutionCommand":
+    def _enforce_conditional_rules(self) -> Self:
         # PLACE_ORDER requires order fields
         if self.action == ExecutionAction.PLACE_ORDER:
             missing = []
@@ -659,7 +716,7 @@ class ExecutionCommand(BaseDomain):
 
 
 class ExecutionResult(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     result_id: UUIDStr
     command_id: UUIDStr
     attempt_id: UUIDStr
@@ -670,15 +727,12 @@ class ExecutionResult(BaseDomain):
 
 
 class ProtectionStatus(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     protection_status_id: UUIDStr
     position_id: UUIDStr
     state: ProtectionState
-    # NonNegativeDecimal by default; when state=PROTECTED, must be PositiveDecimal
     absolute_live_position_quantity: NonNegativeDecimalStr
-    active_stop_order_ids: list[StopOrderIdStr] = Field(
-        default_factory=list, max_length=32,
-    )
+    active_stop_order_ids: list[StopOrderIdStr] = Field(max_length=32)  # no default — omission must fail
     coverage_evidence_hash: HashStr | None = None
     data_status: DataStatus
     observed_at: TimestampStr
@@ -691,7 +745,7 @@ class ProtectionStatus(BaseDomain):
         return v
 
     @model_validator(mode="after")
-    def _enforce_protected_conditionals(self) -> "ProtectionStatus":
+    def _enforce_protected_conditionals(self) -> Self:
         if self.state == ProtectionState.PROTECTED:
             # Must have at least one stop order
             if len(self.active_stop_order_ids) < 1:
@@ -712,7 +766,7 @@ class ProtectionStatus(BaseDomain):
 
 
 class ReconciliationStatus(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     reconciliation_id: UUIDStr
     operation_id: UUIDStr
     attempt_id: UUIDStr
@@ -733,19 +787,19 @@ class ReconciliationStatus(BaseDomain):
 
 
 class AgentFeedback(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     feedback_id: UUIDStr
     operation_id: UUIDStr
     user_id: UUIDStr
     account_id: UUIDStr
-    rating: int = Field(ge=-2, le=2)
+    rating: int = Field(ge=-2, le=2, strict=True)
     comment: str = Field(min_length=1, max_length=2000)
-    include_in_learning: bool
+    include_in_learning: bool = Field(strict=True)
     created_at: TimestampStr
 
 
 class AutomationAuthorization(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     authorization_id: UUIDStr
     grant_id: UUIDStr
     user_id: UUIDStr
@@ -770,7 +824,7 @@ class AutomationAuthorization(BaseDomain):
 
 
 class AuditEvent(BaseDomain):
-    schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
+    schema_version: Literal["fit.trade.v1"]  # no default
     event_id: UUIDStr
     event_type: EventTypeStr
     actor_type: AuditActorType
