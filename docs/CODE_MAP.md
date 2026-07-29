@@ -1,70 +1,104 @@
 # 项目代码地图
 
 更新日期：2026-07-29
+地图快照：`codex/round-2-progress-docs`，基于
+`codex/round-1-progress-docs@4c38b6f4cfda7f836a707cb3563489a1b022d47e`
 
-## 1. 当前仓库结构
+## 1. 仓库结构与权威边界
 
 ```text
 FIT-Trade/
-├── contracts/                    跨语言契约、安全规则和可执行验证
-│   ├── jsonschema/               交易领域与 MCP JSON Schema
-│   ├── openapi/                  客户端 HTTP 契约
-│   ├── proto/                    Go/Python 内部服务契约
-│   ├── fixtures/                 正向、负向、黄金向量和安全场景
-│   └── scripts/                  契约、秘密和语义验证器
-├── prototype/web-desktop/        React/Vite 网页与桌面主界面原型
+├── contracts/                    跨语言契约、安全规则、fixture 与验证器
 ├── services/
-│   ├── trading-core/             Phase 0 Go 领域契约一致性代码和测试
-│   └── hermes-agent/             Phase 0 Python 契约/安全一致性代码和测试
-├── docs/                         产品、架构、验收、计划和状态文档
-└── coordination/                 多代理任务包、范围和验收证据
+│   ├── trading-core/             Go 领域、P1 契约消费端和未来平台 runtime
+│   ├── hermes-agent/             Python Hermes 契约/安全一致性与未来 Agent runtime
+│   └── hyperliquid-adapter/      尚未实现；未来只读适配器位置
+├── prototype/web-desktop/        React/Vite Command Center 原型（本地模拟）
+├── docs/                         产品、架构、验收、状态和代码地图
+└── coordination/                 任务包、设计 capsule 与固定审查证据
 ```
 
-当前文档分支以 `main@60850b6` 为父提交。以下内容已经通过审查，但仍只存在于
-尚未合并的功能分支：
+| 区域 | 当前权威事实 | 所有者 / 修改边界 |
+| --- | --- | --- |
+| `contracts/` | Phase 0 共用交易契约；P1 platform contract 在未合并分支 `codex/p1-platform-contracts@9b4b113` | 本地协调者；其他工作项只能消费，不能自行重定义 |
+| `services/trading-core/platformcontract/` | P1-002 严格、只读 Go contract consumer 候选 `19b7787`；无 HTTP、认证存储、DB、NATS、签名、钱包或网络写入 | server P1-002；后续 P1-003/004/005 只消费其类型/语义 |
+| `services/trading-core/{api,auth,session,ownership}/` | P1-003 auth core 目标路径；服务器独立工作树实现中，尚无 commit/review | server Codex；不得触及 `contracts/` 或共享文档 |
+| `services/trading-core/persistence/`、`infra/postgres/` | P1-004 目标路径；真实 PostgreSQL runtime 尚无候选 | server Codex；须以 P1-003 的已接受对象为输入 |
+| `services/hermes-agent/` | 现有 Phase 0 一致性代码；AI Agent `a2f370a` 固定设计对象仍为 provenance `CHANGES_REQUIRED`，R5 未提交修复中 | 本地 Hermes 开发 profile；不得称为 runtime/security execution PASS |
+| `prototype/web-desktop/` | Command Center 模拟原型；不连接真实 API、钱包、签名器、交易所或生产后端 | 本地协调者；模拟状态不能成为服务端权威 |
+| `coordination/design/` | P1 interface capsule 与 P1-003/004/005 设计为未合并、已推送的固定文档对象 | 各设计工作项产出；协调者登记、审查和集成 |
 
-| 功能分支 | 新增或扩展路径 |
-| --- | --- |
-| `codex/p1-platform-contracts@9b4b113` | `contracts/platform/{schemas,manifests}`、`contracts/fixtures/platform` 与平台验证器 |
-| `codex/frontend-command-center-shell@b18aa1f` | `prototype/web-desktop` 的 Command Center 状态和交互 |
-| `codex/oss-dependency-intake@d3a219a` | `docs/08_OPEN_SOURCE_ADOPTION.md` 与 `coordination/evidence/OSS-001` |
+## 2. 分支、提交与工作树账本
 
-以下运行时能力或计划目录尚未实现，不能把 Phase 0 一致性代码、文档或原型
-误认为可运行平台：
+“工作树”记录的是本快照能定位的工作位置；判定一律以表中的 40 位固定 commit
+为准，而不是移动的工作树 `HEAD` 或未提交文件。
 
-```text
-services/trading-core 的 API、PostgreSQL、NATS 和平台运行时    尚未实现
-services/hyperliquid-adapter/                                  目录不存在
-services/hermes-agent 的真实 Agent runtime、模型路由和隔离     尚未实现
-apps/ios/                                                     目录不存在
-infra/                                                       目录不存在
+| 工作项 | 分支 / 固定 commit | 工作树（本快照） | 模块所有权 | 状态 |
+| --- | --- | --- | --- | --- |
+| P1 platform contracts | `codex/p1-platform-contracts` / `9b4b113a4032f7f0eee88297781e3b2d069b1f18` | `/Users/guanlan/Documents/FIT-Trade-worktrees/p1-platform-contracts` | `contracts/platform/**` | 已推送、未合并；先前已审查 |
+| P1-002 Go client | `codex/p1-go-contract-client` / `19b778785565d31dc095996ce4d4b0f7d58bebdf` | 执行/审查位置：`/Users/guanlan/Documents/FIT-Trade-worktrees/p1-go-contract-client-{probe,review}`；两者当前不代表候选 HEAD | `services/trading-core/platformcontract/**` | 已推送；独立 `0/0/0 PASS` |
+| interface capsule | `codex/p1-interface-capsule` / `f61474ba4f96624f34ff478bd0047c28e72becab` | `/Users/guanlan/Documents/FIT-Trade-worktrees/p1-interface-capsule` | `coordination/design/P1-INTERFACE-CAPSULE/**` | 已推送；security + DBMSG 双 `PASS` |
+| P1-003 design | `codex/p1-003-design-r2` / `12d698181ae88cadbfaf42a9dce6107585c432b7` | `/Users/guanlan/.codex/worktrees/3bd9/交易所适配器` | `coordination/design/P1-003/**` | 已推送；`PASS` |
+| P1-004 design | `codex/p1-004-postgres-design-r2` / `264d4e943565a74039d0b74583bb0404b695d378` | `/Users/guanlan/.codex/worktrees/47ce/交易所适配器`（detached） | `coordination/design/P1-004/**` | 已推送；`PASS` |
+| P1-005 design | `codex/p1-005-jetstream-design` / `4589bed3f7f9287751a5c57db311a1373597a67f` | `/Users/guanlan/.codex/worktrees/5a18/交易所适配器` | `coordination/design/P1-005/**` | 已推送；`PASS` |
+| AI Agent / Hermes | `codex/ai-agent-swarm-bootstrap` / `a2f370aad36e8d033afdcb70bbc32300903ae522` | `/Users/guanlan/Documents/FIT-Trade-worktrees/ai-agent-swarm-bootstrap` | `services/hermes-agent/**` 与 AI coordination 资料 | 未推送；fixed review `CHANGES_REQUIRED` provenance；R5 修复中 |
+| P1-003 auth runtime | `codex/p1-go-api-auth` / 无 commit | `/root/fit-trade-dev/worktrees/p1-go-api-auth` | `services/trading-core/{api,auth,session,ownership}/**` | 实现中；无 review |
+| P1-004 PostgreSQL runtime | `codex/p1-postgres-persistence` / 无 commit | `/root/fit-trade-dev/worktrees/p1-postgres-persistence` | `services/trading-core/persistence/**`、`infra/postgres/**` | 实现中；无 review |
+
+所有表中“已推送”仅指功能分支已存在于 `origin`；`main` 没有合并这些对象。
+
+`docs/CURRENT_STATUS.md` 的 `PROGRESS_UNITS_V1` 与 `PROGRESS_SUBGROUPS_V1` 是本
+地图使用的唯一进度口径：`P1_DESIGN_CONTRACT=3/3=100.0%`，完整 Phase 1 为
+`P1=3/7=42.9%`，`P1_RUNTIME_RECOVERY_EXIT=0/4=0.0%`。这些是固定验收单元计数，
+不是提交数、分支数或工作树数量。
+
+## 3. 依赖 DAG 与集成顺序
+
+```mermaid
+flowchart TD
+  B["main Phase 0 baseline\n60850b6"] --> PC["P1 platform contracts\n9b4b113"]
+  PC --> G["P1-002 Go contract client\n19b7787 PASS"]
+  G --> C["P1 interface capsule\nf61474b security+DBMSG PASS"]
+  C --> D3["P1-003 auth design\n12d6981 PASS"]
+  C --> D4["P1-004 PostgreSQL design\n264d4e9 PASS"]
+  C --> D5["P1-005 JetStream design\n4589bed PASS"]
+  D3 --> R3["P1-003 auth runtime\nno candidate"]
+  R3 --> R4["P1-004 PostgreSQL runtime\nno candidate"]
+  R4 --> R5["P1-005 NATS/JetStream runtime\nnot started"]
+  R5 --> E2E["real PostgreSQL/NATS + failure-path exit\nnot run"]
+  B --> A["AI Agent fixed a2f370a\nCHANGES_REQUIRED provenance"]
+  A --> HR5["Hermes R5 repair\nin progress, uncommitted"]
 ```
 
-## 2. 当前代码事实
+规则：P1-003 的运行时只能以已接受 P1-002 为输入；P1-004 只能在 P1-003 有固定、
+已审查候选后集成；P1-005 只能从 P1-004 的持久 Outbox 消费。AI Agent R5 与上述
+P1 runtime 不是互相授权关系，必须分别固定和独立审查。
 
-| 区域 | 当前事实 | 权威边界 |
-| --- | --- | --- |
-| Phase 0 交易契约 | 已在 `main@60850b6` 建立共用领域契约，并在 `services/trading-core` 与 `services/hermes-agent` 建立 Go/Python 一致性代码和测试 | 这些服务目录目前只证明契约一致性，不是平台或 Agent 运行时；业务实现不能自行重定义交易语义 |
-| Phase 1 平台契约 | `codex/p1-platform-contracts@9b4b113` 已通过独立固定提交审查并推送，尚未合并 | 定义 PostgreSQL 事务、身份、会话、事件、Inbox/Outbox、NATS、恢复和故障语义；没有 Go 平台运行时 |
-| 网页/桌面原型 | `codex/frontend-command-center-shell@b18aa1f` 已通过独立固定提交审查并推送，尚未合并 | 仅本地模拟；没有钱包、签名器、交易所、模型 API 或生产后端 |
-| 开源准入 | `codex/oss-dependency-intake@d3a219a` 固定 13 个候选的版本、许可证和使用边界，已通过独立固定提交审查并推送，尚未合并 | 准入不等于已经安装，也不授权交易所写入或生产 |
-| 产品与架构文档 | `docs/00`—`07` 是当前产品和技术基线 | 文档不能替代实现、测试、合并、部署或实盘授权 |
+## 4. 证据与未实现边界
 
-三条功能分支的审查链和命令证据记录在
-[`coordination/evidence/ROUND-01/review-results.json`](../coordination/evidence/ROUND-01/review-results.json)。
+- P1-002 的 `0/0/0 PASS` 适用于 `19b7787`；它不把 Go consumer 变成认证、PostgreSQL
+  或 NATS runtime。
+- interface capsule 的 security 与 DBMSG 双 `PASS` 只冻结接口和依赖；不会补齐 logout
+  contract、交易 domain subjects 或真实基础设施验证。
+- 官方 npm 证据仅是带 registry、版本、integrity、命令和时间的固定依赖解析证据；
+  本机 cache、无时间戳输出或非官方来源不能充当准入证据。
+- `go test -race` 仅覆盖其固定 Go 测试进程；不能证明 DB 事务、NATS、跨进程竞争、
+  网络故障或 AI 安全执行。P1-003/P1-004 尚无固定 runtime candidate，不存在 runtime
+  race `PASS`。
+- AI Agent 的 `a2f370a` 不能标为 `PASS`：provenance 门仍是
+  `CHANGES_REQUIRED`，R5 修改尚未形成固定对象；AI security execution 未完成。
 
-## 3. 关键依赖关系
+## 5. 下一集成门与风险
 
-| 上游事实 | 下游使用方 | 规则 |
-| --- | --- | --- |
-| `contracts/jsonschema`、`openapi`、`proto` | Go、Python、React、iOS | 下游只生成或消费类型，不能复制后独立修改 |
-| `codex/p1-platform-contracts:contracts/platform/manifests/transaction-boundaries-v1.json` | 后续 Go PostgreSQL 事务实现 | 该契约尚未合并；合并后实现必须先完成身份/owner scope 验证，再做 scoped idempotency、Inbox 去重和业务效果 |
-| `codex/p1-platform-contracts:contracts/platform/schemas/platform-v1.schema.json` | 后续 API、NATS publisher/consumer、恢复工具 | 该契约尚未合并；事件身份、聚合版本、Inbox/Outbox 和响应缓存必须保持一致 |
-| `codex/oss-dependency-intake:coordination/evidence/OSS-001/dependency-intake.json` | 后续依赖安装与升级任务 | 该清单尚未合并；只能使用固定 ref/commit，`REFERENCE_ONLY` 和 `PROHIBITED` 不能进入运行时 |
-| `prototype/web-desktop` | 后续真实客户端 | 当前 UI 状态只能替换为服务端权威状态，不能把模拟器升级成交易权威 |
+1. 固定并审查 P1-003 auth runtime，先关闭 logout contract gap。
+2. 固定交易 Operation、ExecutionAttempt、Order 的 domain subjects；通用 audit subject
+   不能代替交易执行 subject。
+3. 对 P1-004 使用真实 disposable PostgreSQL，验证迁移、最小权限、RLS、原子
+   Inbox/Outbox、owner FK 和崩溃边界。
+4. 对 P1-005 使用真实 NATS/JetStream，验证顺序、去重、重放和恢复；不要用设计 PASS
+   替代运行时结果。
+5. 先完成 Hermes R5 provenance 修复和 AI security execution，再要求新的独立 fixed-
+   commit review。
 
-## 4. 下一批落点
-
-下一轮优先建立 `services/trading-core/` 的 Go 平台骨架和 PostgreSQL
-迁移，把已审查的平台契约变成最小可运行实现。Hyperliquid 仍保持只读；
-Hermes、签名器、交易所写 API、部署和实盘不在下一轮授权内。
+在每个门产生独立固定提交和审查结论前，禁止将任何分支纳入 `main`，也禁止部署、
+生产启用、连接钱包/签名器或真实交易。
