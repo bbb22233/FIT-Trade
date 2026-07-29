@@ -10,12 +10,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const SchemaVersion = "fit.trade.v1"
 
 var (
-	uuidPattern            = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
+	uuidPattern            = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	hashPattern            = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	cloidPattern           = regexp.MustCompile(`^[a-f0-9]{32}$`)
 	noncePattern           = regexp.MustCompile(`^[A-Za-z0-9_-]{32,128}$`)
@@ -138,7 +139,7 @@ func (v TradeIntent) Validate() error {
 	if v.Source != "USER_DIRECTED" && v.Source != "AUTOMATION" {
 		return errors.New("invalid source")
 	}
-	if _, err := time.Parse(time.RFC3339, v.CreatedAt); err != nil {
+	if _, err := parseUTCTimestamp(v.CreatedAt); err != nil {
 		return errors.New("invalid created_at")
 	}
 	return nil
@@ -189,14 +190,14 @@ func (v ConfirmationTicket) Validate(now time.Time) error {
 	if err != nil || d.Sign() <= 0 {
 		return errors.New("invalid liquidation price")
 	}
-	expires, err := time.Parse(time.RFC3339, v.ExpiresAt)
+	expires, err := parseUTCTimestamp(v.ExpiresAt)
 	if err != nil || !expires.After(now) {
 		return errors.New("confirmation expired")
 	}
 	if !noncePattern.MatchString(v.ConfirmationNonce) || !hashPattern.MatchString(v.ConfirmationHash) {
 		return errors.New("invalid confirmation proof")
 	}
-	if _, err := time.Parse(time.RFC3339, v.CreatedAt); err != nil {
+	if _, err := parseUTCTimestamp(v.CreatedAt); err != nil {
 		return errors.New("invalid created_at")
 	}
 	digest, err := ConfirmationDigest(v)
@@ -217,6 +218,32 @@ func decimalGreaterThanOne(d Decimal) bool {
 		right.Mul(&right, pow10(d.scale-one.scale))
 	}
 	return left.Cmp(&right) > 0
+}
+
+func parseUTCTimestamp(value string) (time.Time, error) {
+	if len(value) < 2 || (value[len(value)-1] != 'Z' && value[len(value)-1] != 'z') {
+		return time.Time{}, errors.New("timestamp must use a UTC Z designator")
+	}
+	normalized := []byte(value)
+	if len(normalized) > len("2006-01-02") && (normalized[10] == 't' || normalized[10] == ' ') {
+		normalized[10] = 'T'
+	}
+	normalized[len(normalized)-1] = 'Z'
+	leapSecond := len(normalized) >= len("2006-01-02T15:04:05Z") &&
+		normalized[11] == '2' && normalized[12] == '3' &&
+		normalized[14] == '5' && normalized[15] == '9' &&
+		normalized[17] == '6' && normalized[18] == '0'
+	if leapSecond {
+		normalized[17], normalized[18] = '5', '9'
+	}
+	parsed, err := time.Parse(time.RFC3339, string(normalized))
+	if err != nil {
+		return time.Time{}, err
+	}
+	if leapSecond {
+		parsed = parsed.Add(time.Second)
+	}
+	return parsed, nil
 }
 
 func StrictDecode(data []byte, dst any) error {
@@ -248,6 +275,12 @@ type ProtectionStatus struct {
 }
 
 func ValidateProtectionCoverage(position PositionSnapshot, protection ProtectionStatus) error {
+	if !uuidPattern.MatchString(position.PositionID) ||
+		!uuidPattern.MatchString(position.ProtectionStatusID) ||
+		!uuidPattern.MatchString(protection.PositionID) ||
+		!uuidPattern.MatchString(protection.ProtectionStatusID) {
+		return errors.New("invalid protection identity")
+	}
 	if position.ProtectionState != ProtectionProtected || protection.State != ProtectionProtected ||
 		position.ProtectionStatusID != protection.ProtectionStatusID || position.PositionID != protection.PositionID {
 		return errors.New("protection identity or state mismatch")
@@ -260,13 +293,20 @@ func ValidateProtectionCoverage(position PositionSnapshot, protection Protection
 	if err != nil || covered.Sign() <= 0 || !signed.EqualAbs(covered) {
 		return errors.New("stop coverage does not equal live position")
 	}
-	if len(protection.ActiveStopOrderIDs) == 0 || !hashPattern.MatchString(protection.CoverageEvidenceHash) {
+	if len(protection.ActiveStopOrderIDs) < 1 || len(protection.ActiveStopOrderIDs) > 32 ||
+		!hashPattern.MatchString(protection.CoverageEvidenceHash) {
 		return errors.New("protection evidence missing")
 	}
+	seen := make(map[string]struct{}, len(protection.ActiveStopOrderIDs))
 	for _, id := range protection.ActiveStopOrderIDs {
-		if strings.TrimSpace(id) == "" {
-			return errors.New("empty stop order identifier")
+		if utf8.RuneCountInString(id) < 1 || utf8.RuneCountInString(id) > 128 ||
+			strings.TrimSpace(id) == "" {
+			return errors.New("invalid stop order identifier")
 		}
+		if _, duplicate := seen[id]; duplicate {
+			return errors.New("duplicate stop order identifier")
+		}
+		seen[id] = struct{}{}
 	}
 	return nil
 }

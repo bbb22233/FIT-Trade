@@ -78,10 +78,10 @@ func ValidateFixture(data []byte, now time.Time) error {
 		if utf8.RuneCountInString(value.RejectionCode) > 96 {
 			return errors.New("rejection_code exceeds max length")
 		}
-		if _, err := time.Parse(time.RFC3339, value.CreatedAt); err != nil {
+		if _, err := parseUTCTimestamp(value.CreatedAt); err != nil {
 			return errors.New("invalid operation created_at")
 		}
-		if _, err := time.Parse(time.RFC3339, value.UpdatedAt); err != nil {
+		if _, err := parseUTCTimestamp(value.UpdatedAt); err != nil {
 			return errors.New("invalid operation updated_at")
 		}
 		return nil
@@ -109,7 +109,7 @@ func ValidateFixture(data []byte, now time.Time) error {
 		if (value.Decision == "PROPOSE_TRADE") != hasIntent {
 			return errors.New("proposal decision/intent mismatch")
 		}
-		if _, err := time.Parse(time.RFC3339, value.CreatedAt); err != nil {
+		if _, err := parseUTCTimestamp(value.CreatedAt); err != nil {
 			return errors.New("invalid model proposal created_at")
 		}
 		if hasIntent {
