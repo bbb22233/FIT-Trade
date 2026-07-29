@@ -6,7 +6,7 @@
     "status": "SUPERSEDED_FOR_PHASE_1_CONTROL_FRAMES_ONLY",
     "phase0_application_messages_preserved": true,
     "phase0_client_messages_empty_was_phase0_only": true,
-    "consumer_source_of_truth": "THIS_MANIFEST_AND_PLATFORM_V1_SCHEMA",
+    "consumer_source_of_truth": "THIS_MANIFEST_WITH_PHASE0_SCHEMA_FOR_APPLICATION_MESSAGES_AND_PLATFORM_SCHEMA_FOR_CONTROL_FRAMES",
     "phase0_file_remains_byte_identical": true
   },
   "client_control_messages": [
@@ -24,10 +24,20 @@
   ],
   "application_messages": {
     "preserved_from_phase0": [
-      "AuditEvent",
-      "Operation",
-      "PositionSnapshot"
+      {
+        "name": "AuditEvent",
+        "schema_ref": "../../jsonschema/fit-trade-v1.schema.json#/$defs/AuditEvent"
+      },
+      {
+        "name": "Operation",
+        "schema_ref": "../../jsonschema/fit-trade-v1.schema.json#/$defs/Operation"
+      },
+      {
+        "name": "PositionSnapshot",
+        "schema_ref": "../../jsonschema/fit-trade-v1.schema.json#/$defs/PositionSnapshot"
+      }
     ],
+    "schema_source": "PHASE0_FIT_TRADE_V1_SCHEMA",
     "control_frames_are_not_application_messages": true
   },
   "compatibility": {

@@ -70,7 +70,10 @@ validator must implement them before accepting a record:
   their outer digest is recomputed.
 - `x-fit-request-digest` recomputes `canonical_request_digest` from the exact
   method, route template, strictly decoded path/query/body, and server-authored
-  user/account fields. A digest-shaped placeholder or stale digest is invalid.
+  user/account fields. The Phase 0 confirmation route is composed with its real
+  OpenAPI shape: `POST`, one general UUID path parameter, no query keys, and a
+  body containing only `confirmation_hash`. A digest-shaped placeholder,
+  digest-consistent undeclared field, or stale digest is invalid.
 - `x-fit-event-payload` makes standalone payload validation context-complete
   for record kind, scope, identifier, and notification subject class.
 - `x-fit-durable-record-digest` binds every AuditEvent and Notification digest
@@ -78,14 +81,23 @@ validator must implement them before accepting a record:
 - `x-fit-aggregate-history` validates one complete stateful aggregate history
   from version 1: exact aggregate identity, unique event IDs and versions,
   contiguous versions, nondecreasing occurrence time, stable correlation, and
-  predecessor linkage.
+  predecessor linkage. An individual version-1 EventEnvelope forbids
+  `previous_event_id`; every greater version requires it. Producers lock the
+  aggregate append row and compare an expected version in the same transaction
+  that inserts the uniquely versioned Outbox event.
 - `x-fit-enrollment-challenge-state` binds the public wire Challenge to a
   server-owned user/account/source/request record and a one-way subject-handle
-  digest. Only this durable state can be consumed.
+  digest. `EnrollmentStartInput` supplies the candidate fingerprint, while the
+  server alone supplies the clock, nonce, and opaque handle and constructs the
+  Challenge. Start and completion both verify an active OWNER record; only the
+  resulting durable Challenge state can be consumed.
 - Credential-bearing commit responses are retained for 120 seconds only as
-  AES-256-GCM ciphertext under an ephemeral runtime key. Same-key retries can
-  recover the exact result during that window; after expiry they require
-  reconciliation and never re-execute the committed mutation.
+  AES-256-GCM ciphertext under a deployment-shared runtime keyring that is not
+  stored in PostgreSQL. The authenticated context includes user, account,
+  route, idempotency key, request digest, key ID, creation time, and expiry.
+  Same-scope retries on any replica can recover the exact result during that
+  window; after expiry ciphertext is erased, reconciliation is required, and
+  the committed mutation is never re-executed.
 - `x-fit-authority-field-names` rejects server-authored fields recursively and
   case-insensitively. `ModelToolMutationInput` additionally rejects
   confirmation ID/hash authority while the authenticated HTTP confirmation
@@ -108,6 +120,19 @@ an exact ASCII path with no percent-encoded path bytes, forbids dot segments,
 backslashes, fragments, empty path segments, duplicate decoded query keys, and
 multi-valued query parameters, and constructs the digest path/query objects
 only after those checks.
+
+The WebSocket overlay resolves application-message schemas explicitly from the
+byte-preserved Phase 0 `fit-trade-v1.schema.json`; only Phase 1 control frames
+resolve against `platform-v1.schema.json`. JetStream consumers use named
+durable pull consumers with exact fetch, reply-inbox, acknowledgement, and
+application filter permissions. Wildcards are limited to the named principal's
+own protocol inbox and acknowledgement prefix.
+
+Direct-peer normalization accepts pure IPv4, IPv6, and IPv4-mapped IPv6 text
+and always feeds the same normalized 16-byte address into the source-key HMAC.
+Failure probes execute staged Map/sequence mutations, real rollback, consumer
+network-partition and acknowledgement-loss redelivery, wrong-scope rejection,
+changed-digest alerting, and aggregate projection ordering.
 
 Ed25519 signing uses
 `UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))`. Public keys are raw

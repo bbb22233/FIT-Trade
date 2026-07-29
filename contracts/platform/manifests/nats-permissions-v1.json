@@ -203,14 +203,26 @@
         "fit.platform.v1.owner.owner-mutation-committed",
         "fit.platform.v1.system.wal-archive-interrupted"
       ],
-      "subscribe": [],
+      "subscribe": [
+        "_INBOX.fit-platform.outbox-publisher.>"
+      ],
+      "jetstream_protocol": {
+        "publish_ack_inbox_prefix": "_INBOX.fit-platform.outbox-publisher.>",
+        "consumer_configuration": "NOT_ALLOWED"
+      },
       "jetstream_admin": false,
       "identity_claims": []
     },
     {
       "name": "platform-consumer",
-      "publish": [],
+      "publish": [
+        "$JS.API.CONSUMER.MSG.NEXT.FIT_PLATFORM_V1.PLATFORM_CONSUMER",
+        "$JS.ACK.FIT_PLATFORM_V1.PLATFORM_CONSUMER.>"
+      ],
       "subscribe": [
+        "_INBOX.fit-platform.platform-consumer.>"
+      ],
+      "stream_filter_subjects": [
         "fit.platform.v1.auth-security.device-enrolled",
         "fit.platform.v1.auth-security.device-replaced",
         "fit.platform.v1.auth-security.device-revoked",
@@ -224,13 +236,28 @@
         "fit.platform.v1.owner.owner-mutation-committed",
         "fit.platform.v1.system.wal-archive-interrupted"
       ],
+      "jetstream_protocol": {
+        "delivery_mode": "DURABLE_PULL",
+        "stream": "FIT_PLATFORM_V1",
+        "durable_consumer": "PLATFORM_CONSUMER",
+        "fetch_subject": "$JS.API.CONSUMER.MSG.NEXT.FIT_PLATFORM_V1.PLATFORM_CONSUMER",
+        "reply_inbox_prefix": "_INBOX.fit-platform.platform-consumer.>",
+        "ack_subject_prefix": "$JS.ACK.FIT_PLATFORM_V1.PLATFORM_CONSUMER.>",
+        "consumer_configuration": "INFRASTRUCTURE_BOOTSTRAP_ONLY"
+      },
       "jetstream_admin": false,
       "identity_claims": []
     },
     {
       "name": "internal-notification-consumer",
-      "publish": [],
+      "publish": [
+        "$JS.API.CONSUMER.MSG.NEXT.FIT_PLATFORM_V1.INTERNAL_NOTIFICATION_CONSUMER",
+        "$JS.ACK.FIT_PLATFORM_V1.INTERNAL_NOTIFICATION_CONSUMER.>"
+      ],
       "subscribe": [
+        "_INBOX.fit-platform.internal-notification-consumer.>"
+      ],
+      "stream_filter_subjects": [
         "fit.platform.v1.notification.device-enrolled",
         "fit.platform.v1.notification.device-replaced",
         "fit.platform.v1.notification.device-revoked",
@@ -240,11 +267,24 @@
         "fit.platform.v1.notification.session-revoked",
         "fit.platform.v1.notification.wal-archive-interrupted"
       ],
+      "jetstream_protocol": {
+        "delivery_mode": "DURABLE_PULL",
+        "stream": "FIT_PLATFORM_V1",
+        "durable_consumer": "INTERNAL_NOTIFICATION_CONSUMER",
+        "fetch_subject": "$JS.API.CONSUMER.MSG.NEXT.FIT_PLATFORM_V1.INTERNAL_NOTIFICATION_CONSUMER",
+        "reply_inbox_prefix": "_INBOX.fit-platform.internal-notification-consumer.>",
+        "ack_subject_prefix": "$JS.ACK.FIT_PLATFORM_V1.INTERNAL_NOTIFICATION_CONSUMER.>",
+        "consumer_configuration": "INFRASTRUCTURE_BOOTSTRAP_ONLY"
+      },
       "jetstream_admin": false,
       "identity_claims": []
     }
   ],
-  "wildcards_allowed": false,
+  "wildcard_policy": {
+    "application_subjects": "FORBIDDEN",
+    "jetstream_protocol": "ONLY_THE_EXACT_PER_PRINCIPAL_INBOX_AND_ACK_PREFIXES_LISTED_ABOVE",
+    "broad_stream_or_consumer_admin": "FORBIDDEN"
+  },
   "api_service_has_nats_credential": false,
   "user_or_account_claims_allowed": false
 }

@@ -9,6 +9,20 @@
       "public_key_wire": "ed25519-public:<32-byte-raw-public-key-lowercase-hex>",
       "signature_wire": "ed25519-signature:<64-byte-signature-lowercase-hex>",
       "fingerprint": "ed25519: + lowercase_hex(SHA-256(raw_32_byte_public_key))",
+      "start_input_schema": "EnrollmentStartInput",
+      "client_start_fields": [
+        "identifier",
+        "password_attempt_sha256",
+        "purpose",
+        "candidate_public_key_fingerprint"
+      ],
+      "server_issuance_fields": [
+        "subject_handle",
+        "nonce",
+        "issued_at",
+        "expires_at"
+      ],
+      "ownership_check": "ACTIVE_OWNER_REQUIRED_AT_START_AND_COMPLETION",
       "wire_fields": [
         "schema_version",
         "domain",
@@ -260,7 +274,10 @@
       ],
       "query_parameter_multiplicity": "EXACTLY_ZERO_OR_ONE_VALUE_PER_DECODED_KEY",
       "reject_duplicate_decoded_query_keys": true,
-      "plus_is_literal_plus_not_space": true
+      "plus_is_literal_plus_not_space": true,
+      "route_query_schema": {
+        "/v1/confirmations/{confirmation_id}/consume": "NO_QUERY_KEYS"
+      }
     },
     "strict_raw_json_decoder": {
       "implementation_contract": "parseStrictJson",
@@ -351,7 +368,10 @@
       "signature_verified"
     ],
     "untrusted_transport_result": "REJECT_UNKNOWN_FIELD",
-    "authenticated_http_input_schema": "UntrustedMutationInput",
+    "authenticated_http_input_schemas": {
+      "default": "UntrustedMutationInput",
+      "POST /v1/confirmations/{confirmation_id}/consume": "ConfirmationConsumeMutationInput"
+    },
     "model_tool_input_schema": "ModelToolMutationInput"
   },
   "scope_rules": {

@@ -2,6 +2,19 @@
   "schema_version": "fit.platform.fixture-cases.v1",
   "cases": [
     {
+      "name": "enrollment start rejects client owner and server time",
+      "schema": "EnrollmentStartInput",
+      "reason": "the client supplies only credentials, purpose, and candidate fingerprint",
+      "value": {
+        "identifier": "known-user@example.invalid",
+        "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
+        "purpose": "ADDITIONAL_DEVICE",
+        "candidate_public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f",
+        "user_id": "10000000-0000-4000-8000-000000000001",
+        "issued_at": "2026-07-29T10:00:00Z"
+      }
+    },
+    {
       "name": "enrollment wire rejects user identity",
       "schema": "EnrollmentChallenge",
       "reason": "wire challenge cannot reveal or accept owner authority",
@@ -121,6 +134,24 @@
           "authority": {
             "session_id": "40000000-0000-4000-8000-000000000001"
           }
+        }
+      }
+    },
+    {
+      "name": "confirmation consume rejects undeclared query and body fields",
+      "schema": "ConfirmationConsumeMutationInput",
+      "reason": "the raw route input must compose with the real Phase 0 OpenAPI shape",
+      "value": {
+        "idempotency_key": "60000000-0000-4000-8000-000000000001",
+        "path": {
+          "confirmation_id": "70000000-0000-4000-8000-000000000001"
+        },
+        "query": {
+          "mode": "strict"
+        },
+        "body": {
+          "confirmation_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "undeclared_switch": true
         }
       }
     },

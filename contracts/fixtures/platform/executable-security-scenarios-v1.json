@@ -4,7 +4,20 @@
     {
       "identifier": "known-user@example.invalid",
       "user_id": "10000000-0000-4000-8000-000000000001",
+      "trading_account_id": "20000000-0000-4000-8000-000000000001",
+      "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "password_verifier_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7"
+    }
+  ],
+  "ownership_records": [
+    {
+      "schema_version": "fit.platform.account-ownership.v1",
+      "ownership_id": "10000000-0000-4000-8000-000000000002",
+      "user_id": "10000000-0000-4000-8000-000000000001",
+      "trading_account_id": "20000000-0000-4000-8000-000000000001",
+      "role": "OWNER",
+      "status": "ACTIVE",
+      "created_at": "2026-07-29T09:00:00Z"
     }
   ],
   "enrollment_transition_cases": [
@@ -13,7 +26,8 @@
       "input": {
         "identifier": "unknown-user@example.invalid",
         "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
-        "purpose": "ADDITIONAL_DEVICE"
+        "purpose": "ADDITIONAL_DEVICE",
+        "candidate_public_key_fingerprint": "ed25519:1111111111111111111111111111111111111111111111111111111111111111"
       },
       "wire": {
         "schema_version": "fit.platform.enrollment-challenge.v1",
@@ -47,7 +61,8 @@
       "input": {
         "identifier": "unknown-user@example.invalid",
         "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
-        "purpose": "ADDITIONAL_DEVICE"
+        "purpose": "ADDITIONAL_DEVICE",
+        "candidate_public_key_fingerprint": "ed25519:2222222222222222222222222222222222222222222222222222222222222222"
       },
       "wire": {
         "schema_version": "fit.platform.enrollment-challenge.v1",
@@ -81,7 +96,8 @@
       "input": {
         "identifier": "known-user@example.invalid",
         "password_attempt_sha256": "206dd14d96d6a45816ef1bfb7180a59ac803858b7035f16411404233eeb7bfbd",
-        "purpose": "ADDITIONAL_DEVICE"
+        "purpose": "ADDITIONAL_DEVICE",
+        "candidate_public_key_fingerprint": "ed25519:3333333333333333333333333333333333333333333333333333333333333333"
       },
       "wire": {
         "schema_version": "fit.platform.enrollment-challenge.v1",
@@ -115,7 +131,8 @@
       "input": {
         "identifier": "known-user@example.invalid",
         "password_attempt_sha256": "206dd14d96d6a45816ef1bfb7180a59ac803858b7035f16411404233eeb7bfbd",
-        "purpose": "REPLACEMENT_DEVICE"
+        "purpose": "REPLACEMENT_DEVICE",
+        "candidate_public_key_fingerprint": "ed25519:4444444444444444444444444444444444444444444444444444444444444444"
       },
       "wire": {
         "schema_version": "fit.platform.enrollment-challenge.v1",
@@ -149,7 +166,8 @@
       "input": {
         "identifier": "known-user@example.invalid",
         "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
-        "purpose": "ADDITIONAL_DEVICE"
+        "purpose": "ADDITIONAL_DEVICE",
+        "candidate_public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f"
       },
       "wire": {
         "schema_version": "fit.platform.enrollment-challenge.v1",
@@ -703,8 +721,18 @@
       "expected": "ACCEPT"
     },
     {
-      "name": "single strict query value",
+      "name": "confirmation route rejects every query parameter",
       "raw_target": "/v1/confirmations/70000000-0000-4000-8000-000000000001/consume?mode=strict",
+      "expected": "REJECT"
+    },
+    {
+      "name": "uppercase general UUID remains compatible",
+      "raw_target": "/v1/confirmations/70000000-0000-1000-8000-ABCDEF000001/consume",
+      "expected": "ACCEPT"
+    },
+    {
+      "name": "UUIDv7 remains compatible",
+      "raw_target": "/v1/confirmations/70000000-0000-7000-8000-000000000001/consume",
       "expected": "ACCEPT"
     },
     {
@@ -742,28 +770,28 @@
     {
       "name": "HTTP mutation valid strict JSON",
       "entry_point": "HTTP_MUTATION_BODY",
-      "schema": "UntrustedMutationInput",
+      "schema": "ConfirmationConsumeMutationInput",
       "raw": "{\"idempotency_key\":\"60000000-0000-4000-8000-000000000001\",\"path\":{\"confirmation_id\":\"70000000-0000-4000-8000-000000000001\"},\"query\":{},\"body\":{\"confirmation_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
       "expected": "ACCEPT"
     },
     {
       "name": "HTTP nested duplicate key rejects before handler",
       "entry_point": "HTTP_MUTATION_BODY",
-      "schema": "UntrustedMutationInput",
+      "schema": "ConfirmationConsumeMutationInput",
       "raw": "{\"idempotency_key\":\"60000000-0000-4000-8000-000000000001\",\"path\":{},\"query\":{},\"body\":{\"decision\":\"CONFIRM\",\"decision\":\"REJECT\"}}",
       "expected": "REJECT"
     },
     {
       "name": "HTTP NBSP is not JSON whitespace",
       "entry_point": "HTTP_MUTATION_BODY",
-      "schema": "UntrustedMutationInput",
+      "schema": "ConfirmationConsumeMutationInput",
       "raw": " {\"idempotency_key\":\"60000000-0000-4000-8000-000000000001\",\"path\":{},\"query\":{},\"body\":{}}",
       "expected": "REJECT"
     },
     {
       "name": "HTTP prototype mutation key rejects",
       "entry_point": "HTTP_MUTATION_BODY",
-      "schema": "UntrustedMutationInput",
+      "schema": "ConfirmationConsumeMutationInput",
       "raw": "{\"idempotency_key\":\"60000000-0000-4000-8000-000000000001\",\"path\":{},\"query\":{},\"body\":{\"__proto__\":{\"authority\":\"client\"}}}",
       "expected": "REJECT"
     },

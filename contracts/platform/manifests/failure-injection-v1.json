@@ -105,6 +105,15 @@
     "ack_loss": "REDELIVERY_MUST_HIT_INBOX_AND_CREATE_NO_DUPLICATE_BUSINESS_EFFECT",
     "event_retention": "NEVER_DELETE_IN_PHASE_1"
   },
+  "executable_adversarial_probes": {
+    "transaction_abort": "REAL_STAGED_MAP_AND_SEQUENCE_MUTATIONS_ROLL_BACK",
+    "network_partition_before_consumer_commit": "NO_INBOX_PROJECTION_OR_BUSINESS_EFFECT",
+    "broker_ack_loss_after_consumer_commit": "REDELIVERY_RETURNS_EXISTING_INBOX_RESULT_WITH_NO_DUPLICATE_EFFECT",
+    "same_event_id_changed_digest": "REJECT_AND_ALERT_WITH_NO_MUTATION",
+    "wrong_owner_scope": "REJECT_BEFORE_INBOX_OR_BUSINESS_EFFECT",
+    "aggregate_projection": "COMPARE_VERSION_AND_PREDECESSOR_IN_THE_INBOX_TRANSACTION",
+    "outbox_publish_boundaries": "EXECUTE_CLAIM_PUBLISH_ACK_MARK_WITH_STABLE_EVENT_ID_AND_PAYLOAD_DIGEST"
+  },
   "coverage_requirements": {
     "every_transaction_manifest_workflow": true,
     "every_postgresql_transaction_segment": true,

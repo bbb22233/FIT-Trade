@@ -30,8 +30,14 @@ const readJson = async (filePath) =>
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
-const responseCacheRuntimeKey = randomBytes(32);
 const responseCacheTtlMilliseconds = 120_000;
+const responseCacheKeyId = "fit-platform-response-cache-runtime-v1";
+const responseCacheKeyring = new Map([[responseCacheKeyId, randomBytes(32)]]);
+const acceptedPhase0BaseCommit =
+  "5f168cd4ebfa1ee7f930425fa601c608257ea360";
+const acceptedPhase0ManifestVersion = "fit.platform.phase0-file-manifest.v1";
+const acceptedPackageBaseSha256 =
+  "5c14e293371607df5e719129531cfb1bb2c689cda2825c6ac8617ea44d576744";
 
 function cacheTimeMilliseconds(value) {
   if (typeof value === "number") {
@@ -41,37 +47,117 @@ function cacheTimeMilliseconds(value) {
   return isoMilliseconds(value);
 }
 
-function sealCachedResponse(response, requestKey, createdAt) {
+function responseCacheContext({
+  userId,
+  tradingAccountId,
+  routeTemplate,
+  requestKey,
+  requestDigest,
+}) {
+  const context = {
+    user_id: userId,
+    trading_account_id: tradingAccountId,
+    route_template: routeTemplate,
+    idempotency_key: requestKey,
+    request_digest: requestDigest,
+  };
+  assert.match(context.user_id, /^[0-9a-f-]{36}$/u);
+  assert.match(context.trading_account_id, /^[0-9a-f-]{36}$/u);
+  assert.match(context.route_template, /^\//u);
+  assert.equal(typeof context.idempotency_key, "string");
+  assert.match(context.request_digest, /^[a-f0-9]{64}$/u);
+  return context;
+}
+
+function responseLedgerKey(context) {
+  return jcsCanonicalize({
+    user_id: context.user_id,
+    trading_account_id: context.trading_account_id,
+    route_template: context.route_template,
+    idempotency_key: context.idempotency_key,
+  });
+}
+
+function cachedResponseAad(cache) {
+  return jcsCanonicalize({
+    schema_version: "fit.platform.response-cache-aad.v1",
+    key_id: cache.key_id,
+    user_id: cache.user_id,
+    trading_account_id: cache.trading_account_id,
+    route_template: cache.route_template,
+    idempotency_key: cache.idempotency_key,
+    request_digest: cache.request_digest,
+    created_at_ms: cache.created_at_ms,
+    expires_at_ms: cache.expires_at_ms,
+  });
+}
+
+function assertResponseCacheContext(cache, context) {
+  assertDeepEqual(
+    {
+      user_id: cache.user_id,
+      trading_account_id: cache.trading_account_id,
+      route_template: cache.route_template,
+      idempotency_key: cache.idempotency_key,
+      request_digest: cache.request_digest,
+    },
+    context,
+    "response cache scope or digest binding mismatch",
+  );
+}
+
+function sealCachedResponse(
+  response,
+  context,
+  createdAt,
+  keyring = responseCacheKeyring,
+) {
+  const createdAtMs = cacheTimeMilliseconds(createdAt);
+  const cache = {
+    algorithm: "AES-256-GCM",
+    key_id: responseCacheKeyId,
+    ...context,
+    created_at_ms: createdAtMs,
+    expires_at_ms: createdAtMs + responseCacheTtlMilliseconds,
+  };
+  const key = keyring.get(cache.key_id);
+  assert.equal(key?.length, 32, "response-cache key unavailable");
   const nonce = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", responseCacheRuntimeKey, nonce);
-  cipher.setAAD(Buffer.from(requestKey, "utf8"));
+  const cipher = createCipheriv("aes-256-gcm", key, nonce);
+  cipher.setAAD(Buffer.from(cachedResponseAad(cache), "utf8"));
   const ciphertext = Buffer.concat([
     cipher.update(jcsCanonicalize(response), "utf8"),
     cipher.final(),
   ]);
   const authenticationTag = cipher.getAuthTag();
-  const createdAtMs = cacheTimeMilliseconds(createdAt);
   return {
-    algorithm: "AES-256-GCM",
+    ...cache,
     nonce: nonce.toString("base64url"),
     ciphertext: ciphertext.toString("base64url"),
     authentication_tag: authenticationTag.toString("base64url"),
-    expires_at_ms: createdAtMs + responseCacheTtlMilliseconds,
   };
 }
 
-function openCachedResponse(cache, requestKey, readAt) {
+function openCachedResponse(
+  cache,
+  context,
+  readAt,
+  keyring = responseCacheKeyring,
+) {
   assert.equal(cache.algorithm, "AES-256-GCM");
+  assertResponseCacheContext(cache, context);
   assert(
     cacheTimeMilliseconds(readAt) < cache.expires_at_ms,
     "response cache expired",
   );
+  const key = keyring.get(cache.key_id);
+  assert.equal(key?.length, 32, "response-cache key unavailable");
   const decipher = createDecipheriv(
     "aes-256-gcm",
-    responseCacheRuntimeKey,
+    key,
     Buffer.from(cache.nonce, "base64url"),
   );
-  decipher.setAAD(Buffer.from(requestKey, "utf8"));
+  decipher.setAAD(Buffer.from(cachedResponseAad(cache), "utf8"));
   decipher.setAuthTag(Buffer.from(cache.authentication_tag, "base64url"));
   return JSON.parse(
     Buffer.concat([
@@ -79,6 +165,13 @@ function openCachedResponse(cache, requestKey, readAt) {
       decipher.final(),
     ]).toString("utf8"),
   );
+}
+
+function expireCachedResponse(ledgerEntry, expiredAt) {
+  if (ledgerEntry.response_cache !== undefined) {
+    delete ledgerEntry.response_cache;
+  }
+  ledgerEntry.cache_expired_at_ms = cacheTimeMilliseconds(expiredAt);
 }
 
 function assertUnpairedSurrogatesAbsent(value) {
@@ -202,7 +295,7 @@ function parseStrictRequestTarget(rawTarget) {
   );
 
   const match = rawPath.match(
-    /^\/v1\/confirmations\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/consume$/u,
+    /^\/v1\/confirmations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/consume$/iu,
   );
   assert(match, "request path does not match the frozen confirmation route");
 
@@ -226,6 +319,11 @@ function parseStrictRequestTarget(rawTarget) {
       query[key] = value;
     }
   }
+  assert.equal(
+    Object.keys(query).length,
+    0,
+    "confirmation route accepts no query parameters",
+  );
   return {
     route_template: "/v1/confirmations/{confirmation_id}/consume",
     path: Object.assign(Object.create(null), { confirmation_id: match[1] }),
@@ -356,22 +454,35 @@ function syntheticUuid(label) {
   ].join("-");
 }
 
-const syntheticTradingAccountId = "20000000-0000-4000-8000-000000000001";
-const syntheticSourceKey =
-  "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-
 function enrollmentStateFromFixture(fixture) {
+  for (const identity of fixture.identity_directory) {
+    assert.equal(typeof identity.trading_account_id, "string");
+    assert.equal(typeof identity.source_key, "string");
+  }
+  for (const ownership of fixture.ownership_records) {
+    assert(
+      validatorFor("TradingAccountOwnership")(ownership),
+      `invalid enrollment ownership fixture: ${ajv.errorsText(
+        validatorFor("TradingAccountOwnership").errors,
+      )}`,
+    );
+  }
   return {
     identities: new Map(
       fixture.identity_directory.map((identity) => [
         identity.identifier,
         {
           userId: identity.user_id,
-          tradingAccountId:
-            identity.trading_account_id ?? syntheticTradingAccountId,
-          sourceKey: identity.source_key ?? syntheticSourceKey,
+          tradingAccountId: identity.trading_account_id,
+          sourceKey: identity.source_key,
           passwordVerifierSha256: identity.password_verifier_sha256,
         },
+      ]),
+    ),
+    ownerships: new Map(
+      fixture.ownership_records.map((ownership) => [
+        `${ownership.user_id}:${ownership.trading_account_id}`,
+        clone(ownership),
       ]),
     ),
     challenges: new Map(),
@@ -388,18 +499,41 @@ function enrollmentStateFromFixture(fixture) {
   };
 }
 
+function activeOwnership(state, userId, tradingAccountId) {
+  const ownership = state.ownerships.get(`${userId}:${tradingAccountId}`);
+  return (
+    ownership !== undefined &&
+    ownership.user_id === userId &&
+    ownership.trading_account_id === tradingAccountId &&
+    ownership.role === "OWNER" &&
+    ownership.status === "ACTIVE"
+  );
+}
+
 function persistEnrollmentOutbox(
   state,
   recordType,
   record,
   subject,
   aggregateId,
+  expectedAggregateVersion,
 ) {
   const aggregateKey = `ENROLLMENT:${aggregateId}`;
   const aggregate = state.aggregateState.get(aggregateKey) ?? {
     version: 0,
     lastEventId: null,
   };
+  assert(
+    Number.isSafeInteger(expectedAggregateVersion) &&
+      expectedAggregateVersion >= 0,
+    "producer must supply a locked expected aggregate version",
+  );
+  const expectedVersion = expectedAggregateVersion;
+  assert.equal(
+    aggregate.version,
+    expectedVersion,
+    "aggregate expected-version compare-and-set conflict",
+  );
   const eventId = syntheticUuid(
     `event:${subject}:${recordType}:${
       record.event_id ?? record.notification_id
@@ -457,6 +591,15 @@ function persistEnrollmentOutbox(
     )}`,
   );
   state.outboxRecords.set(outbox.outbox_id, outbox);
+  const current = state.aggregateState.get(aggregateKey) ?? {
+    version: 0,
+    lastEventId: null,
+  };
+  assert.equal(
+    current.version,
+    expectedVersion,
+    "aggregate changed before event append commit",
+  );
   state.aggregateState.set(aggregateKey, {
     version: event.aggregate_version,
     lastEventId: event.event_id,
@@ -505,6 +648,7 @@ function persistEnrollmentAudit(
     auditEvent,
     auditSubjects[kind],
     aggregateId,
+    state.aggregateState.get(`ENROLLMENT:${aggregateId}`)?.version ?? 0,
   );
   return auditEvent;
 }
@@ -553,18 +697,71 @@ function persistEnrollmentNotification(
     notification,
     details.subject,
     aggregateId,
+    state.aggregateState.get(`ENROLLMENT:${aggregateId}`)?.version ?? 0,
   );
   return notification;
 }
 
-function startEnrollment(state, input, wire) {
-  if (
-    Object.keys(input).sort().join(",") !==
-      "identifier,password_attempt_sha256,purpose" ||
-    !validatorFor("EnrollmentChallenge")(wire) ||
-    wire.purpose !== input.purpose
-  ) {
-    return { wire, persisted: false, outcome: "REJECT_MALFORMED" };
+function replaceRuntimeState(target, source) {
+  for (const key of Object.keys(target)) {
+    delete target[key];
+  }
+  Object.assign(target, source);
+}
+
+function enrollmentServerContextFromWire(wire) {
+  return {
+    received_at: wire.issued_at,
+    subject_handle: wire.subject_handle,
+    nonce: wire.nonce,
+  };
+}
+
+function buildEnrollmentChallenge(input, serverContext) {
+  assertDeepEqual(
+    Object.keys(serverContext).sort(),
+    ["nonce", "received_at", "subject_handle"],
+    "enrollment issuance accepts only server clock and randomness",
+  );
+  const issuedAtMs = isoMilliseconds(serverContext.received_at);
+  const challenge = {
+    schema_version: "fit.platform.enrollment-challenge.v1",
+    domain: "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+    purpose: input.purpose,
+    subject_handle: serverContext.subject_handle,
+    candidate_public_key_fingerprint:
+      input.candidate_public_key_fingerprint,
+    nonce: serverContext.nonce,
+    issued_at: serverContext.received_at,
+    expires_at: new Date(issuedAtMs + 120_000)
+      .toISOString()
+      .replace(".000Z", "Z"),
+    single_use: true,
+  };
+  assert(
+    validatorFor("EnrollmentChallenge")(challenge),
+    `server-generated enrollment Challenge invalid: ${ajv.errorsText(
+      validatorFor("EnrollmentChallenge").errors,
+    )}`,
+  );
+  return challenge;
+}
+
+function startEnrollment(
+  state,
+  input,
+  serverContext,
+  requestKey,
+  requestDigest = null,
+) {
+  if (!validatorFor("EnrollmentStartInput")(input)) {
+    return { wire: null, persisted: false, outcome: "REJECT_MALFORMED" };
+  }
+  let wire;
+  try {
+    wire = buildEnrollmentChallenge(input, serverContext);
+  } catch {
+    return { wire: null, persisted: false, outcome: "REJECT_MALFORMED" };
   }
   const identity = state.identities.get(input.identifier);
   const passwordValid =
@@ -573,6 +770,64 @@ function startEnrollment(state, input, wire) {
   if (identity === undefined || !passwordValid) {
     return { wire, persisted: false };
   }
+  if (
+    !activeOwnership(
+      state,
+      identity.userId,
+      identity.tradingAccountId,
+    )
+  ) {
+    return {
+      wire,
+      persisted: false,
+      outcome: "REJECT_INACTIVE_OWNERSHIP",
+    };
+  }
+  if (typeof requestKey !== "string" || requestKey.length === 0) {
+    return { wire: null, persisted: false, outcome: "REJECT_MALFORMED" };
+  }
+  const canonicalDigest =
+    requestDigest ?? sha256(jcsCanonicalize(input));
+  const cacheContext = responseCacheContext({
+    userId: identity.userId,
+    tradingAccountId: identity.tradingAccountId,
+    routeTemplate: "/v1/device-enrollments/challenges",
+    requestKey,
+    requestDigest: canonicalDigest,
+  });
+  const ledgerKey = responseLedgerKey(cacheContext);
+  const prior = state.responseLedger.get(ledgerKey);
+  if (prior !== undefined) {
+    if (prior.requestDigest !== canonicalDigest) {
+      return {
+        wire: null,
+        persisted: true,
+        outcome: "IDEMPOTENCY_CONFLICT",
+      };
+    }
+    if (
+      prior.response_cache === undefined ||
+      cacheTimeMilliseconds(serverContext.received_at) >=
+        prior.response_cache.expires_at_ms
+    ) {
+      expireCachedResponse(prior, serverContext.received_at);
+      return {
+        wire: null,
+        persisted: true,
+        outcome: "RECONCILIATION_REQUIRED_CACHE_EXPIRED",
+      };
+    }
+    const recorded = openCachedResponse(
+      prior.response_cache,
+      cacheContext,
+      serverContext.received_at,
+    );
+    return {
+      ...recorded,
+      persisted: true,
+    };
+  }
+  const staged = structuredClone(state);
   const requestId = syntheticUuid(`enrollment-start:${wire.subject_handle}`);
   const correlationId = syntheticUuid(
     `enrollment-correlation:${wire.subject_handle}`,
@@ -594,8 +849,8 @@ function startEnrollment(state, input, wire) {
       validatorFor("EnrollmentChallengeState").errors,
     )}`,
   );
-  state.challenges.set(wire.subject_handle, challengeState);
-  persistEnrollmentAudit(state, {
+  staged.challenges.set(wire.subject_handle, challengeState);
+  persistEnrollmentAudit(staged, {
     kind: "ENROLLMENT_CHALLENGE_ISSUED",
     scope: {
       type: "AUTH_SECURITY",
@@ -607,7 +862,21 @@ function startEnrollment(state, input, wire) {
     occurredAt: wire.issued_at,
     aggregateId: syntheticUuid(`challenge:${wire.subject_handle}`),
   });
-  return { wire, persisted: true };
+  const response = {
+    outcome: "CHALLENGE_CREATED",
+    replay_classification: "RETURN_RECORDED_CHALLENGE",
+    wire: clone(wire),
+  };
+  staged.responseLedger.set(ledgerKey, {
+    requestDigest: canonicalDigest,
+    response_cache: sealCachedResponse(
+      response,
+      cacheContext,
+      serverContext.received_at,
+    ),
+  });
+  replaceRuntimeState(state, staged);
+  return { ...response, persisted: true };
 }
 
 function enrollmentProofIsValid(wire, completion) {
@@ -656,24 +925,25 @@ function enrollmentProofIsValid(wire, completion) {
 
 function recordEnrollmentResponse(
   state,
-  requestKey,
-  requestDigest,
+  cacheContext,
   outcome,
   createdAt,
   responseFields = {},
 ) {
-  state.responseLedger.set(requestKey, {
-    requestDigest,
+  const response = {
+    replay_classification: "RETURN_RECORDED_RESULT",
+    outcome,
+    ...responseFields,
+  };
+  state.responseLedger.set(responseLedgerKey(cacheContext), {
+    requestDigest: cacheContext.request_digest,
     response_cache: sealCachedResponse(
-      {
-        replay_classification: "RETURN_RECORDED_RESULT",
-        outcome,
-        ...responseFields,
-      },
-      requestKey,
+      response,
+      cacheContext,
       createdAt,
     ),
   });
+  return response;
 }
 
 function completeEnrollment(
@@ -681,30 +951,61 @@ function completeEnrollment(
   completion,
   receivedAt,
   requestKey,
-  requestDigest = sha256(jcsCanonicalize(completion)),
+  requestDigest = null,
 ) {
   if (!validatorFor("EnrollmentCompletionInput")(completion)) {
     return "REJECT_MALFORMED";
   }
-  const priorResult = state.responseLedger.get(requestKey);
+  const canonicalDigest =
+    requestDigest ?? sha256(jcsCanonicalize(completion));
+  const staged = structuredClone(state);
+  const result = completeEnrollmentTransaction(
+    staged,
+    completion,
+    receivedAt,
+    requestKey,
+    canonicalDigest,
+  );
+  replaceRuntimeState(state, staged);
+  return result;
+}
+
+function completeEnrollmentTransaction(
+  state,
+  completion,
+  receivedAt,
+  requestKey,
+  requestDigest,
+) {
+  const challengeState = state.challenges.get(completion.subject_handle);
+  if (challengeState === undefined) return "REJECT_NO_SERVER_STATE";
+  const cacheContext = responseCacheContext({
+    userId: challengeState.user_id,
+    tradingAccountId: challengeState.trading_account_id,
+    routeTemplate: "/v1/device-enrollments/complete",
+    requestKey,
+    requestDigest,
+  });
+  const ledgerKey = responseLedgerKey(cacheContext);
+  const priorResult = state.responseLedger.get(ledgerKey);
   if (priorResult !== undefined) {
     if (priorResult.requestDigest !== requestDigest) {
       return "IDEMPOTENCY_CONFLICT";
     }
     if (
+      priorResult.response_cache === undefined ||
       cacheTimeMilliseconds(receivedAt) >=
       priorResult.response_cache.expires_at_ms
     ) {
+      expireCachedResponse(priorResult, receivedAt);
       return "RECONCILIATION_REQUIRED_CACHE_EXPIRED";
     }
     return openCachedResponse(
       priorResult.response_cache,
-      requestKey,
+      cacheContext,
       receivedAt,
-    ).replay_classification;
+    );
   }
-  const challengeState = state.challenges.get(completion.subject_handle);
-  if (challengeState === undefined) return "REJECT_NO_SERVER_STATE";
   const wire = challengeState.challenge;
   const scope = {
     type: "AUTH_SECURITY",
@@ -740,8 +1041,7 @@ function completeEnrollment(
     });
     recordEnrollmentResponse(
       state,
-      requestKey,
-      requestDigest,
+      cacheContext,
       "CONSUMED_EXPIRED",
       receivedAt,
     );
@@ -758,12 +1058,34 @@ function completeEnrollment(
     });
     recordEnrollmentResponse(
       state,
-      requestKey,
-      requestDigest,
+      cacheContext,
       "CONSUMED_INVALID_PROOF",
       receivedAt,
     );
     return "CONSUMED_INVALID_PROOF";
+  }
+  if (
+    !activeOwnership(
+      state,
+      challengeState.user_id,
+      challengeState.trading_account_id,
+    )
+  ) {
+    persistEnrollmentAudit(state, {
+      kind: "ENROLLMENT_PROOF_REJECTED",
+      scope,
+      requestId: challengeState.request_id,
+      correlationId,
+      occurredAt: receivedAt,
+      aggregateId,
+    });
+    recordEnrollmentResponse(
+      state,
+      cacheContext,
+      "REJECT_INACTIVE_OWNERSHIP",
+      receivedAt,
+    );
+    return "REJECT_INACTIVE_OWNERSHIP";
   }
   const existingOwner = state.publicKeyOwners.get(
     wire.candidate_public_key_fingerprint,
@@ -783,8 +1105,7 @@ function completeEnrollment(
     });
     recordEnrollmentResponse(
       state,
-      requestKey,
-      requestDigest,
+      cacheContext,
       outcome,
       receivedAt,
     );
@@ -946,10 +1267,9 @@ function completeEnrollment(
     aggregateId: enrollmentId,
     deviceId,
   });
-  recordEnrollmentResponse(
+  return recordEnrollmentResponse(
     state,
-    requestKey,
-    requestDigest,
+    cacheContext,
     "CONSUMED_SUCCESS",
     receivedAt,
     {
@@ -960,7 +1280,6 @@ function completeEnrollment(
       refresh_token_transport: `synthetic-refresh-token:${familyId}`,
     },
   );
-  return "CONSUMED_SUCCESS";
 }
 
 function challengeOutcome(item) {
@@ -974,6 +1293,12 @@ function challengeOutcome(item) {
     return "REJECT_EXPIRED";
   }
   return item.proof_valid ? "CONSUMED_SUCCESS" : "CONSUMED_INVALID_PROOF";
+}
+
+function outcomeOf(result) {
+  return result !== null && typeof result === "object"
+    ? result.outcome
+    : result;
 }
 
 function refreshOutcome(item) {
@@ -999,29 +1324,78 @@ function presentRefreshToken(
   now,
   descendantDigest,
   requestKey,
-  requestDigest = sha256(jcsCanonicalize({ token_digest: tokenDigest })),
+  requestDigest = null,
+) {
+  if (
+    runtimeOrFamily === null ||
+    typeof runtimeOrFamily !== "object" ||
+    typeof tokenDigest !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(tokenDigest)
+  ) {
+    return "REJECT_MALFORMED";
+  }
+  try {
+    isoMilliseconds(now);
+  } catch {
+    return "REJECT_MALFORMED";
+  }
+  const staged = structuredClone(runtimeOrFamily);
+  const result = presentRefreshTokenTransaction(
+    staged,
+    tokenDigest,
+    now,
+    descendantDigest,
+    requestKey,
+    requestDigest ?? sha256(jcsCanonicalize({ token_digest: tokenDigest })),
+  );
+  replaceRuntimeState(runtimeOrFamily, staged);
+  return result;
+}
+
+function presentRefreshTokenTransaction(
+  runtimeOrFamily,
+  tokenDigest,
+  now,
+  descendantDigest,
+  requestKey,
+  requestDigest,
 ) {
   const runtime = Object.hasOwn(runtimeOrFamily, "family")
     ? runtimeOrFamily
     : null;
   const family = runtime?.family ?? runtimeOrFamily;
+  let cacheContext = null;
   if (runtime !== null && requestKey !== undefined) {
-    const prior = runtime.responseLedger.get(requestKey);
+    cacheContext = responseCacheContext({
+      userId: runtime.userId,
+      tradingAccountId: runtime.tradingAccountId,
+      routeTemplate: "/v1/auth/refresh",
+      requestKey,
+      requestDigest,
+    });
+    const prior = runtime.responseLedger.get(
+      responseLedgerKey(cacheContext),
+    );
     if (prior !== undefined) {
       if (prior.requestDigest !== requestDigest) {
         return "IDEMPOTENCY_CONFLICT";
       }
-      if (cacheTimeMilliseconds(now) >= prior.response_cache.expires_at_ms) {
+      if (
+        prior.response_cache === undefined ||
+        cacheTimeMilliseconds(now) >= prior.response_cache.expires_at_ms
+      ) {
+        expireCachedResponse(prior, now);
         return "RECONCILIATION_REQUIRED_CACHE_EXPIRED";
       }
-      return openCachedResponse(prior.response_cache, requestKey, now)
-        .replay_classification;
+      return openCachedResponse(prior.response_cache, cacheContext, now);
     }
   }
   const token = family.tokens.find(
     ({ token_digest: digest }) => digest === tokenDigest,
   );
-  assert(token, "presented refresh digest is not in the locked family");
+  if (token === undefined) {
+    return "REJECT_UNKNOWN_TOKEN_GENERIC";
+  }
   const outcome = refreshOutcome({
     status: token.status,
     now,
@@ -1029,7 +1403,12 @@ function presentRefreshToken(
     family_deadline: family.family_deadline,
   });
   if (outcome === "ROTATE_CREATE_DESCENDANT") {
-    assert(descendantDigest, "rotation requires a server-generated descendant");
+    if (
+      typeof descendantDigest !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(descendantDigest)
+    ) {
+      return "REJECT_SERVER_RANDOMNESS_UNAVAILABLE";
+    }
     token.status = "ROTATED";
     token.rotated_to_digest = descendantDigest;
     const issuedAt = isoMilliseconds(now);
@@ -1052,19 +1431,21 @@ function presentRefreshToken(
       status: "ACTIVE",
     });
     if (runtime !== null && requestKey !== undefined) {
-      runtime.responseLedger.set(requestKey, {
+      const response = {
+        replay_classification: "RETURN_RECORDED_ROTATION",
+        outcome,
+        descendant_digest: descendantDigest,
+        refresh_token_transport: `synthetic-refresh-token:${descendantDigest}`,
+      };
+      runtime.responseLedger.set(responseLedgerKey(cacheContext), {
         requestDigest,
         response_cache: sealCachedResponse(
-          {
-            replay_classification: "RETURN_RECORDED_ROTATION",
-            outcome,
-            descendant_digest: descendantDigest,
-            refresh_token_transport: `synthetic-refresh-token:${descendantDigest}`,
-          },
-          requestKey,
+          response,
+          cacheContext,
           now,
         ),
       });
+      return response;
     }
   } else if (outcome === "REVOKE_FAMILY_AND_DESCENDANTS") {
     family.status = "REVOKED";
@@ -1125,12 +1506,47 @@ function idempotencyOutcome(item) {
 }
 
 function strictRequestDecodeOutcome(item) {
-  return item.duplicate_query_keys ||
-    !item.json_mutation ||
-    item.unknown_fields ||
-    item.ambiguous_path
-    ? "REJECT"
-    : "ACCEPT";
+  try {
+    if (item.name === "duplicate query key") {
+      parseStrictRequestTarget(
+        "/v1/confirmations/70000000-0000-4000-8000-000000000001/consume?mode=a&mode=b",
+      );
+    } else if (item.name === "non JSON mutation") {
+      parseStrictJson("not-json");
+    } else if (item.name === "unknown body field") {
+      assert(
+        validatorFor("ConfirmationConsumeMutationInput")({
+          idempotency_key: "60000000-0000-4000-8000-000000000001",
+          path: {
+            confirmation_id:
+              "70000000-0000-4000-8000-000000000001",
+          },
+          query: {},
+          body: {
+            confirmation_hash: "a".repeat(64),
+            undeclared_switch: true,
+          },
+        }),
+      );
+    } else if (item.name === "ambiguous normalized path") {
+      parseStrictRequestTarget(
+        "/v1/confirmations/../70000000-0000-4000-8000-000000000001/consume",
+      );
+    } else if (item.name === "strictly decoded mutation") {
+      parseStrictRequestTarget(
+        "/v1/confirmations/70000000-0000-4000-8000-000000000001/consume",
+      );
+      const decoded = parseStrictJson(
+        `{"idempotency_key":"60000000-0000-4000-8000-000000000001","path":{"confirmation_id":"70000000-0000-4000-8000-000000000001"},"query":{},"body":{"confirmation_hash":"${"a".repeat(64)}"}}`,
+      );
+      assert(validatorFor("ConfirmationConsumeMutationInput")(decoded));
+    } else {
+      assert.fail(`unknown strict request scenario ${item.name}`);
+    }
+    return "ACCEPT";
+  } catch {
+    return "REJECT";
+  }
 }
 
 function newThrottleDimension() {
@@ -1335,7 +1751,7 @@ function parseIpv4(value) {
 }
 
 function canonicalIpBytes(value) {
-  if (value.includes(".")) {
+  if (!value.includes(":")) {
     const result = Buffer.alloc(16);
     result[10] = 0xff;
     result[11] = 0xff;
@@ -1343,11 +1759,21 @@ function canonicalIpBytes(value) {
     return result;
   }
 
+  let ipv6Text = value;
+  if (value.includes(".")) {
+    const finalColon = value.lastIndexOf(":");
+    assert(finalColon >= 0, `invalid mixed IPv6 address ${value}`);
+    const octets = parseIpv4(value.slice(finalColon + 1));
+    const high = ((octets[0] << 8) | octets[1]).toString(16);
+    const low = ((octets[2] << 8) | octets[3]).toString(16);
+    ipv6Text = `${value.slice(0, finalColon + 1)}${high}:${low}`;
+  }
+
   assert(
-    /^[0-9a-fA-F:]+$/.test(value) && !value.includes(":::"),
+    /^[0-9a-fA-F:]+$/.test(ipv6Text) && !ipv6Text.includes(":::"),
     `invalid IPv6 address ${value}`,
   );
-  const doubleColonParts = value.split("::");
+  const doubleColonParts = ipv6Text.split("::");
   assert(doubleColonParts.length <= 2, `invalid IPv6 address ${value}`);
   const left = doubleColonParts[0] === "" ? [] : doubleColonParts[0].split(":");
   const right =
@@ -1409,6 +1835,7 @@ const [
   stateMachines,
   websocketProtocol,
   phase0Manifest,
+  phase0DomainSchema,
 ] = await Promise.all([
   readJson(path.join(platformDirectory, "schemas", "platform-v1.schema.json")),
   readJson(
@@ -1456,6 +1883,9 @@ const [
   ),
   readJson(
     path.join(platformDirectory, "manifests", "phase0-file-manifest-v1.json"),
+  ),
+  readJson(
+    path.join(contractsDirectory, "jsonschema", "fit-trade-v1.schema.json"),
   ),
 ]);
 
@@ -1986,12 +2416,38 @@ assertDeepEqual(transactions.model_tool_forbidden_authority_fields, [
   "confirmation_hash",
 ]);
 assert.equal(
-  security.server_authored_identity.authenticated_http_input_schema,
+  security.server_authored_identity.authenticated_http_input_schemas.default,
   "UntrustedMutationInput",
+);
+assert.equal(
+  security.server_authored_identity.authenticated_http_input_schemas[
+    "POST /v1/confirmations/{confirmation_id}/consume"
+  ],
+  "ConfirmationConsumeMutationInput",
 );
 assert.equal(
   security.server_authored_identity.model_tool_input_schema,
   "ModelToolMutationInput",
+);
+assert.equal(
+  security.challenge.enrollment.start_input_schema,
+  "EnrollmentStartInput",
+);
+assertDeepEqual(security.challenge.enrollment.client_start_fields, [
+  "identifier",
+  "password_attempt_sha256",
+  "purpose",
+  "candidate_public_key_fingerprint",
+]);
+assertDeepEqual(security.challenge.enrollment.server_issuance_fields, [
+  "subject_handle",
+  "nonce",
+  "issued_at",
+  "expires_at",
+]);
+assert.equal(
+  security.challenge.enrollment.ownership_check,
+  "ACTIVE_OWNER_REQUIRED_AT_START_AND_COMPLETION",
 );
 const legitimateConfirmationInput = {
   ...clone(validUntrustedMutation),
@@ -2002,9 +2458,12 @@ const legitimateConfirmationInput = {
     confirmation_hash: "a".repeat(64),
   },
 };
+const validateConfirmationConsumeMutation = validatorFor(
+  "ConfirmationConsumeMutationInput",
+);
 assert(
-  validateUntrustedMutation(legitimateConfirmationInput),
-  "HTTP confirmation input was incorrectly treated as server-authored identity",
+  validateConfirmationConsumeMutation(legitimateConfirmationInput),
+  "HTTP confirmation input does not match its exact route schema",
 );
 const validateModelToolMutation = validatorFor("ModelToolMutationInput");
 assert(
@@ -2059,6 +2518,44 @@ for (const mutate of [
   assert(
     !validatorFor("RequestEnvelope")(staleDigestEnvelope),
     "RequestEnvelope accepted a stale canonical digest",
+  );
+}
+for (const mutate of [
+  (value) => {
+    value.query.mode = "strict";
+  },
+  (value) => {
+    value.body.undeclared_switch = true;
+  },
+  (value) => {
+    value.path.undeclared_identifier = "synthetic";
+  },
+]) {
+  const adversarialEnvelope = clone(validRequestEnvelope);
+  mutate(adversarialEnvelope);
+  adversarialEnvelope.canonical_request_digest =
+    canonicalRequestDigest(adversarialEnvelope);
+  assert(
+    !validatorFor("RequestEnvelope")(adversarialEnvelope),
+    "RequestEnvelope accepted a digest-consistent undeclared route input",
+  );
+}
+for (const mutate of [
+  (value) => {
+    value.query.mode = "strict";
+  },
+  (value) => {
+    value.body.undeclared_switch = true;
+  },
+  (value) => {
+    value.path.undeclared_identifier = "synthetic";
+  },
+]) {
+  const adversarialInput = clone(legitimateConfirmationInput);
+  mutate(adversarialInput);
+  assert(
+    !validateConfirmationConsumeMutation(adversarialInput),
+    "confirmation route accepted an undeclared path/query/body field",
   );
 }
 
@@ -2162,6 +2659,8 @@ assert(
   "refresh reuse did not revoke every already-issued descendant",
 );
 const responseLossRefreshRuntime = {
+  userId: "10000000-0000-4000-8000-000000000001",
+  tradingAccountId: "20000000-0000-4000-8000-000000000001",
   family: {
     schema_version: "fit.platform.refresh-family-state.v1",
     family_id: validRefreshRecord.family_id,
@@ -2174,18 +2673,28 @@ const responseLossRefreshRuntime = {
   responseLedger: new Map(),
 };
 const refreshRequestKey = "60000000-0000-4000-8000-000000000021";
-assert.equal(
-  presentRefreshToken(
-    responseLossRefreshRuntime,
-    validRefreshRecord.token_digest,
-    "2026-08-01T10:00:00Z",
-    "c".repeat(64),
-    refreshRequestKey,
-  ),
-  "ROTATE_CREATE_DESCENDANT",
+const refreshRequestDigest = sha256(
+  jcsCanonicalize({ token_digest: validRefreshRecord.token_digest }),
 );
+const refreshCacheContext = responseCacheContext({
+  userId: responseLossRefreshRuntime.userId,
+  tradingAccountId: responseLossRefreshRuntime.tradingAccountId,
+  routeTemplate: "/v1/auth/refresh",
+  requestKey: refreshRequestKey,
+  requestDigest: refreshRequestDigest,
+});
+const firstRefreshResponse = presentRefreshToken(
+  responseLossRefreshRuntime,
+  validRefreshRecord.token_digest,
+  "2026-08-01T10:00:00Z",
+  "c".repeat(64),
+  refreshRequestKey,
+);
+assert.equal(outcomeOf(firstRefreshResponse), "ROTATE_CREATE_DESCENDANT");
 const refreshCacheEntry =
-  responseLossRefreshRuntime.responseLedger.get(refreshRequestKey);
+  responseLossRefreshRuntime.responseLedger.get(
+    responseLedgerKey(refreshCacheContext),
+  );
 assert(
   !JSON.stringify(refreshCacheEntry).includes("synthetic-refresh-token:"),
   "refresh response cache persisted plaintext credential material",
@@ -2193,7 +2702,7 @@ assert(
 assertDeepEqual(
   openCachedResponse(
     refreshCacheEntry.response_cache,
-    refreshRequestKey,
+    refreshCacheContext,
     "2026-08-01T10:00:01Z",
   ),
   {
@@ -2204,7 +2713,73 @@ assertDeepEqual(
   },
   "refresh response cache cannot recover the exact committed rotation",
 );
-assert.equal(
+const replicaKeyring = new Map(responseCacheKeyring);
+assertDeepEqual(
+  openCachedResponse(
+    refreshCacheEntry.response_cache,
+    refreshCacheContext,
+    "2026-08-01T10:00:01Z",
+    replicaKeyring,
+  ),
+  firstRefreshResponse,
+  "a replica with the same deployment keyring could not recover the cache",
+);
+const crossScopeContext = responseCacheContext({
+  userId: "10000000-0000-4000-8000-000000000099",
+  tradingAccountId: "20000000-0000-4000-8000-000000000099",
+  routeTemplate: "/v1/auth/refresh",
+  requestKey: refreshRequestKey,
+  requestDigest: refreshRequestDigest,
+});
+assert.throws(
+  () =>
+    openCachedResponse(
+      refreshCacheEntry.response_cache,
+      crossScopeContext,
+      "2026-08-01T10:00:01Z",
+    ),
+  /scope or digest binding mismatch/u,
+);
+const transplantedCache = clone(refreshCacheEntry.response_cache);
+transplantedCache.user_id = crossScopeContext.user_id;
+transplantedCache.trading_account_id =
+  crossScopeContext.trading_account_id;
+assert.throws(
+  () =>
+    openCachedResponse(
+      transplantedCache,
+      crossScopeContext,
+      "2026-08-01T10:00:01Z",
+    ),
+  /auth|Unsupported state/u,
+  "cross-scope ciphertext transplant passed GCM authentication",
+);
+const extendedTtlCache = clone(refreshCacheEntry.response_cache);
+extendedTtlCache.expires_at_ms += 60_000;
+assert.throws(
+  () =>
+    openCachedResponse(
+      extendedTtlCache,
+      refreshCacheContext,
+      "2026-08-01T10:02:01Z",
+    ),
+  /auth|Unsupported state/u,
+  "unauthenticated TTL extension opened expired ciphertext",
+);
+const changedDigestContext = {
+  ...refreshCacheContext,
+  request_digest: "f".repeat(64),
+};
+assert.throws(
+  () =>
+    openCachedResponse(
+      refreshCacheEntry.response_cache,
+      changedDigestContext,
+      "2026-08-01T10:00:01Z",
+    ),
+  /scope or digest binding mismatch/u,
+);
+assertDeepEqual(
   presentRefreshToken(
     responseLossRefreshRuntime,
     validRefreshRecord.token_digest,
@@ -2212,7 +2787,8 @@ assert.equal(
     "c".repeat(64),
     refreshRequestKey,
   ),
-  "RETURN_RECORDED_ROTATION",
+  firstRefreshResponse,
+  "same-scope refresh retry did not return the exact credential response",
 );
 assert.equal(responseLossRefreshRuntime.family.status, "ACTIVE");
 assert.equal(responseLossRefreshRuntime.family.tokens.length, 2);
@@ -2228,6 +2804,13 @@ assert.equal(
 );
 assert.equal(responseLossRefreshRuntime.family.tokens.length, 2);
 assert.equal(
+  responseLossRefreshRuntime.responseLedger.get(
+    responseLedgerKey(refreshCacheContext),
+  ).response_cache,
+  undefined,
+  "expired refresh ciphertext was retained",
+);
+assert.equal(
   presentRefreshToken(
     responseLossRefreshRuntime,
     validRefreshRecord.token_digest,
@@ -2238,6 +2821,30 @@ assert.equal(
   "REVOKE_FAMILY_AND_DESCENDANTS",
 );
 assert.equal(responseLossRefreshRuntime.family.status, "REVOKED");
+assert.equal(
+  presentRefreshToken(
+    clone(validFixtureSet.cases.find(
+      ({ schema }) => schema === "RefreshFamilyState",
+    ).value),
+    "f".repeat(64),
+    "2026-08-01T10:00:00Z",
+  ),
+  "REJECT_UNKNOWN_TOKEN_GENERIC",
+);
+assert.equal(
+  presentRefreshToken(null, "f".repeat(64), "2026-08-01T10:00:00Z"),
+  "REJECT_MALFORMED",
+);
+assert.equal(
+  presentRefreshToken(
+    clone(validFixtureSet.cases.find(
+      ({ schema }) => schema === "RefreshFamilyState",
+    ).value),
+    "not-a-digest",
+    "not-a-time",
+  ),
+  "REJECT_MALFORMED",
+);
 for (const mutation of [
   { ...validSession, access_expires_at: "2026-07-29T11:00:00Z" },
   { ...validSession, revoked_at: "2026-07-29T10:01:00Z" },
@@ -2532,6 +3139,27 @@ function signedSyntheticEnrollment(baseWire, overrides = {}) {
     },
   };
 }
+function startEnrollmentFromFixture(
+  state,
+  input,
+  expectedWire,
+  requestKey = `enrollment-start:${expectedWire.subject_handle}`,
+) {
+  const result = startEnrollment(
+    state,
+    input,
+    enrollmentServerContextFromWire(expectedWire),
+    requestKey,
+  );
+  if (result.wire !== null) {
+    assertDeepEqual(
+      result.wire,
+      expectedWire,
+      "server-generated Challenge drifted from the deterministic fixture",
+    );
+  }
+  return result;
+}
 for (const scenario of executableSecurity.enrollment_transition_cases) {
   assert(
     validatorFor("EnrollmentChallenge")(scenario.wire),
@@ -2539,8 +3167,17 @@ for (const scenario of executableSecurity.enrollment_transition_cases) {
   );
   assert.match(scenario.input.password_attempt_sha256, /^[a-f0-9]{64}$/u);
   assert.equal(scenario.wire.purpose, scenario.input.purpose, scenario.name);
+  assert.equal(
+    scenario.wire.candidate_public_key_fingerprint,
+    scenario.input.candidate_public_key_fingerprint,
+    `${scenario.name} candidate key was not supplied by the start input`,
+  );
   const state = enrollmentStateFromFixture(executableSecurity);
-  const startResult = startEnrollment(state, scenario.input, scenario.wire);
+  const startResult = startEnrollmentFromFixture(
+    state,
+    scenario.input,
+    scenario.wire,
+  );
   assert.equal(
     startResult.persisted,
     scenario.expected_start_persisted,
@@ -2557,11 +3194,13 @@ for (const scenario of executableSecurity.enrollment_transition_cases) {
     `${scenario.name} completion is not wire-schema valid`,
   );
   assert.equal(
-    completeEnrollment(
-      state,
-      completion,
-      "2026-07-29T10:01:00Z",
-      `request:${scenario.wire.subject_handle}`,
+    outcomeOf(
+      completeEnrollment(
+        state,
+        completion,
+        "2026-07-29T10:01:00Z",
+        `request:${scenario.wire.subject_handle}`,
+      ),
     ),
     scenario.expected_completion,
     scenario.name,
@@ -2598,16 +3237,153 @@ const realEnrollmentScenario =
   assert.equal(
     startEnrollment(
       state,
+      null,
+      enrollmentServerContextFromWire(realEnrollmentScenario.wire),
+      "enrollment-start:null",
+    ).outcome,
+    "REJECT_MALFORMED",
+  );
+  assert.equal(state.challenges.size, 0);
+  assert.equal(
+    completeEnrollment(
+      state,
+      undefined,
+      "2026-07-29T10:01:00Z",
+      "enrollment-complete:undefined",
+    ),
+    "REJECT_MALFORMED",
+  );
+}
+{
+  const state = enrollmentStateFromFixture(executableSecurity);
+  const ownershipKey =
+    "10000000-0000-4000-8000-000000000001:20000000-0000-4000-8000-000000000001";
+  state.ownerships.get(ownershipKey).status = "REVOKED";
+  state.ownerships.get(ownershipKey).revoked_at = "2026-07-29T09:30:00Z";
+  assert.equal(
+    startEnrollmentFromFixture(
+      state,
+      realEnrollmentScenario.input,
+      realEnrollmentScenario.wire,
+    ).outcome,
+    "REJECT_INACTIVE_OWNERSHIP",
+  );
+  assert.equal(state.challenges.size, 0);
+  assert.equal(state.sessions.size, 0);
+}
+{
+  const state = enrollmentStateFromFixture(executableSecurity);
+  const startKey = "60000000-0000-4000-8000-000000000041";
+  const first = startEnrollmentFromFixture(
+    state,
+    realEnrollmentScenario.input,
+    realEnrollmentScenario.wire,
+    startKey,
+  );
+  const alternateIssuance = {
+    received_at: "2026-07-29T10:00:01Z",
+    subject_handle: "synthetic_alternate_handle_not_committed",
+    nonce: "synthetic_alternate_nonce_not_committed",
+  };
+  const replay = startEnrollment(
+    state,
+    realEnrollmentScenario.input,
+    alternateIssuance,
+    startKey,
+  );
+  assert.equal(replay.outcome, "CHALLENGE_CREATED");
+  assert.equal(
+    replay.replay_classification,
+    "RETURN_RECORDED_CHALLENGE",
+  );
+  assertDeepEqual(replay, first);
+  assert.equal(state.challenges.size, 1);
+  assert.equal(
+    startEnrollment(
+      state,
+      {
+        ...realEnrollmentScenario.input,
+        candidate_public_key_fingerprint: `ed25519:${"f".repeat(64)}`,
+      },
+      alternateIssuance,
+      startKey,
+    ).outcome,
+    "IDEMPOTENCY_CONFLICT",
+  );
+  const startDigest = sha256(
+    jcsCanonicalize(realEnrollmentScenario.input),
+  );
+  const startCacheContext = responseCacheContext({
+    userId: "10000000-0000-4000-8000-000000000001",
+    tradingAccountId: "20000000-0000-4000-8000-000000000001",
+    routeTemplate: "/v1/device-enrollments/challenges",
+    requestKey: startKey,
+    requestDigest: startDigest,
+  });
+  assert.equal(
+    startEnrollment(
+      state,
+      realEnrollmentScenario.input,
+      {
+        ...alternateIssuance,
+        received_at: "2026-07-29T10:02:00Z",
+      },
+      startKey,
+    ).outcome,
+    "RECONCILIATION_REQUIRED_CACHE_EXPIRED",
+  );
+  assert.equal(
+    state.responseLedger.get(responseLedgerKey(startCacheContext))
+      .response_cache,
+    undefined,
+    "expired enrollment-start ciphertext was retained",
+  );
+}
+{
+  const state = enrollmentStateFromFixture(executableSecurity);
+  assert.equal(
+    startEnrollment(
+      state,
       {
         ...realEnrollmentScenario.input,
         request_id: "80000000-0000-4000-8000-000000000099",
       },
-      realEnrollmentScenario.wire,
+      enrollmentServerContextFromWire(realEnrollmentScenario.wire),
+      "enrollment-start:malformed-client-field",
     ).outcome,
     "REJECT_MALFORMED",
   );
   assert.equal(state.challenges.size, 0);
   assert.equal(state.auditEvents.size, 0);
+}
+{
+  const state = enrollmentStateFromFixture(executableSecurity);
+  startEnrollmentFromFixture(
+    state,
+    realEnrollmentScenario.input,
+    realEnrollmentScenario.wire,
+  );
+  const ownership =
+    state.ownerships.get(
+      "10000000-0000-4000-8000-000000000001:20000000-0000-4000-8000-000000000001",
+    );
+  ownership.status = "REVOKED";
+  ownership.revoked_at = "2026-07-29T10:00:30Z";
+  assert.equal(
+    completeEnrollment(
+      state,
+      enrollmentCompletionFor(realEnrollmentScenario.wire),
+      "2026-07-29T10:01:00Z",
+      "60000000-0000-4000-8000-000000000042",
+    ),
+    "REJECT_INACTIVE_OWNERSHIP",
+  );
+  assert.equal(state.devices.size, 0);
+  assert.equal(state.sessions.size, 0);
+  assert.equal(
+    state.challenges.get(realEnrollmentScenario.wire.subject_handle).status,
+    "CONSUMED",
+  );
 }
 for (const forbiddenCompletionField of [
   "completed_at",
@@ -2616,7 +3392,7 @@ for (const forbiddenCompletionField of [
   "user_id",
 ]) {
   const state = enrollmentStateFromFixture(executableSecurity);
-  startEnrollment(
+  startEnrollmentFromFixture(
     state,
     realEnrollmentScenario.input,
     realEnrollmentScenario.wire,
@@ -2642,7 +3418,7 @@ for (const forbiddenCompletionField of [
 }
 {
   const state = enrollmentStateFromFixture(executableSecurity);
-  startEnrollment(
+  startEnrollmentFromFixture(
     state,
     realEnrollmentScenario.input,
     realEnrollmentScenario.wire,
@@ -2665,7 +3441,7 @@ for (const forbiddenCompletionField of [
 }
 {
   const state = enrollmentStateFromFixture(executableSecurity);
-  startEnrollment(
+  startEnrollmentFromFixture(
     state,
     realEnrollmentScenario.input,
     realEnrollmentScenario.wire,
@@ -2684,23 +3460,34 @@ for (const forbiddenCompletionField of [
 }
 {
   const state = enrollmentStateFromFixture(executableSecurity);
-  startEnrollment(
+  startEnrollmentFromFixture(
     state,
     realEnrollmentScenario.input,
     realEnrollmentScenario.wire,
   );
   const completion = enrollmentCompletionFor(realEnrollmentScenario.wire);
   const firstRequestKey = "60000000-0000-4000-8000-000000000012";
+  const firstEnrollmentResponse = completeEnrollment(
+    state,
+    completion,
+    "2026-07-29T10:01:00Z",
+    firstRequestKey,
+  );
   assert.equal(
-    completeEnrollment(
-      state,
-      completion,
-      "2026-07-29T10:01:00Z",
-      firstRequestKey,
-    ),
+    outcomeOf(firstEnrollmentResponse),
     "CONSUMED_SUCCESS",
   );
-  const enrollmentCacheEntry = state.responseLedger.get(firstRequestKey);
+  const enrollmentRequestDigest = sha256(jcsCanonicalize(completion));
+  const enrollmentCacheContext = responseCacheContext({
+    userId: "10000000-0000-4000-8000-000000000001",
+    tradingAccountId: "20000000-0000-4000-8000-000000000001",
+    routeTemplate: "/v1/device-enrollments/complete",
+    requestKey: firstRequestKey,
+    requestDigest: enrollmentRequestDigest,
+  });
+  const enrollmentCacheEntry = state.responseLedger.get(
+    responseLedgerKey(enrollmentCacheContext),
+  );
   assert(
     !JSON.stringify(enrollmentCacheEntry).includes("synthetic-access-token:") &&
       !JSON.stringify(enrollmentCacheEntry).includes(
@@ -2710,7 +3497,7 @@ for (const forbiddenCompletionField of [
   );
   const cachedEnrollmentResponse = openCachedResponse(
     enrollmentCacheEntry.response_cache,
-    firstRequestKey,
+    enrollmentCacheContext,
     "2026-07-29T10:01:01Z",
   );
   assert.equal(cachedEnrollmentResponse.outcome, "CONSUMED_SUCCESS");
@@ -2721,14 +3508,15 @@ for (const forbiddenCompletionField of [
   assert.equal(typeof cachedEnrollmentResponse.device_id, "string");
   assert.equal(typeof cachedEnrollmentResponse.session_id, "string");
   assert.equal(typeof cachedEnrollmentResponse.refresh_family_id, "string");
-  assert.equal(
+  assertDeepEqual(
     completeEnrollment(
       state,
       completion,
       "2026-07-29T10:01:01Z",
       firstRequestKey,
     ),
-    "RETURN_RECORDED_RESULT",
+    firstEnrollmentResponse,
+    "enrollment retry did not recover the exact credential response",
   );
   assert.equal(
     completeEnrollment(
@@ -2763,6 +3551,12 @@ for (const forbiddenCompletionField of [
     "RECONCILIATION_REQUIRED_CACHE_EXPIRED",
   );
   assert.equal(state.devices.size, 1);
+  assert.equal(
+    state.responseLedger.get(responseLedgerKey(enrollmentCacheContext))
+      .response_cache,
+    undefined,
+    "expired enrollment ciphertext was retained",
+  );
 }
 for (const [existingOwner, expected] of [
   ["10000000-0000-4000-8000-000000000001", "REJECT_DUPLICATE_KEY"],
@@ -2773,7 +3567,7 @@ for (const [existingOwner, expected] of [
     realEnrollmentScenario.wire.candidate_public_key_fingerprint,
     existingOwner,
   );
-  startEnrollment(
+  startEnrollmentFromFixture(
     state,
     realEnrollmentScenario.input,
     realEnrollmentScenario.wire,
@@ -2826,14 +3620,20 @@ for (const purpose of ["ADDITIONAL_DEVICE", "REPLACEMENT_DEVICE"]) {
       subject_handle: `real_${purpose.toLowerCase()}_state_transition`,
     },
   );
-  const input = { ...realEnrollmentScenario.input, purpose };
-  startEnrollment(state, input, wire);
+  const input = {
+    ...realEnrollmentScenario.input,
+    purpose,
+    candidate_public_key_fingerprint: wire.candidate_public_key_fingerprint,
+  };
+  startEnrollmentFromFixture(state, input, wire);
   assert.equal(
-    completeEnrollment(
-      state,
-      completion,
-      "2026-07-29T10:01:00Z",
-      `request:${purpose}`,
+    outcomeOf(
+      completeEnrollment(
+        state,
+        completion,
+        "2026-07-29T10:01:00Z",
+        `request:${purpose}`,
+      ),
     ),
     "CONSUMED_SUCCESS",
   );
@@ -3111,6 +3911,51 @@ assert.equal(
   true,
 );
 assert.equal(
+  websocketProtocol.phase0_openapi_relationship.consumer_source_of_truth,
+  "THIS_MANIFEST_WITH_PHASE0_SCHEMA_FOR_APPLICATION_MESSAGES_AND_PLATFORM_SCHEMA_FOR_CONTROL_FRAMES",
+);
+assert.equal(
+  websocketProtocol.application_messages.schema_source,
+  "PHASE0_FIT_TRADE_V1_SCHEMA",
+);
+assertDeepEqual(
+  websocketProtocol.application_messages.preserved_from_phase0,
+  ["AuditEvent", "Operation", "PositionSnapshot"].map((name) => ({
+    name,
+    schema_ref: `../../jsonschema/fit-trade-v1.schema.json#/$defs/${name}`,
+  })),
+);
+const websocketApplicationAjv = new Ajv2020({
+  strict: true,
+  strictRequired: false,
+  strictTypes: false,
+});
+addFormats(websocketApplicationAjv);
+websocketApplicationAjv.addSchema(phase0DomainSchema);
+for (const { name, schema_ref: schemaRef } of websocketProtocol
+  .application_messages.preserved_from_phase0) {
+  assert(
+    Object.hasOwn(phase0DomainSchema.$defs, name),
+    `WebSocket application schema ${name} is absent from Phase 0`,
+  );
+  assert.equal(
+    schemaRef,
+    `../../jsonschema/fit-trade-v1.schema.json#/$defs/${name}`,
+  );
+  assert.equal(
+    typeof websocketApplicationAjv.getSchema(
+      `${phase0DomainSchema.$id}#/$defs/${name}`,
+    ),
+    "function",
+    `WebSocket application schema ${name} did not compile from Phase 0`,
+  );
+}
+assert(
+  !Object.hasOwn(platformSchema.$defs, "Operation") &&
+    !Object.hasOwn(platformSchema.$defs, "PositionSnapshot"),
+  "WebSocket application messages must not resolve against platform-v1",
+);
+assert.equal(
   security.websocket_reauthorization.application_frame_while_reauth_pending,
   "ALLOW_UNTIL_CURRENT_ACCESS_EXPIRY",
 );
@@ -3197,6 +4042,9 @@ assertDeepEqual(security.request_digest.raw_request_target_decoder, {
   query_parameter_multiplicity: "EXACTLY_ZERO_OR_ONE_VALUE_PER_DECODED_KEY",
   reject_duplicate_decoded_query_keys: true,
   plus_is_literal_plus_not_space: true,
+  route_query_schema: {
+    "/v1/confirmations/{confirmation_id}/consume": "NO_QUERY_KEYS",
+  },
 });
 assert.equal(
   security.request_digest.confirmation_route_template,
@@ -4059,16 +4907,18 @@ assertDeepEqual(nats.principals.map(({ name }) => name).sort(), [
   "platform-consumer",
 ]);
 for (const principal of nats.principals) {
-  for (const subject of [...principal.publish, ...principal.subscribe]) {
-    assert(
-      exactSubjects.includes(subject),
-      `${principal.name} has unknown subject ${subject}`,
-    );
-    assert(
-      !subject.includes("*") && !subject.includes(">"),
-      `${principal.name} has a wildcard`,
-    );
-  }
+  assert(
+    !(principal.stream_filter_subjects ?? []).some(
+      (subject) => !exactSubjects.includes(subject),
+    ),
+    `${principal.name} has an unknown application filter`,
+  );
+  assert(
+    !(principal.stream_filter_subjects ?? []).some(
+      (subject) => subject.includes("*") || subject.includes(">"),
+    ),
+    `${principal.name} application filters must be exact`,
+  );
   assert.equal(principal.jetstream_admin, false);
   assertDeepEqual(principal.identity_claims, []);
 }
@@ -4076,19 +4926,48 @@ const publisher = nats.principals.find(
   ({ name }) => name === "outbox-publisher",
 );
 assertDeepEqual(publisher.publish, exactSubjects);
-assertDeepEqual(publisher.subscribe, []);
+assertDeepEqual(publisher.subscribe, [
+  "_INBOX.fit-platform.outbox-publisher.>",
+]);
+assertDeepEqual(publisher.jetstream_protocol, {
+  publish_ack_inbox_prefix: "_INBOX.fit-platform.outbox-publisher.>",
+  consumer_configuration: "NOT_ALLOWED",
+});
 for (const consumer of nats.principals.filter(
   ({ name }) => name !== "outbox-publisher",
 )) {
-  assertDeepEqual(consumer.publish, []);
+  const durable =
+    consumer.name === "platform-consumer"
+      ? "PLATFORM_CONSUMER"
+      : "INTERNAL_NOTIFICATION_CONSUMER";
+  const inbox = `_INBOX.fit-platform.${consumer.name}.>`;
+  const fetch = `$JS.API.CONSUMER.MSG.NEXT.FIT_PLATFORM_V1.${durable}`;
+  const ack = `$JS.ACK.FIT_PLATFORM_V1.${durable}.>`;
+  assertDeepEqual(consumer.publish, [fetch, ack]);
+  assertDeepEqual(consumer.subscribe, [inbox]);
   assertDeepEqual(
-    consumer.subscribe,
+    consumer.stream_filter_subjects,
     nats.subject_bindings
       .filter((binding) => binding.consumer === consumer.name)
       .map(({ subject }) => subject),
     `${consumer.name} subject allowlist drifted`,
   );
+  assertDeepEqual(consumer.jetstream_protocol, {
+    delivery_mode: "DURABLE_PULL",
+    stream: "FIT_PLATFORM_V1",
+    durable_consumer: durable,
+    fetch_subject: fetch,
+    reply_inbox_prefix: inbox,
+    ack_subject_prefix: ack,
+    consumer_configuration: "INFRASTRUCTURE_BOOTSTRAP_ONLY",
+  });
 }
+assertDeepEqual(nats.wildcard_policy, {
+  application_subjects: "FORBIDDEN",
+  jetstream_protocol:
+    "ONLY_THE_EXACT_PER_PRINCIPAL_INBOX_AND_ACK_PREFIXES_LISTED_ABOVE",
+  broad_stream_or_consumer_admin: "FORBIDDEN",
+});
 assert.equal(nats.api_service_has_nats_credential, false);
 assert.equal(nats.user_or_account_claims_allowed, false);
 
@@ -4100,6 +4979,71 @@ const validateOutbox = validatorFor("OutboxRecord");
 const causallyValidOutbox = validFixtureSet.cases.find(
   ({ schema }) => schema === "OutboxRecord",
 ).value;
+const versionOneWithPredecessor = clone(causallyValidOutbox.event);
+versionOneWithPredecessor.previous_event_id =
+  "a0000000-0000-4000-8000-000000000099";
+assert(
+  !validateEventEnvelope(versionOneWithPredecessor),
+  "aggregate version 1 accepted a predecessor",
+);
+const versionTwoWithoutPredecessor = clone(causallyValidOutbox.event);
+versionTwoWithoutPredecessor.aggregate_version = 2;
+assert(
+  !validateEventEnvelope(versionTwoWithoutPredecessor),
+  "aggregate version 2 accepted no predecessor",
+);
+const versionTwoWithPredecessor = clone(versionTwoWithoutPredecessor);
+versionTwoWithPredecessor.previous_event_id =
+  causallyValidOutbox.event.event_id;
+assert(
+  validateEventEnvelope(versionTwoWithPredecessor),
+  "aggregate version 2 rejected an explicit predecessor",
+);
+const unregisteredStandalonePayload = clone(
+  causallyValidOutbox.event.payload,
+);
+unregisteredStandalonePayload.subject =
+  "fit.platform.v1.unregistered.attacker-selected";
+assert(
+  !validatorFor("EventPayload")(unregisteredStandalonePayload),
+  "standalone EventPayload accepted an unregistered subject",
+);
+{
+  const state = enrollmentStateFromFixture(executableSecurity);
+  const record = clone(causallyValidOutbox.event.payload.data.record);
+  const aggregateId = causallyValidOutbox.event.aggregate_id;
+  state.aggregateState.set(`ENROLLMENT:${aggregateId}`, {
+    version: 1,
+    lastEventId: causallyValidOutbox.event.event_id,
+  });
+  assert.throws(
+    () =>
+      persistEnrollmentOutbox(
+        state,
+        causallyValidOutbox.event.payload.data.record_type,
+        record,
+        causallyValidOutbox.event.subject,
+        aggregateId,
+        0,
+      ),
+    /expected-version compare-and-set conflict/u,
+    "a stale aggregate producer created a fork",
+  );
+  assert.equal(state.outboxRecords.size, 0);
+  const appended = persistEnrollmentOutbox(
+    state,
+    causallyValidOutbox.event.payload.data.record_type,
+    record,
+    causallyValidOutbox.event.subject,
+    aggregateId,
+    1,
+  );
+  assert.equal(appended.event.aggregate_version, 2);
+  assert.equal(
+    appended.event.previous_event_id,
+    causallyValidOutbox.event.event_id,
+  );
+}
 const futureEventOutbox = clone(causallyValidOutbox);
 futureEventOutbox.event.occurred_at = "2026-07-30T10:00:00Z";
 futureEventOutbox.event.payload.data.record.occurred_at =
@@ -4149,12 +5093,16 @@ assert(
     validateAggregateHistory.errors,
   )}`,
 );
+function rebindHistoryEventPayload(event) {
+  const record = event.payload.data.record;
+  record.occurred_at = event.occurred_at;
+  record.correlation_id = event.correlation_id;
+  record.payload_digest = durableRecordDigest(record);
+  event.payload_digest = sha256(jcsCanonicalize(event.payload));
+}
 for (const mutate of [
   (value) => {
     value.starting_version = 2;
-  },
-  (value) => {
-    value.events[1].aggregate_version = 1;
   },
   (value) => {
     value.events[1].aggregate_version = 3;
@@ -4167,13 +5115,19 @@ for (const mutate of [
   },
   (value) => {
     value.events[1].occurred_at = "2026-07-29T09:59:59Z";
+    rebindHistoryEventPayload(value.events[1]);
   },
   (value) => {
     value.events[1].correlation_id = "b0000000-0000-4000-8000-000000000099";
+    rebindHistoryEventPayload(value.events[1]);
   },
 ]) {
   const invalidHistory = clone(aggregateHistory);
   mutate(invalidHistory);
+  assert(
+    invalidHistory.events.every((event) => validateEventEnvelope(event)),
+    "aggregate-history negative was rejected by an individual envelope first",
+  );
   assert(
     !validateAggregateHistory(invalidHistory),
     "aggregate history accepted duplicate, gap, reversal, or broken predecessor",
@@ -4578,6 +5532,68 @@ assert.equal(
   transactions.idempotency.same_scope_same_key_different_digest,
   "IDEMPOTENCY_CONFLICT",
 );
+assertDeepEqual(transactions.response_cache_security, {
+  algorithm: "AES-256-GCM",
+  ttl_seconds: 120,
+  key_source: "SHARED_RUNTIME_KEYRING_NOT_POSTGRESQL",
+  key_rotation_identifier_authenticated: true,
+  authenticated_context: [
+    "user_id",
+    "trading_account_id",
+    "route_template",
+    "idempotency_key",
+    "canonical_request_digest",
+    "created_at_ms",
+    "expires_at_ms",
+  ],
+  expired_ciphertext:
+    "ERASE_IMMEDIATELY_KEEP_ONLY_NONSECRET_RECONCILIATION_MARKER",
+  replica_and_restart_recovery:
+    "SAME_DEPLOYMENT_KEYRING_CAN_DECRYPT_UNEXPIRED_CACHE",
+});
+for (const workflowName of [
+  "successful_login",
+  "real_enrollment_challenge_creation",
+  "failed_enrollment_proof",
+  "ordinary_device_enrollment",
+  "replacement_device_enrollment",
+  "refresh_rotation",
+]) {
+  const workflow = transactions.workflows.find(
+    ({ name }) => name === workflowName,
+  );
+  assert.equal(
+    workflow.single_postgresql_transaction[0],
+    "claim_scoped_idempotency_key_and_canonical_request_digest",
+    `${workflowName} does not claim idempotency before durable effects`,
+  );
+  assert(
+    workflow.single_postgresql_transaction.some((statement) =>
+      /persist_exact_.*(?:result|response).*same_transaction/u.test(
+        statement,
+      ),
+    ),
+    `${workflowName} does not atomically persist the exact response result`,
+  );
+}
+for (const workflow of transactions.workflows) {
+  const statements = workflow.single_postgresql_transaction ?? [];
+  const outboxWriteIndex = statements.findIndex((statement) =>
+    /(?:write|persist).*outbox/u.test(statement),
+  );
+  if (outboxWriteIndex >= 0) {
+    const aggregateLockIndex = statements.findIndex(
+      (statement) =>
+        /lock_.*aggregate_append_state.*compare_expected_version/u.test(
+          statement,
+        ),
+    );
+    assert(
+      aggregateLockIndex >= 0 && aggregateLockIndex < outboxWriteIndex,
+      `${workflow.name} writes Outbox without an earlier expected-version CAS`,
+    );
+  }
+}
 const transactionEventContracts = [
   {
     workflow: "successful_login",
@@ -4614,9 +5630,7 @@ for (const eventContract of transactionEventContracts) {
     `${eventContract.workflow} event kind is not schema-expressible`,
   );
   assert(
-    platformSchema.$defs.EventEnvelope.properties.subject.enum.includes(
-      eventContract.subject,
-    ),
+    platformSchema.$defs.EventSubject.enum.includes(eventContract.subject),
     `${eventContract.workflow} subject is not schema-expressible`,
   );
   assert(
@@ -4796,42 +5810,92 @@ function derivedExternalBoundaries(workflow) {
 }
 
 function executeStatementTransaction(statements, abortAfterStatement = null) {
-  const durable = { effects: [] };
-  const staged = clone(durable);
-  if (abortAfterStatement === 0) return durable;
-  for (const [index, statement] of statements.entries()) {
-    staged.effects.push(statement);
-    if (abortAfterStatement === index + 1) return durable;
+  const durable = {
+    effects: [],
+    statement_rows: new Map(),
+    sequence: 0,
+  };
+  const staged = structuredClone(durable);
+  try {
+    if (abortAfterStatement === 0) {
+      throw new Error("SIMULATED_BEFORE_FIRST_STATEMENT");
+    }
+    for (const [index, statement] of statements.entries()) {
+      staged.sequence += 1;
+      staged.statement_rows.set(
+        sha256(`${staged.sequence}:${statement}`),
+        { sequence: staged.sequence, statement },
+      );
+      staged.effects.push(statement);
+      if (abortAfterStatement === index + 1) {
+        throw new Error(`SIMULATED_AFTER_STATEMENT_${index + 1}`);
+      }
+    }
+  } catch {
+    return durable;
   }
   return staged;
 }
 
 function executeIdempotentResponseLoss(runtime, request) {
-  const prior = runtime.ledger.get(request.key);
+  const context = responseCacheContext({
+    userId: request.user_id,
+    tradingAccountId: request.trading_account_id,
+    routeTemplate: request.route_template,
+    requestKey: request.key,
+    requestDigest: request.digest,
+  });
+  const ledgerKey = responseLedgerKey(context);
+  const prior = runtime.ledger.get(ledgerKey);
   if (prior !== undefined) {
     if (prior.digest !== request.digest) return "IDEMPOTENCY_CONFLICT";
-    if (request.now_ms >= prior.response_cache.expires_at_ms) {
+    if (
+      prior.response_cache === undefined ||
+      request.now_ms >= prior.response_cache.expires_at_ms
+    ) {
+      expireCachedResponse(prior, request.now_ms);
       return "RECONCILIATION_REQUIRED_CACHE_EXPIRED";
     }
-    return openCachedResponse(prior.response_cache, request.key, request.now_ms)
-      .replay_classification;
+    return openCachedResponse(prior.response_cache, context, request.now_ms);
   }
-  runtime.effects.push(request.effect);
-  runtime.ledger.set(request.key, {
+  const staged = structuredClone(runtime);
+  staged.effects.push(request.effect);
+  const response = {
+    replay_classification: "RETURN_RECORDED_RESULT",
+    outcome: "COMMITTED",
+    effect_receipt: sha256(request.effect),
+  };
+  staged.ledger.set(ledgerKey, {
     digest: request.digest,
     response_cache: sealCachedResponse(
-      {
-        replay_classification: "RETURN_RECORDED_RESULT",
-        effect_receipt: sha256(request.effect),
-      },
-      request.key,
+      response,
+      context,
       request.now_ms,
     ),
   });
+  if (request.abort_after_effect === true) {
+    return "SIMULATED_TRANSACTION_ABORT";
+  }
+  replaceRuntimeState(runtime, staged);
   return request.response_lost
     ? "UNKNOWN_REQUIRES_RECONCILIATION"
-    : "COMMITTED";
+    : response;
 }
+
+const realRollbackProbe = executeStatementTransaction(
+  ["insert_inbox", "write_business_effect", "mark_inbox_applied"],
+  2,
+);
+assertDeepEqual(realRollbackProbe.effects, []);
+assert.equal(realRollbackProbe.statement_rows.size, 0);
+assert.equal(realRollbackProbe.sequence, 0);
+const realCommitProbe = executeStatementTransaction([
+  "insert_inbox",
+  "write_business_effect",
+  "mark_inbox_applied",
+]);
+assert.equal(realCommitProbe.statement_rows.size, 3);
+assert.equal(realCommitProbe.sequence, 3);
 
 let executedTransactionCutCount = 0;
 let executedResponseLossCount = 0;
@@ -4950,16 +6014,39 @@ for (const workflow of transactions.workflows) {
     const request = {
       key: "60000000-0000-4000-8000-000000000031",
       digest: "a".repeat(64),
+      user_id: "10000000-0000-4000-8000-000000000001",
+      trading_account_id: "20000000-0000-4000-8000-000000000001",
+      route_template: `/v1/internal/${workflow.name}`,
       effect: `${workflow.name}:COMPLETE_DURABLE_EFFECT`,
       response_lost: true,
       now_ms: 1_000,
     };
+    const abortedRuntime = { effects: [], ledger: new Map() };
+    assert.equal(
+      executeIdempotentResponseLoss(abortedRuntime, {
+        ...request,
+        abort_after_effect: true,
+      }),
+      "SIMULATED_TRANSACTION_ABORT",
+      workflow.name,
+    );
+    assertDeepEqual(abortedRuntime.effects, [], workflow.name);
+    assert.equal(abortedRuntime.ledger.size, 0, workflow.name);
     assert.equal(
       executeIdempotentResponseLoss(runtime, request),
       "UNKNOWN_REQUIRES_RECONCILIATION",
       workflow.name,
     );
-    const responseLossLedgerEntry = runtime.ledger.get(request.key);
+    const responseLossContext = responseCacheContext({
+      userId: request.user_id,
+      tradingAccountId: request.trading_account_id,
+      routeTemplate: request.route_template,
+      requestKey: request.key,
+      requestDigest: request.digest,
+    });
+    const responseLossLedgerEntry = runtime.ledger.get(
+      responseLedgerKey(responseLossContext),
+    );
     assert(
       !JSON.stringify(responseLossLedgerEntry).includes(request.effect),
       `${workflow.name} cached plaintext response material`,
@@ -4967,22 +6054,27 @@ for (const workflow of transactions.workflows) {
     assertDeepEqual(
       openCachedResponse(
         responseLossLedgerEntry.response_cache,
-        request.key,
+        responseLossContext,
         1_001,
       ),
       {
         effect_receipt: sha256(request.effect),
+        outcome: "COMMITTED",
         replay_classification: "RETURN_RECORDED_RESULT",
       },
       `${workflow.name} cannot recover its exact committed response`,
     );
-    assert.equal(
+    assertDeepEqual(
       executeIdempotentResponseLoss(runtime, {
         ...request,
         response_lost: false,
         now_ms: 1_001,
       }),
-      "RETURN_RECORDED_RESULT",
+      {
+        effect_receipt: sha256(request.effect),
+        outcome: "COMMITTED",
+        replay_classification: "RETURN_RECORDED_RESULT",
+      },
       workflow.name,
     );
     assertDeepEqual(runtime.effects, [request.effect], workflow.name);
@@ -4997,6 +6089,12 @@ for (const workflow of transactions.workflows) {
     );
     assertDeepEqual(runtime.effects, [request.effect], workflow.name);
     assert.equal(
+      runtime.ledger.get(responseLedgerKey(responseLossContext))
+        .response_cache,
+      undefined,
+      `${workflow.name} retained expired response ciphertext`,
+    );
+    assert.equal(
       executeIdempotentResponseLoss(runtime, {
         ...request,
         digest: "b".repeat(64),
@@ -5010,7 +6108,7 @@ for (const workflow of transactions.workflows) {
     if (Object.hasOwn(workflow, "response_cache")) {
       assert.equal(
         workflow.response_cache,
-        "AEAD_CIPHERTEXT_ONLY_RUNTIME_KEY_NOT_DATABASE_TTL_120_SECONDS",
+        "AEAD_CIPHERTEXT_ONLY_SHARED_RUNTIME_KEYRING_NOT_DATABASE_TTL_120_SECONDS",
         workflow.name,
       );
       assert.equal(
@@ -5029,6 +6127,212 @@ assert.equal(
   new Set(failureCutEvidence).size,
   failureCutEvidence.length,
   "derived failure cut evidence contains duplicates",
+);
+assertDeepEqual(failureInjection.executable_adversarial_probes, {
+  transaction_abort: "REAL_STAGED_MAP_AND_SEQUENCE_MUTATIONS_ROLL_BACK",
+  network_partition_before_consumer_commit:
+    "NO_INBOX_PROJECTION_OR_BUSINESS_EFFECT",
+  broker_ack_loss_after_consumer_commit:
+    "REDELIVERY_RETURNS_EXISTING_INBOX_RESULT_WITH_NO_DUPLICATE_EFFECT",
+  same_event_id_changed_digest: "REJECT_AND_ALERT_WITH_NO_MUTATION",
+  wrong_owner_scope: "REJECT_BEFORE_INBOX_OR_BUSINESS_EFFECT",
+  aggregate_projection:
+    "COMPARE_VERSION_AND_PREDECESSOR_IN_THE_INBOX_TRANSACTION",
+  outbox_publish_boundaries:
+    "EXECUTE_CLAIM_PUBLISH_ACK_MARK_WITH_STABLE_EVENT_ID_AND_PAYLOAD_DIGEST",
+});
+function executeInboxDelivery(
+  runtime,
+  event,
+  expectedScope,
+  failurePoint = null,
+) {
+  if (
+    event === null ||
+    typeof event !== "object" ||
+    typeof event.event_id !== "string" ||
+    typeof event.payload_digest !== "string"
+  ) {
+    return "REJECT_INVALID_EVENT";
+  }
+  const inboxKey = `${runtime.consumer}:${event.event_id}`;
+  const prior = runtime.inbox.get(inboxKey);
+  if (prior !== undefined) {
+    return prior.payload_digest === event.payload_digest
+      ? "ACK_EXISTING_INBOX_RESULT"
+      : "REJECT_AND_ALERT_CHANGED_DIGEST";
+  }
+  if (!validateEventEnvelope(event)) return "REJECT_INVALID_EVENT";
+  if (jcsCanonicalize(event.scope) !== jcsCanonicalize(expectedScope)) {
+    return "REJECT_WRONG_OWNER_SCOPE";
+  }
+  const aggregateKey = `${event.aggregate_type}:${event.aggregate_id}`;
+  const priorAggregate = runtime.aggregateProjection.get(aggregateKey);
+  const expectedVersion = priorAggregate?.version + 1 || 1;
+  const expectedPreviousId = priorAggregate?.event_id;
+  if (
+    event.aggregate_version !== expectedVersion ||
+    (expectedVersion === 1
+      ? Object.hasOwn(event, "previous_event_id")
+      : event.previous_event_id !== expectedPreviousId)
+  ) {
+    return "REJECT_AGGREGATE_ORDER";
+  }
+  const staged = structuredClone(runtime);
+  staged.inbox.set(inboxKey, {
+    payload_digest: event.payload_digest,
+    state: "APPLIED",
+  });
+  staged.aggregateProjection.set(aggregateKey, {
+    version: event.aggregate_version,
+    event_id: event.event_id,
+  });
+  staged.effects.push({
+    event_id: event.event_id,
+    payload_digest: event.payload_digest,
+  });
+  if (failurePoint === "NETWORK_PARTITION_BEFORE_COMMIT") {
+    return "NETWORK_PARTITION_NO_COMMIT";
+  }
+  replaceRuntimeState(runtime, staged);
+  return failurePoint === "BROKER_ACK_LOSS_AFTER_COMMIT"
+    ? "COMMITTED_ACK_LOST"
+    : "ACK";
+}
+
+const inboxRuntime = {
+  consumer: "platform-consumer",
+  inbox: new Map(),
+  aggregateProjection: new Map(),
+  effects: [],
+};
+const firstInboxEvent = clone(aggregateHistory.events[0]);
+const secondInboxEvent = clone(aggregateHistory.events[1]);
+const partitionRuntime = structuredClone(inboxRuntime);
+assert.equal(
+  executeInboxDelivery(
+    partitionRuntime,
+    firstInboxEvent,
+    firstInboxEvent.scope,
+    "NETWORK_PARTITION_BEFORE_COMMIT",
+  ),
+  "NETWORK_PARTITION_NO_COMMIT",
+);
+assert.equal(partitionRuntime.inbox.size, 0);
+assert.equal(partitionRuntime.aggregateProjection.size, 0);
+assertDeepEqual(partitionRuntime.effects, []);
+assert.equal(
+  executeInboxDelivery(
+    inboxRuntime,
+    firstInboxEvent,
+    firstInboxEvent.scope,
+    "BROKER_ACK_LOSS_AFTER_COMMIT",
+  ),
+  "COMMITTED_ACK_LOST",
+);
+assert.equal(
+  executeInboxDelivery(inboxRuntime, firstInboxEvent, firstInboxEvent.scope),
+  "ACK_EXISTING_INBOX_RESULT",
+);
+assert.equal(inboxRuntime.effects.length, 1);
+const changedDigestRedelivery = clone(firstInboxEvent);
+changedDigestRedelivery.payload_digest = "f".repeat(64);
+assert.equal(
+  executeInboxDelivery(
+    inboxRuntime,
+    changedDigestRedelivery,
+    firstInboxEvent.scope,
+  ),
+  "REJECT_AND_ALERT_CHANGED_DIGEST",
+);
+assert.equal(inboxRuntime.effects.length, 1);
+const priorInboxRecord = inboxRuntime.inbox.get(
+  `${inboxRuntime.consumer}:${firstInboxEvent.event_id}`,
+);
+assert.notEqual(
+  priorInboxRecord.payload_digest,
+  changedDigestRedelivery.payload_digest,
+);
+const wrongOwnerRuntime = {
+  consumer: "platform-consumer",
+  inbox: new Map(),
+  aggregateProjection: new Map(),
+  effects: [],
+};
+assert.equal(
+  executeInboxDelivery(wrongOwnerRuntime, firstInboxEvent, {
+    type: "OWNER",
+    user_id: "10000000-0000-4000-8000-000000000099",
+    trading_account_id: "20000000-0000-4000-8000-000000000099",
+  }),
+  "REJECT_WRONG_OWNER_SCOPE",
+);
+assert.equal(wrongOwnerRuntime.inbox.size, 0);
+assertDeepEqual(wrongOwnerRuntime.effects, []);
+assert.equal(
+  executeInboxDelivery(inboxRuntime, secondInboxEvent, secondInboxEvent.scope),
+  "ACK",
+);
+assert.equal(inboxRuntime.effects.length, 2);
+function executeOutboxPublish(runtime, cutAfter) {
+  const record = runtime.outbox;
+  if (record.publication_state === "PUBLISHED") {
+    return "ALREADY_PUBLISHED";
+  }
+  record.publication_state = "CLAIMED";
+  record.lease_owner = "outbox-publisher";
+  if (cutAfter === "CLAIM_COMMIT") return "CLAIMED_NOT_PUBLISHED";
+  runtime.brokerDeliveries.push({
+    event_id: record.event.event_id,
+    payload_digest: record.event.payload_digest,
+  });
+  if (cutAfter === "PUBLISH_BEFORE_ACK") return "PUBLISHED_ACK_UNKNOWN";
+  runtime.acknowledged.add(record.event.event_id);
+  if (cutAfter === "ACK_BEFORE_MARK") return "ACKED_DATABASE_MARK_PENDING";
+  record.publication_state = "PUBLISHED";
+  record.published_at = "2026-07-29T10:00:03Z";
+  delete record.lease_owner;
+  return "MARKED_PUBLISHED";
+}
+const pendingOutboxForPublish = clone(causallyValidOutbox);
+pendingOutboxForPublish.publication_state = "PENDING";
+delete pendingOutboxForPublish.published_at;
+const outboxPublishRuntime = {
+  outbox: pendingOutboxForPublish,
+  brokerDeliveries: [],
+  acknowledged: new Set(),
+};
+assert.equal(
+  executeOutboxPublish(outboxPublishRuntime, "CLAIM_COMMIT"),
+  "CLAIMED_NOT_PUBLISHED",
+);
+assertDeepEqual(outboxPublishRuntime.brokerDeliveries, []);
+assert.equal(
+  executeOutboxPublish(outboxPublishRuntime, "PUBLISH_BEFORE_ACK"),
+  "PUBLISHED_ACK_UNKNOWN",
+);
+assert.equal(outboxPublishRuntime.brokerDeliveries.length, 1);
+assert.equal(
+  executeOutboxPublish(outboxPublishRuntime, "ACK_BEFORE_MARK"),
+  "ACKED_DATABASE_MARK_PENDING",
+);
+assert.equal(outboxPublishRuntime.brokerDeliveries.length, 2);
+assert(
+  outboxPublishRuntime.brokerDeliveries.every(
+    (delivery) =>
+      delivery.event_id === causallyValidOutbox.event.event_id &&
+      delivery.payload_digest === causallyValidOutbox.event.payload_digest,
+  ),
+  "outbox retry changed publish identity",
+);
+assert.equal(
+  executeOutboxPublish(outboxPublishRuntime, "MARK"),
+  "MARKED_PUBLISHED",
+);
+assert.equal(outboxPublishRuntime.outbox.publication_state, "PUBLISHED");
+assert.equal(
+  executeOutboxPublish(outboxPublishRuntime, "MARK"),
+  "ALREADY_PUBLISHED",
 );
 const ordinaryEnrollment = transactions.workflows.find(
   ({ name }) => name === "ordinary_device_enrollment",
@@ -5169,10 +6473,33 @@ for (const tool of mcpManifest.tools) {
   ]);
 }
 
+assert.equal(phase0Manifest.schema_version, acceptedPhase0ManifestVersion);
+assert.equal(phase0Manifest.base_commit, acceptedPhase0BaseCommit);
+assert.equal(phase0Manifest.hash_algorithm, "SHA-256");
+assertDeepEqual(phase0Manifest.permitted_mutable_file, {
+  path: "package.json",
+  base_sha256: acceptedPackageBaseSha256,
+  only_allowed_change:
+    "add test:platform and invoke it from test without changing dependencies or existing commands",
+});
 for (const [relativePath, expectedHash] of Object.entries(
   phase0Manifest.immutable_files,
 )) {
   const content = await readFile(path.join(contractsDirectory, relativePath));
+  const acceptedBaseContent = execFileSync(
+    "git",
+    [
+      "-C",
+      repositoryDirectory,
+      "show",
+      `${acceptedPhase0BaseCommit}:contracts/${relativePath}`,
+    ],
+  );
+  assert.equal(
+    sha256(acceptedBaseContent),
+    expectedHash,
+    `Phase 0 manifest hash does not match accepted base: ${relativePath}`,
+  );
   assert.equal(
     sha256(content),
     expectedHash,
@@ -5188,7 +6515,7 @@ const baseTreeFiles = execFileSync(
     "ls-tree",
     "-r",
     "--name-only",
-    phase0Manifest.base_commit,
+    acceptedPhase0BaseCommit,
     "contracts",
   ],
   { encoding: "utf8" },
@@ -5208,19 +6535,25 @@ assertDeepEqual(
 const packageJson = await readJson(
   path.join(contractsDirectory, "package.json"),
 );
-assertDeepEqual(packageJson.devDependencies, {
-  "@apidevtools/swagger-parser": "12.1.0",
-  ajv: "8.20.0",
-  "ajv-formats": "3.0.1",
-  protobufjs: "8.7.1",
-  yaml: "2.9.0",
-});
-assertDeepEqual(packageJson.scripts, {
-  test: "npm run test:contracts && npm run test:platform && npm run test:history-secrets",
-  "test:contracts": "node scripts/verify.mjs",
-  "test:platform": "node scripts/verify-platform.mjs",
-  "test:history-secrets":
-    "git -C .. log -p --all -- . | node scripts/scan-stdin-secrets.mjs",
+assertDeepEqual(packageJson, {
+  name: "@fit-trade/contracts",
+  version: "0.1.0",
+  private: true,
+  type: "module",
+  scripts: {
+    test: "npm run test:contracts && npm run test:platform && npm run test:history-secrets",
+    "test:contracts": "node scripts/verify.mjs",
+    "test:platform": "node scripts/verify-platform.mjs",
+    "test:history-secrets":
+      "git -C .. log -p --all -- . | node scripts/scan-stdin-secrets.mjs",
+  },
+  devDependencies: {
+    "@apidevtools/swagger-parser": "12.1.0",
+    ajv: "8.20.0",
+    "ajv-formats": "3.0.1",
+    protobufjs: "8.7.1",
+    yaml: "2.9.0",
+  },
 });
 
 const changedPaths = execFileSync(
@@ -5230,7 +6563,7 @@ const changedPaths = execFileSync(
     repositoryDirectory,
     "diff",
     "--name-only",
-    phase0Manifest.base_commit,
+    acceptedPhase0BaseCommit,
     "--",
   ],
   { encoding: "utf8" },
@@ -5247,6 +6580,27 @@ for (const changedPath of changedPaths) {
   assert(
     allowedPath(changedPath),
     `P1-001 changed forbidden path ${changedPath}`,
+  );
+}
+const untrackedContractPaths = execFileSync(
+  "git",
+  [
+    "-C",
+    repositoryDirectory,
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+    "contracts",
+  ],
+  { encoding: "utf8" },
+)
+  .trim()
+  .split("\n")
+  .filter(Boolean);
+for (const untrackedPath of untrackedContractPaths) {
+  assert(
+    allowedPath(untrackedPath),
+    `P1-001 has an untracked forbidden path ${untrackedPath}`,
   );
 }
 

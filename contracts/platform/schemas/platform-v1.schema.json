@@ -538,6 +538,35 @@
         }
       }
     },
+    "EnrollmentStartInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identifier",
+        "password_attempt_sha256",
+        "purpose",
+        "candidate_public_key_fingerprint"
+      ],
+      "properties": {
+        "identifier": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 254
+        },
+        "password_attempt_sha256": {
+          "$ref": "#/$defs/Digest"
+        },
+        "purpose": {
+          "enum": [
+            "ADDITIONAL_DEVICE",
+            "REPLACEMENT_DEVICE"
+          ]
+        },
+        "candidate_public_key_fingerprint": {
+          "$ref": "#/$defs/Ed25519Fingerprint"
+        }
+      }
+    },
     "EnrollmentChallenge": {
       "type": "object",
       "x-fit-time-window": {
@@ -878,6 +907,50 @@
         }
       }
     },
+    "ConfirmationConsumeMutationInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "idempotency_key",
+        "path",
+        "query",
+        "body"
+      ],
+      "properties": {
+        "idempotency_key": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "path": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "confirmation_id"
+          ],
+          "properties": {
+            "confirmation_id": {
+              "$ref": "#/$defs/Uuid"
+            }
+          }
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 0
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "confirmation_hash"
+          ],
+          "properties": {
+            "confirmation_hash": {
+              "$ref": "#/$defs/Digest"
+            }
+          }
+        }
+      }
+    },
     "ModelToolMutationInput": {
       "x-fit-model-authority-fields": [
         "confirmation_id",
@@ -998,21 +1071,39 @@
           "$ref": "#/$defs/Uuid"
         },
         "method": {
-          "type": "string",
-          "pattern": "^[A-Z]+$"
+          "const": "POST"
         },
         "route_template": {
-          "type": "string",
-          "pattern": "^/"
+          "const": "/v1/confirmations/{confirmation_id}/consume"
         },
         "path": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "confirmation_id"
+          ],
+          "properties": {
+            "confirmation_id": {
+              "$ref": "#/$defs/Uuid"
+            }
+          }
         },
         "query": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 0
         },
         "body": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "confirmation_hash"
+          ],
+          "properties": {
+            "confirmation_hash": {
+              "$ref": "#/$defs/Digest"
+            }
+          }
         },
         "user_id": {
           "$ref": "#/$defs/Uuid"
@@ -1148,6 +1239,30 @@
         }
       }
     },
+    "EventSubject": {
+      "enum": [
+        "fit.platform.v1.owner.owner-mutation-committed",
+        "fit.platform.v1.auth-security.login-succeeded",
+        "fit.platform.v1.auth-security.login-account-locked",
+        "fit.platform.v1.auth-security.login-source-locked",
+        "fit.platform.v1.auth-security.enrollment-challenge-issued",
+        "fit.platform.v1.auth-security.enrollment-proof-rejected",
+        "fit.platform.v1.auth-security.device-enrolled",
+        "fit.platform.v1.auth-security.device-replaced",
+        "fit.platform.v1.auth-security.device-revoked",
+        "fit.platform.v1.auth-security.session-revoked",
+        "fit.platform.v1.auth-security.refresh-reuse-detected",
+        "fit.platform.v1.system.wal-archive-interrupted",
+        "fit.platform.v1.notification.login-account-locked",
+        "fit.platform.v1.notification.login-source-locked",
+        "fit.platform.v1.notification.device-enrolled",
+        "fit.platform.v1.notification.device-replaced",
+        "fit.platform.v1.notification.device-revoked",
+        "fit.platform.v1.notification.session-revoked",
+        "fit.platform.v1.notification.refresh-reuse-detected",
+        "fit.platform.v1.notification.wal-archive-interrupted"
+      ]
+    },
     "EventPayload": {
       "type": "object",
       "x-fit-event-payload": true,
@@ -1164,8 +1279,7 @@
           "const": "fit.platform.event-payload.v1"
         },
         "subject": {
-          "type": "string",
-          "pattern": "^fit\\.platform\\.v1\\."
+          "$ref": "#/$defs/EventSubject"
         },
         "event_kind": {
           "type": "string",
@@ -1249,28 +1363,7 @@
           "const": "fit.platform.event-envelope.v1"
         },
         "subject": {
-          "enum": [
-            "fit.platform.v1.owner.owner-mutation-committed",
-            "fit.platform.v1.auth-security.login-succeeded",
-            "fit.platform.v1.auth-security.login-account-locked",
-            "fit.platform.v1.auth-security.login-source-locked",
-            "fit.platform.v1.auth-security.enrollment-challenge-issued",
-            "fit.platform.v1.auth-security.enrollment-proof-rejected",
-            "fit.platform.v1.auth-security.device-enrolled",
-            "fit.platform.v1.auth-security.device-replaced",
-            "fit.platform.v1.auth-security.device-revoked",
-            "fit.platform.v1.auth-security.session-revoked",
-            "fit.platform.v1.auth-security.refresh-reuse-detected",
-            "fit.platform.v1.system.wal-archive-interrupted",
-            "fit.platform.v1.notification.login-account-locked",
-            "fit.platform.v1.notification.login-source-locked",
-            "fit.platform.v1.notification.device-enrolled",
-            "fit.platform.v1.notification.device-replaced",
-            "fit.platform.v1.notification.device-revoked",
-            "fit.platform.v1.notification.session-revoked",
-            "fit.platform.v1.notification.refresh-reuse-detected",
-            "fit.platform.v1.notification.wal-archive-interrupted"
-          ]
+          "$ref": "#/$defs/EventSubject"
         },
         "stream": {
           "const": "FIT_PLATFORM_V1"
@@ -1333,6 +1426,30 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "aggregate_version": {
+                "const": 1
+              }
+            },
+            "required": [
+              "aggregate_version"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "previous_event_id"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "previous_event_id"
+            ]
+          }
+        },
         {
           "oneOf": [
             {
