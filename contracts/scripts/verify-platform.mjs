@@ -9,6 +9,7 @@ import {
   createPublicKey,
   randomBytes,
   sign as signMessage,
+  timingSafeEqual,
   verify as verifySignature,
 } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
@@ -18,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
+const nodeCrypto = await import("node:crypto");
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const contractsDirectory = path.resolve(scriptDirectory, "..");
 const repositoryDirectory = path.resolve(contractsDirectory, "..");
@@ -32,7 +34,10 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const responseCacheTtlMilliseconds = 120_000;
 const responseCacheKeyId = "fit-platform-response-cache-runtime-v1";
-const responseCacheKeyring = new Map([[responseCacheKeyId, randomBytes(32)]]);
+const testOnlyDeploymentKeyMaterial = {
+  [responseCacheKeyId]:
+    "746573742d6f6e6c792d6465706c6f796d656e742d6b65792d6d617465726961",
+};
 const acceptedPhase0BaseCommit =
   "5f168cd4ebfa1ee7f930425fa601c608257ea360";
 const acceptedPhase0ManifestVersion = "fit.platform.phase0-file-manifest.v1";
@@ -47,6 +52,35 @@ function cacheTimeMilliseconds(value) {
   return isoMilliseconds(value);
 }
 
+function loadDeploymentKeyring(keyMaterial) {
+  const keyring = new Map();
+  for (const [keyId, keyHex] of Object.entries(keyMaterial)) {
+    assert.match(keyId, /^[a-z0-9][a-z0-9._-]*$/u);
+    assert.match(keyHex, /^[a-f0-9]{64}$/u);
+    keyring.set(keyId, Buffer.from(keyHex, "hex"));
+  }
+  return keyring;
+}
+
+const primaryResponseCacheKeyring = loadDeploymentKeyring(
+  testOnlyDeploymentKeyMaterial,
+);
+const replicaResponseCacheKeyring = loadDeploymentKeyring(
+  testOnlyDeploymentKeyMaterial,
+);
+const restartedResponseCacheKeyring = loadDeploymentKeyring(
+  testOnlyDeploymentKeyMaterial,
+);
+
+function canonicalUuid(value) {
+  assert.equal(typeof value, "string");
+  assert.match(
+    value,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+  );
+  return value.toLowerCase();
+}
+
 function responseCacheContext({
   userId,
   tradingAccountId,
@@ -55,16 +89,17 @@ function responseCacheContext({
   requestDigest,
 }) {
   const context = {
-    user_id: userId,
-    trading_account_id: tradingAccountId,
+    user_id: canonicalUuid(userId),
+    trading_account_id: canonicalUuid(tradingAccountId),
     route_template: routeTemplate,
-    idempotency_key: requestKey,
+    idempotency_key: canonicalUuid(requestKey),
     request_digest: requestDigest,
   };
-  assert.match(context.user_id, /^[0-9a-f-]{36}$/u);
-  assert.match(context.trading_account_id, /^[0-9a-f-]{36}$/u);
   assert.match(context.route_template, /^\//u);
-  assert.equal(typeof context.idempotency_key, "string");
+  assert.match(
+    context.idempotency_key,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu,
+  );
   assert.match(context.request_digest, /^[a-f0-9]{64}$/u);
   return context;
 }
@@ -110,8 +145,9 @@ function sealCachedResponse(
   response,
   context,
   createdAt,
-  keyring = responseCacheKeyring,
+  keyring,
 ) {
+  assert(keyring instanceof Map, "response-cache keyring must be injected");
   const createdAtMs = cacheTimeMilliseconds(createdAt);
   const cache = {
     algorithm: "AES-256-GCM",
@@ -142,8 +178,9 @@ function openCachedResponse(
   cache,
   context,
   readAt,
-  keyring = responseCacheKeyring,
+  keyring,
 ) {
+  assert(keyring instanceof Map, "response-cache keyring must be injected");
   assert.equal(cache.algorithm, "AES-256-GCM");
   assertResponseCacheContext(cache, context);
   assert(
@@ -172,6 +209,18 @@ function expireCachedResponse(ledgerEntry, expiredAt) {
     delete ledgerEntry.response_cache;
   }
   ledgerEntry.cache_expired_at_ms = cacheTimeMilliseconds(expiredAt);
+}
+
+function sweepExpiredResponseCaches(ledger, now) {
+  const nowMs = cacheTimeMilliseconds(now);
+  for (const entry of ledger.values()) {
+    if (
+      entry.response_cache !== undefined &&
+      nowMs >= entry.response_cache.expires_at_ms
+    ) {
+      expireCachedResponse(entry, nowMs);
+    }
+  }
 }
 
 function assertUnpairedSurrogatesAbsent(value) {
@@ -258,6 +307,33 @@ function canonicalRequestDigest(input) {
   return sha256(jcsCanonicalize(bound));
 }
 
+function enrollmentRouteTemplate(purpose, operation) {
+  assert(["start", "complete"].includes(operation));
+  if (purpose === "ADDITIONAL_DEVICE") {
+    return `/v1/auth/device-enrollments/${operation}`;
+  }
+  assert.equal(purpose, "REPLACEMENT_DEVICE");
+  return `/v1/auth/device-replacements/${operation}`;
+}
+
+function authenticatedMutationDigest({
+  routeTemplate,
+  body,
+  userId,
+  tradingAccountId,
+}) {
+  return canonicalRequestDigest({
+    schema_version: "fit.platform.request-digest.v1",
+    method: "POST",
+    route_template: routeTemplate,
+    path: {},
+    query: {},
+    body,
+    user_id: canonicalUuid(userId),
+    trading_account_id: canonicalUuid(tradingAccountId),
+  });
+}
+
 function durableRecordDigest(record) {
   const preimage = clone(record);
   delete preimage.payload_digest;
@@ -295,7 +371,7 @@ function parseStrictRequestTarget(rawTarget) {
   );
 
   const match = rawPath.match(
-    /^\/v1\/confirmations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/consume$/iu,
+    /^\/v1\/confirmations\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/consume$/iu,
   );
   assert(match, "request path does not match the frozen confirmation route");
 
@@ -326,7 +402,9 @@ function parseStrictRequestTarget(rawTarget) {
   );
   return {
     route_template: "/v1/confirmations/{confirmation_id}/consume",
-    path: Object.assign(Object.create(null), { confirmation_id: match[1] }),
+    path: Object.assign(Object.create(null), {
+      confirmation_id: canonicalUuid(match[1]),
+    }),
     query,
   };
 }
@@ -475,10 +553,18 @@ function enrollmentStateFromFixture(fixture) {
           userId: identity.user_id,
           tradingAccountId: identity.trading_account_id,
           sourceKey: identity.source_key,
-          passwordVerifierSha256: identity.password_verifier_sha256,
+          passwordArgon2id: clone(identity.password_argon2id),
+          testOnlyPasswordSha256: identity.test_only_password_sha256,
         },
       ]),
     ),
+    unknownIdentityVerifier: {
+      passwordArgon2id: clone(
+        fixture.identity_directory[0].password_argon2id,
+      ),
+      testOnlyPasswordSha256:
+        fixture.identity_directory[0].test_only_password_sha256,
+    },
     ownerships: new Map(
       fixture.ownership_records.map((ownership) => [
         `${ownership.user_id}:${ownership.trading_account_id}`,
@@ -497,6 +583,46 @@ function enrollmentStateFromFixture(fixture) {
     aggregateState: new Map(),
     responseLedger: new Map(),
   };
+}
+
+function verifyPasswordAttempt(identity, passwordUtf8) {
+  if (
+    typeof passwordUtf8 !== "string" ||
+    Buffer.byteLength(passwordUtf8, "utf8") > 1024
+  ) {
+    return false;
+  }
+  const verifier = identity.passwordArgon2id;
+  if (
+    verifier?.profile_id !==
+      security.password_hashing.production_profile.profile_id ||
+    verifier.version !== security.password_hashing.version
+  ) {
+    return false;
+  }
+  if (typeof nodeCrypto.argon2Sync !== "function") {
+    return (
+      Number(process.versions.node.split(".")[0]) < 24 &&
+      sha256(Buffer.from(passwordUtf8, "utf8")) ===
+        identity.testOnlyPasswordSha256
+    );
+  }
+  try {
+    const expected = Buffer.from(verifier.result_hex, "hex");
+    const observed = nodeCrypto.argon2Sync("argon2id", {
+      message: Buffer.from(passwordUtf8, "utf8"),
+      nonce: Buffer.from(verifier.salt_hex, "hex"),
+      parallelism: security.password_hashing.production_profile.parallelism,
+      tagLength: security.password_hashing.production_profile.result_bytes,
+      memory: security.password_hashing.production_profile.minimum_memory_kib,
+      passes: security.password_hashing.production_profile.minimum_iterations,
+    });
+    return (
+      expected.length === observed.length && timingSafeEqual(expected, observed)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function activeOwnership(state, userId, tradingAccountId) {
@@ -534,16 +660,22 @@ function persistEnrollmentOutbox(
     expectedVersion,
     "aggregate expected-version compare-and-set conflict",
   );
-  const eventId = syntheticUuid(
-    `event:${subject}:${recordType}:${
-      record.event_id ?? record.notification_id
-    }:${aggregate.version + 1}`,
-  );
+  const eventId = record.event_id ?? record.notification_id;
+  const eventIdentity = {
+    event_id: eventId,
+    aggregate_type: "ENROLLMENT",
+    aggregate_id: aggregateId,
+    aggregate_version: aggregate.version + 1,
+    ...(aggregate.lastEventId === null
+      ? {}
+      : { previous_event_id: aggregate.lastEventId }),
+  };
   const payload = {
     schema_version: "fit.platform.event-payload.v1",
     subject,
     event_kind: record.kind,
     scope: record.scope,
+    event_identity: eventIdentity,
     data: {
       record_type: recordType,
       record_id: record.event_id ?? record.notification_id,
@@ -566,9 +698,9 @@ function persistEnrollmentOutbox(
     payload_schema_version: payload.schema_version,
     payload_digest: sha256(jcsCanonicalize(payload)),
     payload,
-    ...(aggregate.lastEventId === null
+    ...(eventIdentity.previous_event_id === undefined
       ? {}
-      : { previous_event_id: aggregate.lastEventId }),
+      : { previous_event_id: eventIdentity.previous_event_id }),
   };
   const outbox = {
     schema_version: "fit.platform.outbox-record.v1",
@@ -752,46 +884,48 @@ function startEnrollment(
   input,
   serverContext,
   requestKey,
-  requestDigest = null,
+  keyring,
 ) {
-  if (!validatorFor("EnrollmentStartInput")(input)) {
+  if (
+    !validatorFor("EnrollmentStartInput")(input) ||
+    typeof requestKey !== "string" ||
+    !(keyring instanceof Map)
+  ) {
     return { wire: null, persisted: false, outcome: "REJECT_MALFORMED" };
   }
-  let wire;
   try {
-    wire = buildEnrollmentChallenge(input, serverContext);
+    canonicalUuid(requestKey);
   } catch {
     return { wire: null, persisted: false, outcome: "REJECT_MALFORMED" };
   }
   const identity = state.identities.get(input.identifier);
-  const passwordValid =
-    identity !== undefined &&
-    input.password_attempt_sha256 === identity.passwordVerifierSha256;
-  if (identity === undefined || !passwordValid) {
+  const passwordValid = verifyPasswordAttempt(
+    identity ?? state.unknownIdentityVerifier,
+    input.password_utf8,
+  );
+  if (
+    identity === undefined ||
+    !passwordValid
+  ) {
+    let wire;
+    try {
+      wire = buildEnrollmentChallenge(input, serverContext);
+    } catch {
+      return { wire: null, persisted: false, outcome: "REJECT_MALFORMED" };
+    }
     return { wire, persisted: false };
   }
-  if (
-    !activeOwnership(
-      state,
-      identity.userId,
-      identity.tradingAccountId,
-    )
-  ) {
-    return {
-      wire,
-      persisted: false,
-      outcome: "REJECT_INACTIVE_OWNERSHIP",
-    };
-  }
-  if (typeof requestKey !== "string" || requestKey.length === 0) {
-    return { wire: null, persisted: false, outcome: "REJECT_MALFORMED" };
-  }
-  const canonicalDigest =
-    requestDigest ?? sha256(jcsCanonicalize(input));
+  const routeTemplate = enrollmentRouteTemplate(input.purpose, "start");
+  const canonicalDigest = authenticatedMutationDigest({
+    routeTemplate,
+    body: input,
+    userId: identity.userId,
+    tradingAccountId: identity.tradingAccountId,
+  });
   const cacheContext = responseCacheContext({
     userId: identity.userId,
     tradingAccountId: identity.tradingAccountId,
-    routeTemplate: "/v1/device-enrollments/challenges",
+    routeTemplate,
     requestKey,
     requestDigest: canonicalDigest,
   });
@@ -821,11 +955,24 @@ function startEnrollment(
       prior.response_cache,
       cacheContext,
       serverContext.received_at,
+      keyring,
     );
+    return recorded;
+  }
+  if (
+    !activeOwnership(state, identity.userId, identity.tradingAccountId)
+  ) {
     return {
-      ...recorded,
-      persisted: true,
+      wire: null,
+      persisted: false,
+      outcome: "REJECT_INACTIVE_OWNERSHIP",
     };
+  }
+  let wire;
+  try {
+    wire = buildEnrollmentChallenge(input, serverContext);
+  } catch {
+    return { wire: null, persisted: false, outcome: "REJECT_MALFORMED" };
   }
   const staged = structuredClone(state);
   const requestId = syntheticUuid(`enrollment-start:${wire.subject_handle}`);
@@ -866,6 +1013,7 @@ function startEnrollment(
     outcome: "CHALLENGE_CREATED",
     replay_classification: "RETURN_RECORDED_CHALLENGE",
     wire: clone(wire),
+    persisted: true,
   };
   staged.responseLedger.set(ledgerKey, {
     requestDigest: canonicalDigest,
@@ -873,10 +1021,11 @@ function startEnrollment(
       response,
       cacheContext,
       serverContext.received_at,
+      keyring,
     ),
   });
   replaceRuntimeState(state, staged);
-  return { ...response, persisted: true };
+  return response;
 }
 
 function enrollmentProofIsValid(wire, completion) {
@@ -928,6 +1077,7 @@ function recordEnrollmentResponse(
   cacheContext,
   outcome,
   createdAt,
+  keyring,
   responseFields = {},
 ) {
   const response = {
@@ -941,6 +1091,7 @@ function recordEnrollmentResponse(
       response,
       cacheContext,
       createdAt,
+      keyring,
     ),
   });
   return response;
@@ -951,13 +1102,35 @@ function completeEnrollment(
   completion,
   receivedAt,
   requestKey,
-  requestDigest = null,
+  keyring,
 ) {
-  if (!validatorFor("EnrollmentCompletionInput")(completion)) {
-    return "REJECT_MALFORMED";
+  if (
+    !validatorFor("EnrollmentCompletionInput")(completion) ||
+    typeof requestKey !== "string" ||
+    !(keyring instanceof Map)
+  ) {
+    return { outcome: "REJECT_MALFORMED" };
   }
-  const canonicalDigest =
-    requestDigest ?? sha256(jcsCanonicalize(completion));
+  try {
+    canonicalUuid(requestKey);
+    isoMilliseconds(receivedAt);
+  } catch {
+    return { outcome: "REJECT_MALFORMED" };
+  }
+  const challengeState = state.challenges.get(completion.subject_handle);
+  if (challengeState === undefined) {
+    return { outcome: "REJECT_NO_SERVER_STATE" };
+  }
+  const routeTemplate = enrollmentRouteTemplate(
+    challengeState.challenge.purpose,
+    "complete",
+  );
+  const canonicalDigest = authenticatedMutationDigest({
+    routeTemplate,
+    body: completion,
+    userId: challengeState.user_id,
+    tradingAccountId: challengeState.trading_account_id,
+  });
   const staged = structuredClone(state);
   const result = completeEnrollmentTransaction(
     staged,
@@ -965,6 +1138,8 @@ function completeEnrollment(
     receivedAt,
     requestKey,
     canonicalDigest,
+    routeTemplate,
+    keyring,
   );
   replaceRuntimeState(state, staged);
   return result;
@@ -976,13 +1151,15 @@ function completeEnrollmentTransaction(
   receivedAt,
   requestKey,
   requestDigest,
+  routeTemplate,
+  keyring,
 ) {
   const challengeState = state.challenges.get(completion.subject_handle);
-  if (challengeState === undefined) return "REJECT_NO_SERVER_STATE";
+  if (challengeState === undefined) return { outcome: "REJECT_NO_SERVER_STATE" };
   const cacheContext = responseCacheContext({
     userId: challengeState.user_id,
     tradingAccountId: challengeState.trading_account_id,
-    routeTemplate: "/v1/device-enrollments/complete",
+    routeTemplate,
     requestKey,
     requestDigest,
   });
@@ -990,7 +1167,7 @@ function completeEnrollmentTransaction(
   const priorResult = state.responseLedger.get(ledgerKey);
   if (priorResult !== undefined) {
     if (priorResult.requestDigest !== requestDigest) {
-      return "IDEMPOTENCY_CONFLICT";
+      return { outcome: "IDEMPOTENCY_CONFLICT" };
     }
     if (
       priorResult.response_cache === undefined ||
@@ -998,12 +1175,13 @@ function completeEnrollmentTransaction(
       priorResult.response_cache.expires_at_ms
     ) {
       expireCachedResponse(priorResult, receivedAt);
-      return "RECONCILIATION_REQUIRED_CACHE_EXPIRED";
+      return { outcome: "RECONCILIATION_REQUIRED_CACHE_EXPIRED" };
     }
     return openCachedResponse(
       priorResult.response_cache,
       cacheContext,
       receivedAt,
+      keyring,
     );
   }
   const wire = challengeState.challenge;
@@ -1025,12 +1203,27 @@ function completeEnrollmentTransaction(
       occurredAt: receivedAt,
       aggregateId,
     });
-    return "REJECT_REPLAY";
+    return recordEnrollmentResponse(
+      state,
+      cacheContext,
+      "REJECT_REPLAY",
+      receivedAt,
+      keyring,
+    );
   }
-  challengeState.status = "CONSUMED";
-  challengeState.consumed_at = receivedAt;
-  assert(validatorFor("EnrollmentChallengeState")(challengeState));
+  if (challengeState.status === "EXPIRED") {
+    return recordEnrollmentResponse(
+      state,
+      cacheContext,
+      "REJECT_EXPIRED",
+      receivedAt,
+      keyring,
+    );
+  }
   if (isoMilliseconds(receivedAt) >= isoMilliseconds(wire.expires_at)) {
+    challengeState.status = "EXPIRED";
+    challengeState.expired_at = receivedAt;
+    assert(validatorFor("EnrollmentChallengeState")(challengeState));
     persistEnrollmentAudit(state, {
       kind: "ENROLLMENT_PROOF_REJECTED",
       scope,
@@ -1039,14 +1232,17 @@ function completeEnrollmentTransaction(
       occurredAt: receivedAt,
       aggregateId,
     });
-    recordEnrollmentResponse(
+    return recordEnrollmentResponse(
       state,
       cacheContext,
-      "CONSUMED_EXPIRED",
+      "REJECT_EXPIRED",
       receivedAt,
+      keyring,
     );
-    return "CONSUMED_EXPIRED";
   }
+  challengeState.status = "CONSUMED";
+  challengeState.consumed_at = receivedAt;
+  assert(validatorFor("EnrollmentChallengeState")(challengeState));
   if (!enrollmentProofIsValid(wire, completion)) {
     persistEnrollmentAudit(state, {
       kind: "ENROLLMENT_PROOF_REJECTED",
@@ -1056,13 +1252,13 @@ function completeEnrollmentTransaction(
       occurredAt: receivedAt,
       aggregateId,
     });
-    recordEnrollmentResponse(
+    return recordEnrollmentResponse(
       state,
       cacheContext,
       "CONSUMED_INVALID_PROOF",
       receivedAt,
+      keyring,
     );
-    return "CONSUMED_INVALID_PROOF";
   }
   if (
     !activeOwnership(
@@ -1079,13 +1275,13 @@ function completeEnrollmentTransaction(
       occurredAt: receivedAt,
       aggregateId,
     });
-    recordEnrollmentResponse(
+    return recordEnrollmentResponse(
       state,
       cacheContext,
       "REJECT_INACTIVE_OWNERSHIP",
       receivedAt,
+      keyring,
     );
-    return "REJECT_INACTIVE_OWNERSHIP";
   }
   const existingOwner = state.publicKeyOwners.get(
     wire.candidate_public_key_fingerprint,
@@ -1103,13 +1299,13 @@ function completeEnrollmentTransaction(
       occurredAt: receivedAt,
       aggregateId,
     });
-    recordEnrollmentResponse(
+    return recordEnrollmentResponse(
       state,
       cacheContext,
       outcome,
       receivedAt,
+      keyring,
     );
-    return outcome;
   }
   if (wire.purpose === "REPLACEMENT_DEVICE") {
     for (const record of state.devices.values()) {
@@ -1272,6 +1468,7 @@ function completeEnrollmentTransaction(
     cacheContext,
     "CONSUMED_SUCCESS",
     receivedAt,
+    keyring,
     {
       device_id: deviceId,
       session_id: sessionId,
@@ -1319,76 +1516,91 @@ function refreshOutcome(item) {
 }
 
 function presentRefreshToken(
-  runtimeOrFamily,
+  runtime,
   tokenDigest,
   now,
   descendantDigest,
   requestKey,
-  requestDigest = null,
+  keyring,
 ) {
   if (
-    runtimeOrFamily === null ||
-    typeof runtimeOrFamily !== "object" ||
+    runtime === null ||
+    typeof runtime !== "object" ||
+    typeof runtime.userId !== "string" ||
+    typeof runtime.tradingAccountId !== "string" ||
+    !(runtime.responseLedger instanceof Map) ||
+    !Array.isArray(runtime.securityEffects) ||
+    !validatorFor("RefreshFamilyState")(runtime.family) ||
     typeof tokenDigest !== "string" ||
-    !/^[a-f0-9]{64}$/u.test(tokenDigest)
+    !/^[a-f0-9]{64}$/u.test(tokenDigest) ||
+    typeof requestKey !== "string" ||
+    !(keyring instanceof Map)
   ) {
     return "REJECT_MALFORMED";
   }
   try {
     isoMilliseconds(now);
+    canonicalUuid(requestKey);
+    canonicalUuid(runtime.userId);
+    canonicalUuid(runtime.tradingAccountId);
   } catch {
     return "REJECT_MALFORMED";
   }
-  const staged = structuredClone(runtimeOrFamily);
+  const requestDigest = authenticatedMutationDigest({
+    routeTemplate: "/v1/auth/refresh",
+    body: { token_digest: tokenDigest },
+    userId: runtime.userId,
+    tradingAccountId: runtime.tradingAccountId,
+  });
+  const staged = structuredClone(runtime);
   const result = presentRefreshTokenTransaction(
     staged,
     tokenDigest,
     now,
     descendantDigest,
     requestKey,
-    requestDigest ?? sha256(jcsCanonicalize({ token_digest: tokenDigest })),
+    requestDigest,
+    keyring,
   );
-  replaceRuntimeState(runtimeOrFamily, staged);
+  replaceRuntimeState(runtime, staged);
   return result;
 }
 
 function presentRefreshTokenTransaction(
-  runtimeOrFamily,
+  runtime,
   tokenDigest,
   now,
   descendantDigest,
   requestKey,
   requestDigest,
+  keyring,
 ) {
-  const runtime = Object.hasOwn(runtimeOrFamily, "family")
-    ? runtimeOrFamily
-    : null;
-  const family = runtime?.family ?? runtimeOrFamily;
-  let cacheContext = null;
-  if (runtime !== null && requestKey !== undefined) {
-    cacheContext = responseCacheContext({
-      userId: runtime.userId,
-      tradingAccountId: runtime.tradingAccountId,
-      routeTemplate: "/v1/auth/refresh",
-      requestKey,
-      requestDigest,
-    });
-    const prior = runtime.responseLedger.get(
-      responseLedgerKey(cacheContext),
-    );
-    if (prior !== undefined) {
-      if (prior.requestDigest !== requestDigest) {
-        return "IDEMPOTENCY_CONFLICT";
-      }
-      if (
-        prior.response_cache === undefined ||
-        cacheTimeMilliseconds(now) >= prior.response_cache.expires_at_ms
-      ) {
-        expireCachedResponse(prior, now);
-        return "RECONCILIATION_REQUIRED_CACHE_EXPIRED";
-      }
-      return openCachedResponse(prior.response_cache, cacheContext, now);
+  const family = runtime.family;
+  const cacheContext = responseCacheContext({
+    userId: runtime.userId,
+    tradingAccountId: runtime.tradingAccountId,
+    routeTemplate: "/v1/auth/refresh",
+    requestKey,
+    requestDigest,
+  });
+  const prior = runtime.responseLedger.get(responseLedgerKey(cacheContext));
+  if (prior !== undefined) {
+    if (prior.requestDigest !== requestDigest) {
+      return "IDEMPOTENCY_CONFLICT";
     }
+    if (
+      prior.response_cache === undefined ||
+      cacheTimeMilliseconds(now) >= prior.response_cache.expires_at_ms
+    ) {
+      expireCachedResponse(prior, now);
+      return "RECONCILIATION_REQUIRED_CACHE_EXPIRED";
+    }
+    return openCachedResponse(
+      prior.response_cache,
+      cacheContext,
+      now,
+      keyring,
+    );
   }
   const token = family.tokens.find(
     ({ token_digest: digest }) => digest === tokenDigest,
@@ -1405,7 +1617,9 @@ function presentRefreshTokenTransaction(
   if (outcome === "ROTATE_CREATE_DESCENDANT") {
     if (
       typeof descendantDigest !== "string" ||
-      !/^[a-f0-9]{64}$/u.test(descendantDigest)
+      !/^[a-f0-9]{64}$/u.test(descendantDigest) ||
+      descendantDigest === tokenDigest ||
+      family.tokens.some(({ token_digest: digest }) => digest === descendantDigest)
     ) {
       return "REJECT_SERVER_RANDOMNESS_UNAVAILABLE";
     }
@@ -1430,31 +1644,74 @@ function presentRefreshTokenTransaction(
       family_deadline: family.family_deadline,
       status: "ACTIVE",
     });
-    if (runtime !== null && requestKey !== undefined) {
-      const response = {
-        replay_classification: "RETURN_RECORDED_ROTATION",
-        outcome,
-        descendant_digest: descendantDigest,
-        refresh_token_transport: `synthetic-refresh-token:${descendantDigest}`,
-      };
-      runtime.responseLedger.set(responseLedgerKey(cacheContext), {
-        requestDigest,
-        response_cache: sealCachedResponse(
-          response,
-          cacheContext,
-          now,
-        ),
-      });
-      return response;
-    }
+    assert(validatorFor("RefreshFamilyState")(family));
+    const response = {
+      replay_classification: "RETURN_RECORDED_ROTATION",
+      outcome,
+      descendant_digest: descendantDigest,
+      refresh_token_transport: `synthetic-refresh-token:${descendantDigest}`,
+    };
+    runtime.responseLedger.set(responseLedgerKey(cacheContext), {
+      requestDigest,
+      response_cache: sealCachedResponse(
+        response,
+        cacheContext,
+        now,
+        keyring,
+      ),
+    });
+    return response;
   } else if (outcome === "REVOKE_FAMILY_AND_DESCENDANTS") {
     family.status = "REVOKED";
     for (const member of family.tokens) {
       member.status = "REVOKED";
       member.revoked_at = now;
     }
+    assert(validatorFor("RefreshFamilyState")(family));
+    runtime.securityEffects.push(
+      {
+        type: "AUDIT",
+        kind: "REFRESH_REUSE_DETECTED",
+        family_id: family.family_id,
+      },
+      {
+        type: "NOTIFICATION",
+        kind: "REFRESH_REUSE_DETECTED",
+        family_id: family.family_id,
+      },
+      {
+        type: "OUTBOX",
+        kind: "REFRESH_REUSE_DETECTED",
+        family_id: family.family_id,
+      },
+    );
+    const response = {
+      replay_classification: "RETURN_RECORDED_REUSE_REVOCATION",
+      outcome,
+      family_id: family.family_id,
+    };
+    runtime.responseLedger.set(responseLedgerKey(cacheContext), {
+      requestDigest,
+      response_cache: sealCachedResponse(
+        response,
+        cacheContext,
+        now,
+        keyring,
+      ),
+    });
+    return response;
   }
   return outcome;
+}
+
+function refreshRuntimeFor(family) {
+  return {
+    userId: "10000000-0000-4000-8000-000000000001",
+    tradingAccountId: "20000000-0000-4000-8000-000000000001",
+    family: clone(family),
+    responseLedger: new Map(),
+    securityEffects: [],
+  };
 }
 
 function websocketOutcome(item) {
@@ -1946,9 +2203,15 @@ ajv.addKeyword({
         data.subject_handle_digest === sha256(data.challenge.subject_handle) &&
         data.created_at === data.challenge.issued_at &&
         (data.status === "ACTIVE"
-          ? !Object.hasOwn(data, "consumed_at")
+          ? !Object.hasOwn(data, "consumed_at") &&
+            !Object.hasOwn(data, "expired_at")
           : data.status === "CONSUMED" &&
-            Date.parse(data.consumed_at) >= Date.parse(data.created_at))
+              Date.parse(data.consumed_at) >= Date.parse(data.created_at) &&
+              !Object.hasOwn(data, "expired_at") ||
+            data.status === "EXPIRED" &&
+              Date.parse(data.expired_at) >=
+                Date.parse(data.challenge.expires_at) &&
+              !Object.hasOwn(data, "consumed_at"))
       );
     } catch {
       return false;
@@ -1964,7 +2227,15 @@ ajv.addKeyword({
     try {
       const durable = data.data;
       const record = durable.record;
+      const subjectBinding = nats.subject_bindings.find(
+        ({ subject }) => subject === data.subject,
+      );
       return (
+        subjectBinding !== undefined &&
+        subjectBinding.event_kind === data.event_kind &&
+        subjectBinding.scope === data.scope.type &&
+        data.event_identity.event_id === durable.record_id &&
+        data.event_identity.previous_event_id !== data.event_identity.event_id &&
         record.kind === data.event_kind &&
         jcsCanonicalize(record.scope) === jcsCanonicalize(data.scope) &&
         (durable.record_type === "audit"
@@ -2218,6 +2489,18 @@ ajv.addKeyword({
         data.payload.subject === data.subject &&
         data.payload.event_kind === data.event_kind &&
         jcsCanonicalize(data.payload.scope) === jcsCanonicalize(data.scope) &&
+        data.payload.event_identity.event_id === data.event_id &&
+        data.payload.event_identity.aggregate_type === data.aggregate_type &&
+        data.payload.event_identity.aggregate_id === data.aggregate_id &&
+        data.payload.event_identity.aggregate_version ===
+          data.aggregate_version &&
+        (Object.hasOwn(data, "previous_event_id")
+          ? data.payload.event_identity.previous_event_id ===
+            data.previous_event_id
+          : !Object.hasOwn(
+              data.payload.event_identity,
+              "previous_event_id",
+            )) &&
         sha256(jcsCanonicalize(data.payload)) === data.payload_digest &&
         data.payload.data.record.kind === data.event_kind &&
         jcsCanonicalize(data.payload.data.record.scope) ===
@@ -2435,7 +2718,7 @@ assert.equal(
 );
 assertDeepEqual(security.challenge.enrollment.client_start_fields, [
   "identifier",
-  "password_attempt_sha256",
+  "password_utf8",
   "purpose",
   "candidate_public_key_fingerprint",
 ]);
@@ -2626,7 +2909,7 @@ for (const mutate of [
     "refresh family accepted cross-family, cyclic, post-expiry, or partially revoked lineage",
   );
 }
-const executableRefreshFamily = {
+const executableRefreshRuntime = refreshRuntimeFor({
   schema_version: "fit.platform.refresh-family-state.v1",
   family_id: validRefreshRecord.family_id,
   session_id: validRefreshRecord.session_id,
@@ -2634,30 +2917,38 @@ const executableRefreshFamily = {
   family_deadline: validRefreshRecord.family_deadline,
   status: "ACTIVE",
   tokens: [clone(validRefreshRecord)],
-};
+});
 assert.equal(
-  presentRefreshToken(
-    executableRefreshFamily,
+  outcomeOf(presentRefreshToken(
+    executableRefreshRuntime,
     validRefreshRecord.token_digest,
     "2026-08-01T10:00:00Z",
     "b".repeat(64),
-  ),
+    "60000000-0000-4000-8000-000000000019",
+    primaryResponseCacheKeyring,
+  )),
   "ROTATE_CREATE_DESCENDANT",
 );
-assert(validateRefreshFamily(executableRefreshFamily));
+assert(validateRefreshFamily(executableRefreshRuntime.family));
 assert.equal(
-  presentRefreshToken(
-    executableRefreshFamily,
+  outcomeOf(presentRefreshToken(
+    executableRefreshRuntime,
     validRefreshRecord.token_digest,
     "2026-08-02T10:00:00Z",
-  ),
+    undefined,
+    "60000000-0000-4000-8000-000000000020",
+    primaryResponseCacheKeyring,
+  )),
   "REVOKE_FAMILY_AND_DESCENDANTS",
 );
-assert(validateRefreshFamily(executableRefreshFamily));
+assert(validateRefreshFamily(executableRefreshRuntime.family));
 assert(
-  executableRefreshFamily.tokens.every(({ status }) => status === "REVOKED"),
+  executableRefreshRuntime.family.tokens.every(
+    ({ status }) => status === "REVOKED",
+  ),
   "refresh reuse did not revoke every already-issued descendant",
 );
+assert.equal(executableRefreshRuntime.securityEffects.length, 3);
 const responseLossRefreshRuntime = {
   userId: "10000000-0000-4000-8000-000000000001",
   tradingAccountId: "20000000-0000-4000-8000-000000000001",
@@ -2671,11 +2962,15 @@ const responseLossRefreshRuntime = {
     tokens: [clone(validRefreshRecord)],
   },
   responseLedger: new Map(),
+  securityEffects: [],
 };
 const refreshRequestKey = "60000000-0000-4000-8000-000000000021";
-const refreshRequestDigest = sha256(
-  jcsCanonicalize({ token_digest: validRefreshRecord.token_digest }),
-);
+const refreshRequestDigest = authenticatedMutationDigest({
+  routeTemplate: "/v1/auth/refresh",
+  body: { token_digest: validRefreshRecord.token_digest },
+  userId: responseLossRefreshRuntime.userId,
+  tradingAccountId: responseLossRefreshRuntime.tradingAccountId,
+});
 const refreshCacheContext = responseCacheContext({
   userId: responseLossRefreshRuntime.userId,
   tradingAccountId: responseLossRefreshRuntime.tradingAccountId,
@@ -2689,6 +2984,7 @@ const firstRefreshResponse = presentRefreshToken(
   "2026-08-01T10:00:00Z",
   "c".repeat(64),
   refreshRequestKey,
+  primaryResponseCacheKeyring,
 );
 assert.equal(outcomeOf(firstRefreshResponse), "ROTATE_CREATE_DESCENDANT");
 const refreshCacheEntry =
@@ -2704,6 +3000,7 @@ assertDeepEqual(
     refreshCacheEntry.response_cache,
     refreshCacheContext,
     "2026-08-01T10:00:01Z",
+    primaryResponseCacheKeyring,
   ),
   {
     descendant_digest: "c".repeat(64),
@@ -2713,13 +3010,12 @@ assertDeepEqual(
   },
   "refresh response cache cannot recover the exact committed rotation",
 );
-const replicaKeyring = new Map(responseCacheKeyring);
 assertDeepEqual(
   openCachedResponse(
     refreshCacheEntry.response_cache,
     refreshCacheContext,
     "2026-08-01T10:00:01Z",
-    replicaKeyring,
+    replicaResponseCacheKeyring,
   ),
   firstRefreshResponse,
   "a replica with the same deployment keyring could not recover the cache",
@@ -2737,6 +3033,7 @@ assert.throws(
       refreshCacheEntry.response_cache,
       crossScopeContext,
       "2026-08-01T10:00:01Z",
+      primaryResponseCacheKeyring,
     ),
   /scope or digest binding mismatch/u,
 );
@@ -2750,6 +3047,7 @@ assert.throws(
       transplantedCache,
       crossScopeContext,
       "2026-08-01T10:00:01Z",
+      primaryResponseCacheKeyring,
     ),
   /auth|Unsupported state/u,
   "cross-scope ciphertext transplant passed GCM authentication",
@@ -2762,6 +3060,7 @@ assert.throws(
       extendedTtlCache,
       refreshCacheContext,
       "2026-08-01T10:02:01Z",
+      primaryResponseCacheKeyring,
     ),
   /auth|Unsupported state/u,
   "unauthenticated TTL extension opened expired ciphertext",
@@ -2776,6 +3075,7 @@ assert.throws(
       refreshCacheEntry.response_cache,
       changedDigestContext,
       "2026-08-01T10:00:01Z",
+      primaryResponseCacheKeyring,
     ),
   /scope or digest binding mismatch/u,
 );
@@ -2786,19 +3086,21 @@ assertDeepEqual(
     "2026-08-01T10:00:00Z",
     "c".repeat(64),
     refreshRequestKey,
+    primaryResponseCacheKeyring,
   ),
   firstRefreshResponse,
   "same-scope refresh retry did not return the exact credential response",
 );
 assert.equal(responseLossRefreshRuntime.family.status, "ACTIVE");
 assert.equal(responseLossRefreshRuntime.family.tokens.length, 2);
-assert.equal(
+assertDeepEqual(
   presentRefreshToken(
     responseLossRefreshRuntime,
     validRefreshRecord.token_digest,
     "2026-08-01T10:02:00Z",
     "c".repeat(64),
     refreshRequestKey,
+    primaryResponseCacheKeyring,
   ),
   "RECONCILIATION_REQUIRED_CACHE_EXPIRED",
 );
@@ -2810,38 +3112,61 @@ assert.equal(
   undefined,
   "expired refresh ciphertext was retained",
 );
-assert.equal(
+assertDeepEqual(
   presentRefreshToken(
     responseLossRefreshRuntime,
     validRefreshRecord.token_digest,
     "2026-08-02T10:00:00Z",
     undefined,
     "60000000-0000-4000-8000-000000000022",
+    primaryResponseCacheKeyring,
   ),
-  "REVOKE_FAMILY_AND_DESCENDANTS",
+  {
+    replay_classification: "RETURN_RECORDED_REUSE_REVOCATION",
+    outcome: "REVOKE_FAMILY_AND_DESCENDANTS",
+    family_id: validRefreshRecord.family_id,
+  },
 );
 assert.equal(responseLossRefreshRuntime.family.status, "REVOKED");
+assert.equal(responseLossRefreshRuntime.securityEffects.length, 3);
 assert.equal(
   presentRefreshToken(
-    clone(validFixtureSet.cases.find(
-      ({ schema }) => schema === "RefreshFamilyState",
-    ).value),
+    refreshRuntimeFor(
+      validFixtureSet.cases.find(
+        ({ schema }) => schema === "RefreshFamilyState",
+      ).value,
+    ),
     "f".repeat(64),
     "2026-08-01T10:00:00Z",
+    undefined,
+    "60000000-0000-4000-8000-000000000023",
+    primaryResponseCacheKeyring,
   ),
   "REJECT_UNKNOWN_TOKEN_GENERIC",
 );
 assert.equal(
-  presentRefreshToken(null, "f".repeat(64), "2026-08-01T10:00:00Z"),
+  presentRefreshToken(
+    null,
+    "f".repeat(64),
+    "2026-08-01T10:00:00Z",
+    undefined,
+    "60000000-0000-4000-8000-000000000024",
+    primaryResponseCacheKeyring,
+  ),
   "REJECT_MALFORMED",
 );
 assert.equal(
   presentRefreshToken(
-    clone(validFixtureSet.cases.find(
-      ({ schema }) => schema === "RefreshFamilyState",
-    ).value),
+    refreshRuntimeFor(
+      validFixtureSet.cases.find(
+        ({ schema }) => schema === "RefreshFamilyState",
+      ).value,
+    ),
     "not-a-digest",
     "not-a-time",
+    undefined,
+    "60000000-0000-4000-8000-000000000025",
+    primaryResponseCacheKeyring,
   ),
   "REJECT_MALFORMED",
 );
@@ -3143,13 +3468,16 @@ function startEnrollmentFromFixture(
   state,
   input,
   expectedWire,
-  requestKey = `enrollment-start:${expectedWire.subject_handle}`,
+  requestKey = syntheticUuid(
+    `enrollment-start:${expectedWire.subject_handle}`,
+  ),
 ) {
   const result = startEnrollment(
     state,
     input,
     enrollmentServerContextFromWire(expectedWire),
     requestKey,
+    primaryResponseCacheKeyring,
   );
   if (result.wire !== null) {
     assertDeepEqual(
@@ -3165,7 +3493,8 @@ for (const scenario of executableSecurity.enrollment_transition_cases) {
     validatorFor("EnrollmentChallenge")(scenario.wire),
     `synthetic challenge wire is invalid: ${scenario.name}`,
   );
-  assert.match(scenario.input.password_attempt_sha256, /^[a-f0-9]{64}$/u);
+  assert.equal(typeof scenario.input.password_utf8, "string");
+  assert(scenario.input.password_utf8.length > 0);
   assert.equal(scenario.wire.purpose, scenario.input.purpose, scenario.name);
   assert.equal(
     scenario.wire.candidate_public_key_fingerprint,
@@ -3199,7 +3528,8 @@ for (const scenario of executableSecurity.enrollment_transition_cases) {
         state,
         completion,
         "2026-07-29T10:01:00Z",
-        `request:${scenario.wire.subject_handle}`,
+        syntheticUuid(`enrollment-complete:${scenario.wire.subject_handle}`),
+        primaryResponseCacheKeyring,
       ),
     ),
     scenario.expected_completion,
@@ -3239,18 +3569,20 @@ const realEnrollmentScenario =
       state,
       null,
       enrollmentServerContextFromWire(realEnrollmentScenario.wire),
-      "enrollment-start:null",
+      syntheticUuid("enrollment-start:null"),
+      primaryResponseCacheKeyring,
     ).outcome,
     "REJECT_MALFORMED",
   );
   assert.equal(state.challenges.size, 0);
   assert.equal(
-    completeEnrollment(
+    outcomeOf(completeEnrollment(
       state,
       undefined,
       "2026-07-29T10:01:00Z",
-      "enrollment-complete:undefined",
-    ),
+      syntheticUuid("enrollment-complete:undefined"),
+      primaryResponseCacheKeyring,
+    )),
     "REJECT_MALFORMED",
   );
 }
@@ -3280,6 +3612,11 @@ const realEnrollmentScenario =
     realEnrollmentScenario.wire,
     startKey,
   );
+  const ownership = state.ownerships.get(
+    "10000000-0000-4000-8000-000000000001:20000000-0000-4000-8000-000000000001",
+  );
+  ownership.status = "REVOKED";
+  ownership.revoked_at = "2026-07-29T10:00:00Z";
   const alternateIssuance = {
     received_at: "2026-07-29T10:00:01Z",
     subject_handle: "synthetic_alternate_handle_not_committed",
@@ -3290,6 +3627,7 @@ const realEnrollmentScenario =
     realEnrollmentScenario.input,
     alternateIssuance,
     startKey,
+    primaryResponseCacheKeyring,
   );
   assert.equal(replay.outcome, "CHALLENGE_CREATED");
   assert.equal(
@@ -3307,16 +3645,24 @@ const realEnrollmentScenario =
       },
       alternateIssuance,
       startKey,
+      primaryResponseCacheKeyring,
     ).outcome,
     "IDEMPOTENCY_CONFLICT",
   );
-  const startDigest = sha256(
-    jcsCanonicalize(realEnrollmentScenario.input),
+  const startRouteTemplate = enrollmentRouteTemplate(
+    realEnrollmentScenario.input.purpose,
+    "start",
   );
+  const startDigest = authenticatedMutationDigest({
+    routeTemplate: startRouteTemplate,
+    body: realEnrollmentScenario.input,
+    userId: "10000000-0000-4000-8000-000000000001",
+    tradingAccountId: "20000000-0000-4000-8000-000000000001",
+  });
   const startCacheContext = responseCacheContext({
     userId: "10000000-0000-4000-8000-000000000001",
     tradingAccountId: "20000000-0000-4000-8000-000000000001",
-    routeTemplate: "/v1/device-enrollments/challenges",
+    routeTemplate: startRouteTemplate,
     requestKey: startKey,
     requestDigest: startDigest,
   });
@@ -3329,6 +3675,7 @@ const realEnrollmentScenario =
         received_at: "2026-07-29T10:02:00Z",
       },
       startKey,
+      primaryResponseCacheKeyring,
     ).outcome,
     "RECONCILIATION_REQUIRED_CACHE_EXPIRED",
   );
@@ -3341,6 +3688,40 @@ const realEnrollmentScenario =
 }
 {
   const state = enrollmentStateFromFixture(executableSecurity);
+  const sharedKey = "60000000-0000-4000-8000-000000000042";
+  const ordinary = startEnrollmentFromFixture(
+    state,
+    realEnrollmentScenario.input,
+    realEnrollmentScenario.wire,
+    sharedKey,
+  );
+  const replacementInput = {
+    ...realEnrollmentScenario.input,
+    purpose: "REPLACEMENT_DEVICE",
+  };
+  const replacementContext = {
+    received_at: "2026-07-29T10:00:01Z",
+    subject_handle: "synthetic_replacement_route_scope_handle",
+    nonce: "synthetic_replacement_route_scope_nonce",
+  };
+  const replacement = startEnrollment(
+    state,
+    replacementInput,
+    replacementContext,
+    sharedKey,
+    primaryResponseCacheKeyring,
+  );
+  assert.equal(ordinary.outcome, "CHALLENGE_CREATED");
+  assert.equal(replacement.outcome, "CHALLENGE_CREATED");
+  assert.notEqual(
+    ordinary.wire.subject_handle,
+    replacement.wire.subject_handle,
+    "distinct route scopes shared one enrollment response",
+  );
+  assert.equal(state.responseLedger.size, 2);
+}
+{
+  const state = enrollmentStateFromFixture(executableSecurity);
   assert.equal(
     startEnrollment(
       state,
@@ -3349,7 +3730,8 @@ const realEnrollmentScenario =
         request_id: "80000000-0000-4000-8000-000000000099",
       },
       enrollmentServerContextFromWire(realEnrollmentScenario.wire),
-      "enrollment-start:malformed-client-field",
+      syntheticUuid("enrollment-start:malformed-client-field"),
+      primaryResponseCacheKeyring,
     ).outcome,
     "REJECT_MALFORMED",
   );
@@ -3370,12 +3752,13 @@ const realEnrollmentScenario =
   ownership.status = "REVOKED";
   ownership.revoked_at = "2026-07-29T10:00:30Z";
   assert.equal(
-    completeEnrollment(
+    outcomeOf(completeEnrollment(
       state,
       enrollmentCompletionFor(realEnrollmentScenario.wire),
       "2026-07-29T10:01:00Z",
       "60000000-0000-4000-8000-000000000042",
-    ),
+      primaryResponseCacheKeyring,
+    )),
     "REJECT_INACTIVE_OWNERSHIP",
   );
   assert.equal(state.devices.size, 0);
@@ -3405,12 +3788,13 @@ for (const forbiddenCompletionField of [
   };
   assert(!validatorFor("EnrollmentCompletionInput")(completion));
   assert.equal(
-    completeEnrollment(
+    outcomeOf(completeEnrollment(
       state,
       completion,
       "2026-07-29T10:01:00Z",
-      `request:forbidden:${forbiddenCompletionField}`,
-    ),
+      syntheticUuid(`complete-forbidden:${forbiddenCompletionField}`),
+      primaryResponseCacheKeyring,
+    )),
     "REJECT_MALFORMED",
   );
   assert.equal(state.challenges.size, 1);
@@ -3426,14 +3810,29 @@ for (const forbiddenCompletionField of [
   const invalidBinding = enrollmentCompletionFor(realEnrollmentScenario.wire, {
     signature: `ed25519-signature:${"0".repeat(128)}`,
   });
-  assert.equal(
-    completeEnrollment(
+  const invalidProofKey =
+    "60000000-0000-4000-8000-000000000011";
+  const invalidProofFirst = completeEnrollment(
       state,
       invalidBinding,
       "2026-07-29T10:01:00Z",
-      "60000000-0000-4000-8000-000000000011",
-    ),
+      invalidProofKey,
+      primaryResponseCacheKeyring,
+    );
+  assert.equal(
+    outcomeOf(invalidProofFirst),
     "CONSUMED_INVALID_PROOF",
+  );
+  assertDeepEqual(
+    completeEnrollment(
+      state,
+      invalidBinding,
+      "2026-07-29T10:01:01Z",
+      invalidProofKey,
+      replicaResponseCacheKeyring,
+    ),
+    invalidProofFirst,
+    "invalid enrollment proof replay did not return its exact first result",
   );
   assert.equal(state.devices.size, 0);
   assert.equal(state.auditEvents.size, 2);
@@ -3447,16 +3846,21 @@ for (const forbiddenCompletionField of [
     realEnrollmentScenario.wire,
   );
   assert.equal(
-    completeEnrollment(
+    outcomeOf(completeEnrollment(
       state,
       enrollmentCompletionFor(realEnrollmentScenario.wire),
       realEnrollmentScenario.wire.expires_at,
       "60000000-0000-4000-8000-000000000014",
-    ),
-    "CONSUMED_EXPIRED",
+      primaryResponseCacheKeyring,
+    )),
+    "REJECT_EXPIRED",
   );
   assert.equal(state.devices.size, 0);
   assert.equal(state.enrollments.size, 0);
+  assert.equal(
+    state.challenges.get(realEnrollmentScenario.wire.subject_handle).status,
+    "EXPIRED",
+  );
 }
 {
   const state = enrollmentStateFromFixture(executableSecurity);
@@ -3472,16 +3876,26 @@ for (const forbiddenCompletionField of [
     completion,
     "2026-07-29T10:01:00Z",
     firstRequestKey,
+    primaryResponseCacheKeyring,
   );
   assert.equal(
     outcomeOf(firstEnrollmentResponse),
     "CONSUMED_SUCCESS",
   );
-  const enrollmentRequestDigest = sha256(jcsCanonicalize(completion));
+  const enrollmentRoute = enrollmentRouteTemplate(
+    realEnrollmentScenario.input.purpose,
+    "complete",
+  );
+  const enrollmentRequestDigest = authenticatedMutationDigest({
+    routeTemplate: enrollmentRoute,
+    body: completion,
+    userId: "10000000-0000-4000-8000-000000000001",
+    tradingAccountId: "20000000-0000-4000-8000-000000000001",
+  });
   const enrollmentCacheContext = responseCacheContext({
     userId: "10000000-0000-4000-8000-000000000001",
     tradingAccountId: "20000000-0000-4000-8000-000000000001",
-    routeTemplate: "/v1/device-enrollments/complete",
+    routeTemplate: enrollmentRoute,
     requestKey: firstRequestKey,
     requestDigest: enrollmentRequestDigest,
   });
@@ -3499,6 +3913,7 @@ for (const forbiddenCompletionField of [
     enrollmentCacheEntry.response_cache,
     enrollmentCacheContext,
     "2026-07-29T10:01:01Z",
+    restartedResponseCacheKeyring,
   );
   assert.equal(cachedEnrollmentResponse.outcome, "CONSUMED_SUCCESS");
   assert.equal(
@@ -3514,40 +3929,44 @@ for (const forbiddenCompletionField of [
       completion,
       "2026-07-29T10:01:01Z",
       firstRequestKey,
+      replicaResponseCacheKeyring,
     ),
     firstEnrollmentResponse,
     "enrollment retry did not recover the exact credential response",
   );
   assert.equal(
-    completeEnrollment(
+    outcomeOf(completeEnrollment(
       state,
       enrollmentCompletionFor(realEnrollmentScenario.wire, {
         signature: `ed25519-signature:${"0".repeat(128)}`,
       }),
       "2026-07-29T10:01:01Z",
       firstRequestKey,
-    ),
+      primaryResponseCacheKeyring,
+    )),
     "IDEMPOTENCY_CONFLICT",
   );
   assert.equal(
-    completeEnrollment(
+    outcomeOf(completeEnrollment(
       state,
       completion,
       "2026-07-29T10:01:01Z",
       "60000000-0000-4000-8000-000000000013",
-    ),
+      primaryResponseCacheKeyring,
+    )),
     "REJECT_REPLAY",
   );
   assert.equal(state.devices.size, 1);
   assert.equal(state.auditEvents.size, 3);
   assert.equal(state.outboxRecords.size, 4);
   assert.equal(
-    completeEnrollment(
+    outcomeOf(completeEnrollment(
       state,
       completion,
       "2026-07-29T10:03:00Z",
       firstRequestKey,
-    ),
+      primaryResponseCacheKeyring,
+    )),
     "RECONCILIATION_REQUIRED_CACHE_EXPIRED",
   );
   assert.equal(state.devices.size, 1);
@@ -3573,12 +3992,13 @@ for (const [existingOwner, expected] of [
     realEnrollmentScenario.wire,
   );
   assert.equal(
-    completeEnrollment(
+    outcomeOf(completeEnrollment(
       state,
       enrollmentCompletionFor(realEnrollmentScenario.wire),
       "2026-07-29T10:01:00Z",
-      `request:${expected}`,
-    ),
+      syntheticUuid(`complete:${expected}`),
+      primaryResponseCacheKeyring,
+    )),
     expected,
   );
   assert.equal(state.devices.size, 0);
@@ -3632,7 +4052,8 @@ for (const purpose of ["ADDITIONAL_DEVICE", "REPLACEMENT_DEVICE"]) {
         state,
         completion,
         "2026-07-29T10:01:00Z",
-        `request:${purpose}`,
+        syntheticUuid(`complete:${purpose}`),
+        primaryResponseCacheKeyring,
       ),
     ),
     "CONSUMED_SUCCESS",
@@ -4061,6 +4482,11 @@ for (const scenario of executableSecurity.raw_request_target_cases) {
     assert.equal(
       decoded.route_template,
       "/v1/confirmations/{confirmation_id}/consume",
+    );
+    assert.equal(
+      decoded.path.confirmation_id,
+      canonicalUuid(decoded.path.confirmation_id),
+      `${scenario.name} did not produce a canonical lowercase UUID`,
     );
     outcome = "ACCEPT";
   } catch {
@@ -4766,7 +5192,6 @@ assert.equal(
   "79cba77cff303e01dcae3bd6a16dddd07b734b1b91eda7c7d42c574101d9a920",
   "Argon2id production vector digest drifted",
 );
-const nodeCrypto = await import("node:crypto");
 let argonVectorExecution = "NODE_CRYPTO_ARGON2_UNAVAILABLE";
 if (typeof nodeCrypto.argon2Sync === "function") {
   const result = nodeCrypto.argon2Sync("argon2id", {
@@ -4988,16 +5413,36 @@ assert(
 );
 const versionTwoWithoutPredecessor = clone(causallyValidOutbox.event);
 versionTwoWithoutPredecessor.aggregate_version = 2;
+versionTwoWithoutPredecessor.payload.event_identity.aggregate_version = 2;
+versionTwoWithoutPredecessor.payload_digest = sha256(
+  jcsCanonicalize(versionTwoWithoutPredecessor.payload),
+);
 assert(
   !validateEventEnvelope(versionTwoWithoutPredecessor),
   "aggregate version 2 accepted no predecessor",
 );
 const versionTwoWithPredecessor = clone(versionTwoWithoutPredecessor);
 versionTwoWithPredecessor.previous_event_id =
-  causallyValidOutbox.event.event_id;
+  "a0000000-0000-4000-8000-000000000099";
+versionTwoWithPredecessor.payload.event_identity.previous_event_id =
+  versionTwoWithPredecessor.previous_event_id;
+versionTwoWithPredecessor.payload_digest = sha256(
+  jcsCanonicalize(versionTwoWithPredecessor.payload),
+);
 assert(
   validateEventEnvelope(versionTwoWithPredecessor),
   "aggregate version 2 rejected an explicit predecessor",
+);
+const selfPredecessor = clone(versionTwoWithPredecessor);
+selfPredecessor.previous_event_id = selfPredecessor.event_id;
+selfPredecessor.payload.event_identity.previous_event_id =
+  selfPredecessor.event_id;
+selfPredecessor.payload_digest = sha256(
+  jcsCanonicalize(selfPredecessor.payload),
+);
+assert(
+  !validateEventEnvelope(selfPredecessor),
+  "event accepted itself as previous_event_id",
 );
 const unregisteredStandalonePayload = clone(
   causallyValidOutbox.event.payload,
@@ -5008,9 +5453,24 @@ assert(
   !validatorFor("EventPayload")(unregisteredStandalonePayload),
   "standalone EventPayload accepted an unregistered subject",
 );
+const semanticallyWrongStandalonePayload = clone(
+  golden.payload_digest.value,
+);
+semanticallyWrongStandalonePayload.subject =
+  "fit.platform.v1.auth-security.device-enrolled";
+assert(
+  validatorFor("EventPayload")(golden.payload_digest.value),
+  "golden standalone EventPayload must be a valid semantic baseline",
+);
+assert(
+  !validatorFor("EventPayload")(semanticallyWrongStandalonePayload),
+  "standalone EventPayload accepted a registered but wrong subject",
+);
 {
   const state = enrollmentStateFromFixture(executableSecurity);
   const record = clone(causallyValidOutbox.event.payload.data.record);
+  record.event_id = "c0000000-0000-4000-8000-000000000002";
+  record.payload_digest = durableRecordDigest(record);
   const aggregateId = causallyValidOutbox.event.aggregate_id;
   state.aggregateState.set(`ENROLLMENT:${aggregateId}`, {
     version: 1,
@@ -5063,10 +5523,17 @@ assert(
 );
 const aggregateHistoryFirst = clone(causallyValidOutbox.event);
 const aggregateHistorySecond = clone(aggregateHistoryFirst);
-aggregateHistorySecond.event_id = "a0000000-0000-4000-8000-000000000002";
+aggregateHistorySecond.event_id = "c0000000-0000-4000-8000-000000000002";
 aggregateHistorySecond.aggregate_version = 2;
 aggregateHistorySecond.previous_event_id = aggregateHistoryFirst.event_id;
 aggregateHistorySecond.occurred_at = "2026-07-29T10:00:02Z";
+aggregateHistorySecond.payload.event_identity = {
+  event_id: aggregateHistorySecond.event_id,
+  aggregate_type: aggregateHistorySecond.aggregate_type,
+  aggregate_id: aggregateHistorySecond.aggregate_id,
+  aggregate_version: aggregateHistorySecond.aggregate_version,
+  previous_event_id: aggregateHistorySecond.previous_event_id,
+};
 aggregateHistorySecond.payload.data.record_id =
   "c0000000-0000-4000-8000-000000000002";
 aggregateHistorySecond.payload.data.record.event_id =
@@ -5095,6 +5562,21 @@ assert(
 );
 function rebindHistoryEventPayload(event) {
   const record = event.payload.data.record;
+  event.payload.event_identity = {
+    event_id: event.event_id,
+    aggregate_type: event.aggregate_type,
+    aggregate_id: event.aggregate_id,
+    aggregate_version: event.aggregate_version,
+    ...(Object.hasOwn(event, "previous_event_id")
+      ? { previous_event_id: event.previous_event_id }
+      : {}),
+  };
+  event.payload.data.record_id = event.event_id;
+  if (event.payload.data.record_type === "audit") {
+    record.event_id = event.event_id;
+  } else {
+    record.notification_id = event.event_id;
+  }
   record.occurred_at = event.occurred_at;
   record.correlation_id = event.correlation_id;
   record.payload_digest = durableRecordDigest(record);
@@ -5106,12 +5588,11 @@ for (const mutate of [
   },
   (value) => {
     value.events[1].aggregate_version = 3;
-  },
-  (value) => {
-    value.events[1].event_id = value.events[0].event_id;
+    rebindHistoryEventPayload(value.events[1]);
   },
   (value) => {
     value.events[1].previous_event_id = "a0000000-0000-4000-8000-000000000099";
+    rebindHistoryEventPayload(value.events[1]);
   },
   (value) => {
     value.events[1].occurred_at = "2026-07-29T09:59:59Z";
@@ -5272,14 +5753,23 @@ for (const [chainIndex, chain] of linkageChains.chains.entries()) {
     });
   }
   const outboxRecords = durableRecords.map((durable, recordIndex) => {
-    const eventId = `26000000-0000-4000-8000-${String(
-      chainIndex * 2 + recordIndex + 1,
-    ).padStart(12, "0")}`;
+    const eventId = durable.recordId;
+    const previousEventId =
+      recordIndex === 0 ? null : durableRecords[recordIndex - 1].recordId;
     const payload = {
       schema_version: "fit.platform.event-payload.v1",
       subject: durable.subject,
       event_kind: chain.kind,
       scope: chain.scope,
+      event_identity: {
+        event_id: eventId,
+        aggregate_type: chain.aggregate_type,
+        aggregate_id: chain.aggregate_id,
+        aggregate_version: recordIndex + 1,
+        ...(previousEventId === null
+          ? {}
+          : { previous_event_id: previousEventId }),
+      },
       data: {
         record_type: durable.recordType,
         record_id: durable.recordId,
@@ -5302,13 +5792,9 @@ for (const [chainIndex, chain] of linkageChains.chains.entries()) {
       payload_schema_version: payload.schema_version,
       payload_digest: sha256(jcsCanonicalize(payload)),
       payload,
-      ...(recordIndex === 0
+      ...(previousEventId === null
         ? {}
-        : {
-            previous_event_id: `26000000-0000-4000-8000-${String(
-              chainIndex * 2 + recordIndex,
-            ).padStart(12, "0")}`,
-          }),
+        : { previous_event_id: previousEventId }),
     };
     const outbox = {
       schema_version: "fit.platform.outbox-record.v1",
@@ -5463,11 +5949,20 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
     };
   }
   durableRecord.payload_digest = durableRecordDigest(durableRecord);
+  const eventId = recordId;
+  const aggregateType = "SYNTHETIC_AGGREGATE";
+  const aggregateId = "16000000-0000-4000-8000-000000000001";
   const payload = {
     schema_version: "fit.platform.event-payload.v1",
     subject: binding.subject,
     event_kind: binding.event_kind,
     scope,
+    event_identity: {
+      event_id: eventId,
+      aggregate_type: aggregateType,
+      aggregate_id: aggregateId,
+      aggregate_version: 1,
+    },
     data: {
       record_type: recordIsNotification ? "notification" : "audit",
       record_id: recordId,
@@ -5478,11 +5973,11 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
     schema_version: "fit.platform.event-envelope.v1",
     subject: binding.subject,
     stream: "FIT_PLATFORM_V1",
-    event_id: `15000000-0000-4000-8${String(index).padStart(3, "0")}-000000000001`,
+    event_id: eventId,
     event_kind: binding.event_kind,
     scope,
-    aggregate_type: "SYNTHETIC_AGGREGATE",
-    aggregate_id: "16000000-0000-4000-8000-000000000001",
+    aggregate_type: aggregateType,
+    aggregate_id: aggregateId,
     aggregate_version: 1,
     causation_id: causationId,
     correlation_id: correlationId,
@@ -5535,7 +6030,8 @@ assert.equal(
 assertDeepEqual(transactions.response_cache_security, {
   algorithm: "AES-256-GCM",
   ttl_seconds: 120,
-  key_source: "SHARED_RUNTIME_KEYRING_NOT_POSTGRESQL",
+  key_source:
+    "DEPLOYMENT_SECRET_INJECTION_SHARED_ACROSS_REPLICAS_AND_RESTARTS_NOT_POSTGRESQL",
   key_rotation_identifier_authenticated: true,
   authenticated_context: [
     "user_id",
@@ -5547,37 +6043,64 @@ assertDeepEqual(transactions.response_cache_security, {
     "expires_at_ms",
   ],
   expired_ciphertext:
-    "ERASE_IMMEDIATELY_KEEP_ONLY_NONSECRET_RECONCILIATION_MARKER",
+    "ERASE_ON_REQUEST_AND_PROACTIVE_BACKGROUND_SWEEP_KEEP_ONLY_NONSECRET_RECONCILIATION_MARKER",
   replica_and_restart_recovery:
     "SAME_DEPLOYMENT_KEYRING_CAN_DECRYPT_UNEXPIRED_CACHE",
 });
-for (const workflowName of [
-  "successful_login",
-  "real_enrollment_challenge_creation",
-  "failed_enrollment_proof",
-  "ordinary_device_enrollment",
-  "replacement_device_enrollment",
-  "refresh_rotation",
-]) {
-  const workflow = transactions.workflows.find(
-    ({ name }) => name === workflowName,
-  );
-  assert.equal(
-    workflow.single_postgresql_transaction[0],
-    "claim_scoped_idempotency_key_and_canonical_request_digest",
-    `${workflowName} does not claim idempotency before durable effects`,
-  );
-  assert(
-    workflow.single_postgresql_transaction.some((statement) =>
-      /persist_exact_.*(?:result|response).*same_transaction/u.test(
-        statement,
-      ),
-    ),
-    `${workflowName} does not atomically persist the exact response result`,
-  );
-}
 for (const workflow of transactions.workflows) {
   const statements = workflow.single_postgresql_transaction ?? [];
+  if (
+    failureInjection.transaction_cut_rule.commit_response_flags.some(
+      (flag) => workflow[flag] === true,
+    )
+  ) {
+    assert(
+      Array.isArray(workflow.route_templates) &&
+        workflow.route_templates.length > 0,
+      `${workflow.name} lacks an authenticated route template`,
+    );
+    const claimIndex = statements.findIndex((statement) =>
+      /^claim_scoped_(?:idempotency_key|request_id)_and_canonical_request_digest$/u.test(
+        statement,
+      ),
+    );
+    assert(claimIndex >= 0, `${workflow.name} lacks a scoped request claim`);
+    const authorityResolutionIndex = statements.findLastIndex(
+      (statement, index) =>
+        index < claimIndex &&
+        /(?:resolve_(?:server_owned_trading_account|real_challenge_owner_scope|refresh_family_owner_scope)|assert_resolved_user|verify_(?:active_)?owner|verify_owner_scope)/u.test(
+          statement,
+        ),
+    );
+    const firstDurableEffectIndex = statements.findIndex((statement) =>
+      /^(?:record|set|create|revoke|rotate|write|persist_(?!exact)|consume)/u.test(
+        statement,
+      ),
+    );
+    assert(
+      firstDurableEffectIndex < 0 || claimIndex < firstDurableEffectIndex,
+      `${workflow.name} claims idempotency after a durable effect`,
+    );
+    if (
+      statements.some((statement) =>
+        /(?:resolve_(?:server_owned_trading_account|real_challenge_owner_scope|refresh_family_owner_scope)|assert_resolved_user|verify_(?:active_)?owner|verify_owner_scope)/u.test(
+          statement,
+        ),
+      )
+    ) {
+      assert(
+        authorityResolutionIndex >= 0 && authorityResolutionIndex < claimIndex,
+        `${workflow.name} claims a user-scoped key before server-owned authority resolution`,
+      );
+    }
+    const exactResponseIndex = statements.findIndex((statement) =>
+      /persist_exact_.*(?:result|response).*same_transaction/u.test(statement),
+    );
+    assert(
+      exactResponseIndex === statements.length - 1,
+      `${workflow.name} does not atomically persist its exact response last`,
+    );
+  }
   const outboxWriteIndex = statements.findIndex((statement) =>
     /(?:write|persist).*outbox/u.test(statement),
   );
@@ -5809,7 +6332,15 @@ function derivedExternalBoundaries(workflow) {
   return [];
 }
 
-function executeStatementTransaction(statements, abortAfterStatement = null) {
+function executeStatementTransaction(
+  statements,
+  abortAfterStatement = null,
+  failureMode = "TRANSACTION_ABORT",
+) {
+  assert(
+    ["TRANSACTION_ABORT", "PROCESS_KILL"].includes(failureMode),
+    "unknown transaction failure mode",
+  );
   const durable = {
     effects: [],
     statement_rows: new Map(),
@@ -5818,7 +6349,7 @@ function executeStatementTransaction(statements, abortAfterStatement = null) {
   const staged = structuredClone(durable);
   try {
     if (abortAfterStatement === 0) {
-      throw new Error("SIMULATED_BEFORE_FIRST_STATEMENT");
+      throw new Error(`${failureMode}_BEFORE_FIRST_STATEMENT`);
     }
     for (const [index, statement] of statements.entries()) {
       staged.sequence += 1;
@@ -5828,7 +6359,7 @@ function executeStatementTransaction(statements, abortAfterStatement = null) {
       );
       staged.effects.push(statement);
       if (abortAfterStatement === index + 1) {
-        throw new Error(`SIMULATED_AFTER_STATEMENT_${index + 1}`);
+        throw new Error(`${failureMode}_AFTER_STATEMENT_${index + 1}`);
       }
     }
   } catch {
@@ -5837,7 +6368,8 @@ function executeStatementTransaction(statements, abortAfterStatement = null) {
   return staged;
 }
 
-function executeIdempotentResponseLoss(runtime, request) {
+function executeIdempotentResponseLoss(runtime, request, keyring) {
+  assert(keyring instanceof Map, "response-cache keyring must be injected");
   const context = responseCacheContext({
     userId: request.user_id,
     tradingAccountId: request.trading_account_id,
@@ -5856,7 +6388,12 @@ function executeIdempotentResponseLoss(runtime, request) {
       expireCachedResponse(prior, request.now_ms);
       return "RECONCILIATION_REQUIRED_CACHE_EXPIRED";
     }
-    return openCachedResponse(prior.response_cache, context, request.now_ms);
+    return openCachedResponse(
+      prior.response_cache,
+      context,
+      request.now_ms,
+      keyring,
+    );
   }
   const staged = structuredClone(runtime);
   staged.effects.push(request.effect);
@@ -5871,6 +6408,7 @@ function executeIdempotentResponseLoss(runtime, request) {
       response,
       context,
       request.now_ms,
+      keyring,
     ),
   });
   if (request.abort_after_effect === true) {
@@ -5898,6 +6436,7 @@ assert.equal(realCommitProbe.statement_rows.size, 3);
 assert.equal(realCommitProbe.sequence, 3);
 
 let executedTransactionCutCount = 0;
+let executedProcessKillCutCount = 0;
 let executedResponseLossCount = 0;
 for (const workflow of transactions.workflows) {
   const requirement = failureInjection.workflow_requirements.find(
@@ -5948,6 +6487,19 @@ for (const workflow of transactions.workflows) {
       `${workflow.name} wrote before its first statement`,
     );
     executedTransactionCutCount += 1;
+    failureCutEvidence.push(
+      `${workflow.name}:${transactionName}:PROCESS_KILL_BEFORE_FIRST_STATEMENT`,
+    );
+    assertDeepEqual(
+      executeStatementTransaction(
+        statements.map(({ statement }) => statement),
+        0,
+        "PROCESS_KILL",
+      ).effects,
+      [],
+      `${workflow.name} process kill wrote before its first statement`,
+    );
+    executedProcessKillCutCount += 1;
     for (const [statementIndex, { field, statement }] of statements.entries()) {
       assert.equal(typeof statement, "string", `${workflow.name}.${field}`);
       failureCutEvidence.push(
@@ -5962,6 +6514,19 @@ for (const workflow of transactions.workflows) {
         `${workflow.name} leaked a partial effect after statement ${statementIndex + 1}`,
       );
       executedTransactionCutCount += 1;
+      failureCutEvidence.push(
+        `${workflow.name}:${transactionName}:PROCESS_KILL_AFTER_STATEMENT_${statementIndex + 1}:${field}:${statement}`,
+      );
+      assertDeepEqual(
+        executeStatementTransaction(
+          statements.map((entry) => entry.statement),
+          statementIndex + 1,
+          "PROCESS_KILL",
+        ).effects,
+        [],
+        `${workflow.name} process kill leaked a partial effect after statement ${statementIndex + 1}`,
+      );
+      executedProcessKillCutCount += 1;
     }
     failureCutEvidence.push(`${workflow.name}:${transactionName}:AFTER_COMMIT`);
     assertDeepEqual(
@@ -6013,27 +6578,44 @@ for (const workflow of transactions.workflows) {
     const runtime = { effects: [], ledger: new Map() };
     const request = {
       key: "60000000-0000-4000-8000-000000000031",
-      digest: "a".repeat(64),
       user_id: "10000000-0000-4000-8000-000000000001",
       trading_account_id: "20000000-0000-4000-8000-000000000001",
-      route_template: `/v1/internal/${workflow.name}`,
+      route_template: workflow.route_templates[0],
       effect: `${workflow.name}:COMPLETE_DURABLE_EFFECT`,
       response_lost: true,
       now_ms: 1_000,
     };
+    request.body = {
+      workflow: workflow.name,
+      requested_effect: request.effect,
+    };
+    request.digest = authenticatedMutationDigest({
+      routeTemplate: request.route_template,
+      body: request.body,
+      userId: request.user_id,
+      tradingAccountId: request.trading_account_id,
+    });
     const abortedRuntime = { effects: [], ledger: new Map() };
     assert.equal(
-      executeIdempotentResponseLoss(abortedRuntime, {
-        ...request,
-        abort_after_effect: true,
-      }),
+      executeIdempotentResponseLoss(
+        abortedRuntime,
+        {
+          ...request,
+          abort_after_effect: true,
+        },
+        primaryResponseCacheKeyring,
+      ),
       "SIMULATED_TRANSACTION_ABORT",
       workflow.name,
     );
     assertDeepEqual(abortedRuntime.effects, [], workflow.name);
     assert.equal(abortedRuntime.ledger.size, 0, workflow.name);
     assert.equal(
-      executeIdempotentResponseLoss(runtime, request),
+      executeIdempotentResponseLoss(
+        runtime,
+        request,
+        primaryResponseCacheKeyring,
+      ),
       "UNKNOWN_REQUIRES_RECONCILIATION",
       workflow.name,
     );
@@ -6056,6 +6638,7 @@ for (const workflow of transactions.workflows) {
         responseLossLedgerEntry.response_cache,
         responseLossContext,
         1_001,
+        restartedResponseCacheKeyring,
       ),
       {
         effect_receipt: sha256(request.effect),
@@ -6064,12 +6647,31 @@ for (const workflow of transactions.workflows) {
       },
       `${workflow.name} cannot recover its exact committed response`,
     );
+    const proactivelySweptLedger = structuredClone(runtime.ledger);
+    sweepExpiredResponseCaches(proactivelySweptLedger, 121_000);
+    const proactivelySweptEntry = proactivelySweptLedger.get(
+      responseLedgerKey(responseLossContext),
+    );
+    assert.equal(
+      proactivelySweptEntry.response_cache,
+      undefined,
+      `${workflow.name} proactive sweep retained expired ciphertext`,
+    );
+    assert.equal(
+      proactivelySweptEntry.cache_expired_at_ms,
+      121_000,
+      `${workflow.name} proactive sweep omitted its nonsecret marker`,
+    );
     assertDeepEqual(
-      executeIdempotentResponseLoss(runtime, {
-        ...request,
-        response_lost: false,
-        now_ms: 1_001,
-      }),
+      executeIdempotentResponseLoss(
+        runtime,
+        {
+          ...request,
+          response_lost: false,
+          now_ms: 1_001,
+        },
+        replicaResponseCacheKeyring,
+      ),
       {
         effect_receipt: sha256(request.effect),
         outcome: "COMMITTED",
@@ -6079,11 +6681,15 @@ for (const workflow of transactions.workflows) {
     );
     assertDeepEqual(runtime.effects, [request.effect], workflow.name);
     assert.equal(
-      executeIdempotentResponseLoss(runtime, {
-        ...request,
-        response_lost: false,
-        now_ms: 121_000,
-      }),
+      executeIdempotentResponseLoss(
+        runtime,
+        {
+          ...request,
+          response_lost: false,
+          now_ms: 121_000,
+        },
+        restartedResponseCacheKeyring,
+      ),
       "RECONCILIATION_REQUIRED_CACHE_EXPIRED",
       workflow.name,
     );
@@ -6095,12 +6701,25 @@ for (const workflow of transactions.workflows) {
       `${workflow.name} retained expired response ciphertext`,
     );
     assert.equal(
-      executeIdempotentResponseLoss(runtime, {
-        ...request,
-        digest: "b".repeat(64),
-        response_lost: false,
-        now_ms: 1_002,
-      }),
+      executeIdempotentResponseLoss(
+        runtime,
+        {
+          ...request,
+          body: { ...request.body, requested_effect: `${request.effect}:CHANGED` },
+          digest: authenticatedMutationDigest({
+            routeTemplate: request.route_template,
+            body: {
+              ...request.body,
+              requested_effect: `${request.effect}:CHANGED`,
+            },
+            userId: request.user_id,
+            tradingAccountId: request.trading_account_id,
+          }),
+          response_lost: false,
+          now_ms: 1_002,
+        },
+        primaryResponseCacheKeyring,
+      ),
       "IDEMPOTENCY_CONFLICT",
       workflow.name,
     );
@@ -6130,6 +6749,8 @@ assert.equal(
 );
 assertDeepEqual(failureInjection.executable_adversarial_probes, {
   transaction_abort: "REAL_STAGED_MAP_AND_SEQUENCE_MUTATIONS_ROLL_BACK",
+  process_kill:
+    "DISCARD_PROCESS_LOCAL_STAGED_STATE_BEFORE_ATOMIC_COMMIT_VISIBILITY",
   network_partition_before_consumer_commit:
     "NO_INBOX_PROJECTION_OR_BUSINESS_EFFECT",
   broker_ack_loss_after_consumer_commit:
@@ -6147,24 +6768,32 @@ function executeInboxDelivery(
   expectedScope,
   failurePoint = null,
 ) {
-  if (
-    event === null ||
-    typeof event !== "object" ||
-    typeof event.event_id !== "string" ||
-    typeof event.payload_digest !== "string"
-  ) {
-    return "REJECT_INVALID_EVENT";
-  }
-  const inboxKey = `${runtime.consumer}:${event.event_id}`;
-  const prior = runtime.inbox.get(inboxKey);
-  if (prior !== undefined) {
-    return prior.payload_digest === event.payload_digest
-      ? "ACK_EXISTING_INBOX_RESULT"
-      : "REJECT_AND_ALERT_CHANGED_DIGEST";
-  }
   if (!validateEventEnvelope(event)) return "REJECT_INVALID_EVENT";
   if (jcsCanonicalize(event.scope) !== jcsCanonicalize(expectedScope)) {
     return "REJECT_WRONG_OWNER_SCOPE";
+  }
+  const incomingIdentity = {
+    event_payload_digest: event.payload_digest,
+    event_subject: event.subject,
+    event_kind: event.event_kind,
+    event_scope: event.scope,
+    aggregate_type: event.aggregate_type,
+    aggregate_id: event.aggregate_id,
+    aggregate_version: event.aggregate_version,
+    ...(Object.hasOwn(event, "previous_event_id")
+      ? { previous_event_id: event.previous_event_id }
+      : {}),
+  };
+  const inboxKey = `${runtime.consumer}:${event.event_id}`;
+  const prior = runtime.inbox.get(inboxKey);
+  if (prior !== undefined) {
+    const priorIdentity = Object.fromEntries(
+      Object.keys(incomingIdentity).map((field) => [field, prior[field]]),
+    );
+    return jcsCanonicalize(priorIdentity) ===
+      jcsCanonicalize(incomingIdentity)
+      ? "ACK_EXISTING_INBOX_RESULT"
+      : "REJECT_AND_ALERT_CHANGED_EVENT_IDENTITY";
   }
   const aggregateKey = `${event.aggregate_type}:${event.aggregate_id}`;
   const priorAggregate = runtime.aggregateProjection.get(aggregateKey);
@@ -6179,10 +6808,21 @@ function executeInboxDelivery(
     return "REJECT_AGGREGATE_ORDER";
   }
   const staged = structuredClone(runtime);
-  staged.inbox.set(inboxKey, {
-    payload_digest: event.payload_digest,
+  const inboxRecord = {
+    schema_version: "fit.platform.inbox-record.v1",
+    consumer: runtime.consumer,
+    event_id: event.event_id,
+    ...incomingIdentity,
+    received_at: "2026-07-29T10:00:02Z",
+    business_transaction_id: syntheticUuid(
+      `inbox:${runtime.consumer}:${event.event_id}`,
+    ),
     state: "APPLIED",
-  });
+  };
+  inboxRecord.status = inboxRecord.state;
+  delete inboxRecord.state;
+  assert(validatorFor("InboxRecord")(inboxRecord));
+  staged.inbox.set(inboxKey, inboxRecord);
   staged.aggregateProjection.set(aggregateKey, {
     version: event.aggregate_version,
     event_id: event.event_id,
@@ -6236,22 +6876,36 @@ assert.equal(
 );
 assert.equal(inboxRuntime.effects.length, 1);
 const changedDigestRedelivery = clone(firstInboxEvent);
-changedDigestRedelivery.payload_digest = "f".repeat(64);
+changedDigestRedelivery.payload.data.record.actor.id = "changed-auth-service";
+changedDigestRedelivery.payload.data.record.payload_digest =
+  durableRecordDigest(changedDigestRedelivery.payload.data.record);
+changedDigestRedelivery.payload_digest = sha256(
+  jcsCanonicalize(changedDigestRedelivery.payload),
+);
 assert.equal(
   executeInboxDelivery(
     inboxRuntime,
     changedDigestRedelivery,
     firstInboxEvent.scope,
   ),
-  "REJECT_AND_ALERT_CHANGED_DIGEST",
+  "REJECT_AND_ALERT_CHANGED_EVENT_IDENTITY",
 );
 assert.equal(inboxRuntime.effects.length, 1);
 const priorInboxRecord = inboxRuntime.inbox.get(
   `${inboxRuntime.consumer}:${firstInboxEvent.event_id}`,
 );
 assert.notEqual(
-  priorInboxRecord.payload_digest,
+  priorInboxRecord.event_payload_digest,
   changedDigestRedelivery.payload_digest,
+);
+assert.equal(
+  executeInboxDelivery(inboxRuntime, firstInboxEvent, {
+    type: "OWNER",
+    user_id: "10000000-0000-4000-8000-000000000099",
+    trading_account_id: "20000000-0000-4000-8000-000000000099",
+  }),
+  "REJECT_WRONG_OWNER_SCOPE",
+  "prior inbox deduplication bypassed current owner-scope validation",
 );
 const wrongOwnerRuntime = {
   consumer: "platform-consumer",
@@ -6274,13 +6928,28 @@ assert.equal(
   "ACK",
 );
 assert.equal(inboxRuntime.effects.length, 2);
-function executeOutboxPublish(runtime, cutAfter) {
+function executeOutboxPublish(
+  runtime,
+  cutAfter,
+  worker = "outbox-publisher",
+  now = "2026-07-29T10:00:02Z",
+) {
   const record = runtime.outbox;
   if (record.publication_state === "PUBLISHED") {
     return "ALREADY_PUBLISHED";
   }
+  const nowMs = isoMilliseconds(now);
+  if (
+    record.publication_state === "CLAIMED" &&
+    record.lease_owner !== worker &&
+    isoMilliseconds(record.lease_expires_at) > nowMs
+  ) {
+    return "LEASE_HELD_BY_OTHER_WORKER";
+  }
   record.publication_state = "CLAIMED";
-  record.lease_owner = "outbox-publisher";
+  record.lease_owner = worker;
+  record.lease_expires_at = new Date(nowMs + 30_000).toISOString();
+  assert(validateOutbox(record), "claimed Outbox must be schema-valid");
   if (cutAfter === "CLAIM_COMMIT") return "CLAIMED_NOT_PUBLISHED";
   runtime.brokerDeliveries.push({
     event_id: record.event.event_id,
@@ -6290,8 +6959,10 @@ function executeOutboxPublish(runtime, cutAfter) {
   runtime.acknowledged.add(record.event.event_id);
   if (cutAfter === "ACK_BEFORE_MARK") return "ACKED_DATABASE_MARK_PENDING";
   record.publication_state = "PUBLISHED";
-  record.published_at = "2026-07-29T10:00:03Z";
+  record.published_at = new Date(nowMs + 1_000).toISOString();
   delete record.lease_owner;
+  delete record.lease_expires_at;
+  assert(validateOutbox(record), "published Outbox must be schema-valid");
   return "MARKED_PUBLISHED";
 }
 const pendingOutboxForPublish = clone(causallyValidOutbox);
@@ -6305,6 +6976,15 @@ const outboxPublishRuntime = {
 assert.equal(
   executeOutboxPublish(outboxPublishRuntime, "CLAIM_COMMIT"),
   "CLAIMED_NOT_PUBLISHED",
+);
+assert.equal(
+  executeOutboxPublish(
+    outboxPublishRuntime,
+    "CLAIM_COMMIT",
+    "outbox-publisher-replica",
+    "2026-07-29T10:00:03Z",
+  ),
+  "LEASE_HELD_BY_OTHER_WORKER",
 );
 assertDeepEqual(outboxPublishRuntime.brokerDeliveries, []);
 assert.equal(
@@ -6333,6 +7013,38 @@ assert.equal(outboxPublishRuntime.outbox.publication_state, "PUBLISHED");
 assert.equal(
   executeOutboxPublish(outboxPublishRuntime, "MARK"),
   "ALREADY_PUBLISHED",
+);
+const expiredLeaseRuntime = {
+  outbox: {
+    ...clone(causallyValidOutbox),
+    publication_state: "PENDING",
+  },
+  brokerDeliveries: [],
+  acknowledged: new Set(),
+};
+delete expiredLeaseRuntime.outbox.published_at;
+assert.equal(
+  executeOutboxPublish(
+    expiredLeaseRuntime,
+    "CLAIM_COMMIT",
+    "outbox-publisher-a",
+    "2026-07-29T10:00:02Z",
+  ),
+  "CLAIMED_NOT_PUBLISHED",
+);
+assert.equal(
+  executeOutboxPublish(
+    expiredLeaseRuntime,
+    "CLAIM_COMMIT",
+    "outbox-publisher-b",
+    "2026-07-29T10:00:33Z",
+  ),
+  "CLAIMED_NOT_PUBLISHED",
+);
+assert.equal(
+  expiredLeaseRuntime.outbox.lease_owner,
+  "outbox-publisher-b",
+  "expired Outbox lease was not reclaimed",
 );
 const ordinaryEnrollment = transactions.workflows.find(
   ({ name }) => name === "ordinary_device_enrollment",
@@ -6628,6 +7340,7 @@ console.log(
     `Negative fixtures: ${invalidFixtureSet.cases.length}`,
     `Derived failure cuts: ${failureCutEvidence.length}`,
     `Executed transaction cuts: ${executedTransactionCutCount}`,
+    `Executed process-kill cuts: ${executedProcessKillCutCount}`,
     `Executed response-loss reconciliations: ${executedResponseLossCount}`,
     `Argon2 vector: ${argonVectorExecution}`,
     `Semantic scenarios: ${semanticScenarioCount}`,

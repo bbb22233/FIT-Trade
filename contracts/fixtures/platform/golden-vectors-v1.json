@@ -31,6 +31,12 @@
       "type": "AUTH_SECURITY",
       "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
     },
+    "event_identity": {
+      "event_id": "e0000000-0000-4000-8000-000000000001",
+      "aggregate_type": "AUTH_THROTTLE",
+      "aggregate_id": "80000000-0000-4000-8000-000000000001",
+      "aggregate_version": 1
+    },
     "data": {
       "record_type": "audit",
       "record_id": "e0000000-0000-4000-8000-000000000001",
@@ -55,8 +61,8 @@
       }
     }
     },
-    "canonical_utf8": "{\"data\":{\"record\":{\"actor\":{\"id\":\"auth-service\",\"type\":\"SERVICE\"},\"causation_id\":\"80000000-0000-4000-8000-000000000001\",\"correlation_id\":\"b0000000-0000-4000-8000-000000000001\",\"event_id\":\"e0000000-0000-4000-8000-000000000001\",\"kind\":\"LOGIN_SOURCE_LOCKED\",\"occurred_at\":\"2026-07-29T10:00:01Z\",\"payload_digest\":\"ac320d308aad8f34714f18a5f57d1d4c258de36e385d8bea8aa3a7ceeb14b612\",\"request_id\":\"80000000-0000-4000-8000-000000000001\",\"schema_version\":\"fit.platform.audit-event.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\"},\"trigger\":\"REQUEST\"},\"record_id\":\"e0000000-0000-4000-8000-000000000001\",\"record_type\":\"audit\"},\"event_kind\":\"LOGIN_SOURCE_LOCKED\",\"schema_version\":\"fit.platform.event-payload.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\"},\"subject\":\"fit.platform.v1.auth-security.login-source-locked\"}",
-    "sha256": "b9026a06ccba1a45d6b5b9d4c7fafe47da8078a3115c389ea3b0ecf384ba89d9"
+    "canonical_utf8": "{\"data\":{\"record\":{\"actor\":{\"id\":\"auth-service\",\"type\":\"SERVICE\"},\"causation_id\":\"80000000-0000-4000-8000-000000000001\",\"correlation_id\":\"b0000000-0000-4000-8000-000000000001\",\"event_id\":\"e0000000-0000-4000-8000-000000000001\",\"kind\":\"LOGIN_SOURCE_LOCKED\",\"occurred_at\":\"2026-07-29T10:00:01Z\",\"payload_digest\":\"ac320d308aad8f34714f18a5f57d1d4c258de36e385d8bea8aa3a7ceeb14b612\",\"request_id\":\"80000000-0000-4000-8000-000000000001\",\"schema_version\":\"fit.platform.audit-event.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\"},\"trigger\":\"REQUEST\"},\"record_id\":\"e0000000-0000-4000-8000-000000000001\",\"record_type\":\"audit\"},\"event_identity\":{\"aggregate_id\":\"80000000-0000-4000-8000-000000000001\",\"aggregate_type\":\"AUTH_THROTTLE\",\"aggregate_version\":1,\"event_id\":\"e0000000-0000-4000-8000-000000000001\"},\"event_kind\":\"LOGIN_SOURCE_LOCKED\",\"schema_version\":\"fit.platform.event-payload.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\"},\"subject\":\"fit.platform.v1.auth-security.login-source-locked\"}",
+    "sha256": "e262bce736b3bcc283ae63ad9d213015423a36d8cdf1e714a3a54ac3e748b423"
   },
   "ed25519_proofs": {
     "signature_input_formula": "UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))",

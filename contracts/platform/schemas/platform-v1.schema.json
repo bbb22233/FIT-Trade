@@ -5,7 +5,8 @@
   "$defs": {
     "Uuid": {
       "type": "string",
-      "format": "uuid"
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
     "Timestamp": {
       "type": "string",
@@ -543,7 +544,7 @@
       "additionalProperties": false,
       "required": [
         "identifier",
-        "password_attempt_sha256",
+        "password_utf8",
         "purpose",
         "candidate_public_key_fingerprint"
       ],
@@ -553,8 +554,10 @@
           "minLength": 1,
           "maxLength": 254
         },
-        "password_attempt_sha256": {
-          "$ref": "#/$defs/Digest"
+        "password_utf8": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
         },
         "purpose": {
           "enum": [
@@ -659,13 +662,17 @@
         "status": {
           "enum": [
             "ACTIVE",
-            "CONSUMED"
+            "CONSUMED",
+            "EXPIRED"
           ]
         },
         "created_at": {
           "$ref": "#/$defs/Timestamp"
         },
         "consumed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "expired_at": {
           "$ref": "#/$defs/Timestamp"
         }
       },
@@ -681,12 +688,54 @@
           "then": {
             "required": [
               "consumed_at"
-            ]
+            ],
+            "not": {
+              "required": [
+                "expired_at"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "EXPIRED"
+              }
+            }
           },
-          "else": {
+          "then": {
+            "required": [
+              "expired_at"
+            ],
             "not": {
               "required": [
                 "consumed_at"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ACTIVE"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "consumed_at"
+                  ]
+                },
+                {
+                  "required": [
+                    "expired_at"
+                  ]
+                }
               ]
             }
           }
@@ -1272,6 +1321,7 @@
         "subject",
         "event_kind",
         "scope",
+        "event_identity",
         "data"
       ],
       "properties": {
@@ -1287,6 +1337,63 @@
         },
         "scope": {
           "$ref": "#/$defs/Scope"
+        },
+        "event_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "event_id",
+            "aggregate_type",
+            "aggregate_id",
+            "aggregate_version"
+          ],
+          "properties": {
+            "event_id": {
+              "$ref": "#/$defs/Uuid"
+            },
+            "aggregate_type": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "aggregate_id": {
+              "$ref": "#/$defs/Uuid"
+            },
+            "aggregate_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "previous_event_id": {
+              "$ref": "#/$defs/Uuid"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "aggregate_version": {
+                    "const": 1
+                  }
+                },
+                "required": [
+                  "aggregate_version"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "previous_event_id"
+                  ]
+                }
+              },
+              "else": {
+                "required": [
+                  "previous_event_id"
+                ]
+              }
+            }
+          ]
         },
         "data": {
           "$ref": "#/$defs/DurableEventData"
@@ -1674,6 +1781,12 @@
         "consumer",
         "event_id",
         "event_payload_digest",
+        "event_subject",
+        "event_kind",
+        "event_scope",
+        "aggregate_type",
+        "aggregate_id",
+        "aggregate_version",
         "received_at",
         "business_transaction_id",
         "status"
@@ -1694,6 +1807,32 @@
         "event_payload_digest": {
           "$ref": "#/$defs/Digest"
         },
+        "event_subject": {
+          "$ref": "#/$defs/EventSubject"
+        },
+        "event_kind": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "event_scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "aggregate_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "aggregate_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "aggregate_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "previous_event_id": {
+          "$ref": "#/$defs/Uuid"
+        },
         "received_at": {
           "$ref": "#/$defs/Timestamp"
         },
@@ -1712,6 +1851,10 @@
         {
           "start": "created_at",
           "end": "published_at"
+        },
+        {
+          "start": "created_at",
+          "end": "lease_expires_at"
         }
       ],
       "additionalProperties": false,
@@ -1739,9 +1882,19 @@
         "published_at": {
           "$ref": "#/$defs/Timestamp"
         },
+        "lease_owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9][a-z0-9._-]*$"
+        },
+        "lease_expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
         "publication_state": {
           "enum": [
             "PENDING",
+            "CLAIMED",
             "PUBLISHED"
           ]
         },
@@ -1761,12 +1914,57 @@
           "then": {
             "required": [
               "published_at"
-            ]
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "lease_owner"
+                  ]
+                },
+                {
+                  "required": [
+                    "lease_expires_at"
+                  ]
+                }
+              ]
+            }
           },
           "else": {
             "not": {
               "required": [
                 "published_at"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "publication_state": {
+                "const": "CLAIMED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "lease_owner",
+              "lease_expires_at"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "lease_owner"
+                  ]
+                },
+                {
+                  "required": [
+                    "lease_expires_at"
+                  ]
+                }
               ]
             }
           }

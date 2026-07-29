@@ -7,7 +7,7 @@
       "reason": "the client supplies only credentials, purpose, and candidate fingerprint",
       "value": {
         "identifier": "known-user@example.invalid",
-        "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
+        "password_utf8": "synthetic-password-vector-only",
         "purpose": "ADDITIONAL_DEVICE",
         "candidate_public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f",
         "user_id": "10000000-0000-4000-8000-000000000001",
@@ -222,7 +222,7 @@
         "schema_version": "fit.platform.event-envelope.v1",
         "subject": "fit.platform.v1.owner.owner-mutation-committed",
         "stream": "FIT_PLATFORM_V1",
-        "event_id": "a0000000-0000-4000-8000-000000000001",
+        "event_id": "c0000000-0000-4000-8000-000000000001",
         "event_kind": "OWNER_MUTATION_COMMITTED",
         "scope": {
           "type": "AUTH_SECURITY",
@@ -235,7 +235,7 @@
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
         "payload_schema_version": "fit.platform.event-payload.v1",
-        "payload_digest": "b536ef95e629419676ba813dd5c487e1efb4330e2d267caf98507f89f2344dd9",
+        "payload_digest": "6683fdbd142fae842644ec80d7dbef325faafd384cfba311d4692af555dd6bb2",
         "payload": {
           "schema_version": "fit.platform.event-payload.v1",
           "subject": "fit.platform.v1.owner.owner-mutation-committed",
@@ -244,6 +244,12 @@
             "type": "OWNER",
             "user_id": "10000000-0000-4000-8000-000000000001",
             "trading_account_id": "20000000-0000-4000-8000-000000000001"
+          },
+          "event_identity": {
+            "event_id": "c0000000-0000-4000-8000-000000000001",
+            "aggregate_type": "OPERATION",
+            "aggregate_id": "70000000-0000-4000-8000-000000000001",
+            "aggregate_version": 1
           },
           "data": {
             "record_type": "audit",
@@ -500,7 +506,7 @@
           "schema_version": "fit.platform.event-envelope.v1",
           "subject": "fit.platform.v1.owner.owner-mutation-committed",
           "stream": "FIT_PLATFORM_V1",
-          "event_id": "a0000000-0000-4000-8000-000000000001",
+          "event_id": "c0000000-0000-4000-8000-000000000001",
           "event_kind": "OWNER_MUTATION_COMMITTED",
           "scope": {
             "type": "OWNER",
@@ -514,7 +520,7 @@
           "correlation_id": "b0000000-0000-4000-8000-000000000001",
           "occurred_at": "2026-07-29T10:00:01Z",
           "payload_schema_version": "fit.platform.event-payload.v1",
-          "payload_digest": "b536ef95e629419676ba813dd5c487e1efb4330e2d267caf98507f89f2344dd9",
+          "payload_digest": "6683fdbd142fae842644ec80d7dbef325faafd384cfba311d4692af555dd6bb2",
           "payload": {
             "schema_version": "fit.platform.event-payload.v1",
             "subject": "fit.platform.v1.owner.owner-mutation-committed",
@@ -523,6 +529,12 @@
               "type": "OWNER",
               "user_id": "10000000-0000-4000-8000-000000000001",
               "trading_account_id": "20000000-0000-4000-8000-000000000001"
+            },
+            "event_identity": {
+              "event_id": "c0000000-0000-4000-8000-000000000001",
+              "aggregate_type": "OPERATION",
+              "aggregate_id": "70000000-0000-4000-8000-000000000001",
+              "aggregate_version": 1
             },
             "data": {
               "record_type": "audit",

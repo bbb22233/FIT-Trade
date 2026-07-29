@@ -6,7 +6,13 @@
       "user_id": "10000000-0000-4000-8000-000000000001",
       "trading_account_id": "20000000-0000-4000-8000-000000000001",
       "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      "password_verifier_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7"
+      "password_argon2id": {
+        "profile_id": "argon2id-production-v1",
+        "version": 19,
+        "salt_hex": "000102030405060708090a0b0c0d0e0f",
+        "result_hex": "79cba77cff303e01dcae3bd6a16dddd07b734b1b91eda7c7d42c574101d9a920"
+      },
+      "test_only_password_sha256": "d6624322c4020bc94298164bf0b85d1180cfa0936edd97eb781d69aab88b3de4"
     }
   ],
   "ownership_records": [
@@ -25,7 +31,7 @@
       "name": "unknown identifier ordinary path has no server state",
       "input": {
         "identifier": "unknown-user@example.invalid",
-        "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
+        "password_utf8": "synthetic-password-vector-only",
         "purpose": "ADDITIONAL_DEVICE",
         "candidate_public_key_fingerprint": "ed25519:1111111111111111111111111111111111111111111111111111111111111111"
       },
@@ -60,7 +66,7 @@
       "name": "repeated unknown identifier gets unrelated process-local handle",
       "input": {
         "identifier": "unknown-user@example.invalid",
-        "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
+        "password_utf8": "synthetic-password-vector-only",
         "purpose": "ADDITIONAL_DEVICE",
         "candidate_public_key_fingerprint": "ed25519:2222222222222222222222222222222222222222222222222222222222222222"
       },
@@ -95,7 +101,7 @@
       "name": "known identifier wrong password ordinary path has no state",
       "input": {
         "identifier": "known-user@example.invalid",
-        "password_attempt_sha256": "206dd14d96d6a45816ef1bfb7180a59ac803858b7035f16411404233eeb7bfbd",
+        "password_utf8": "synthetic-wrong-password-only",
         "purpose": "ADDITIONAL_DEVICE",
         "candidate_public_key_fingerprint": "ed25519:3333333333333333333333333333333333333333333333333333333333333333"
       },
@@ -130,7 +136,7 @@
       "name": "known identifier wrong password replacement path has no state",
       "input": {
         "identifier": "known-user@example.invalid",
-        "password_attempt_sha256": "206dd14d96d6a45816ef1bfb7180a59ac803858b7035f16411404233eeb7bfbd",
+        "password_utf8": "synthetic-wrong-password-only",
         "purpose": "REPLACEMENT_DEVICE",
         "candidate_public_key_fingerprint": "ed25519:4444444444444444444444444444444444444444444444444444444444444444"
       },
@@ -165,7 +171,7 @@
       "name": "known identifier correct password persists and completes",
       "input": {
         "identifier": "known-user@example.invalid",
-        "password_attempt_sha256": "ff02e3f6c78cc06bd28ba660054ec1d306ed190f1e171d6c76fc1f8d32704ea7",
+        "password_utf8": "synthetic-password-vector-only",
         "purpose": "ADDITIONAL_DEVICE",
         "candidate_public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f"
       },
@@ -734,6 +740,16 @@
       "name": "UUIDv7 remains compatible",
       "raw_target": "/v1/confirmations/70000000-0000-7000-8000-000000000001/consume",
       "expected": "ACCEPT"
+    },
+    {
+      "name": "UUID version zero is rejected",
+      "raw_target": "/v1/confirmations/70000000-0000-0000-8000-000000000001/consume",
+      "expected": "REJECT"
+    },
+    {
+      "name": "UUID invalid variant is rejected",
+      "raw_target": "/v1/confirmations/70000000-0000-4000-7000-000000000001/consume",
+      "expected": "REJECT"
     },
     {
       "name": "duplicate raw query key",

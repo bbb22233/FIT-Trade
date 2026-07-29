@@ -12,7 +12,7 @@
       "start_input_schema": "EnrollmentStartInput",
       "client_start_fields": [
         "identifier",
-        "password_attempt_sha256",
+        "password_utf8",
         "purpose",
         "candidate_public_key_fingerprint"
       ],

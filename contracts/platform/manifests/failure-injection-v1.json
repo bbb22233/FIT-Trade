@@ -107,6 +107,7 @@
   },
   "executable_adversarial_probes": {
     "transaction_abort": "REAL_STAGED_MAP_AND_SEQUENCE_MUTATIONS_ROLL_BACK",
+    "process_kill": "DISCARD_PROCESS_LOCAL_STAGED_STATE_BEFORE_ATOMIC_COMMIT_VISIBILITY",
     "network_partition_before_consumer_commit": "NO_INBOX_PROJECTION_OR_BUSINESS_EFFECT",
     "broker_ack_loss_after_consumer_commit": "REDELIVERY_RETURNS_EXISTING_INBOX_RESULT_WITH_NO_DUPLICATE_EFFECT",
     "same_event_id_changed_digest": "REJECT_AND_ALERT_WITH_NO_MUTATION",
