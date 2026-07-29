@@ -9,19 +9,29 @@ from hermes_agent.contracts import (
     TradeIntent,
     ConfirmationTicket,
     Operation,
+    ExecutionCommand,
+    ExecutionAction,
+    AuthorizationType,
     OrderType,
     TimeInForce,
     PositionEffect,
+    GrantState,
     DOMAIN_TYPES,
 )
 from hermes_agent.mcp_tools import get_tool_by_name, SERVER_SCOPE_FIELDS
 from hermes_agent.confirmation import canonicalize, confirmation_binding
-from hermes_agent.validator import load_confirmation_fields, FIXTURES_VALID_DIR
+from hermes_agent.validator import (
+    load_confirmation_fields,
+    validate_with_pydantic,
+    validate_with_jsonschema,
+    FIXTURES_VALID_DIR,
+)
 
 
 # ---------------------------------------------------------------------------
 # Prompt-injected scope: user_id, account_id, session_id
 # ---------------------------------------------------------------------------
+
 
 def test_trade_intent_rejects_model_supplied_user_id():
     """Model must not be able to override user_id — it's server-injected."""
@@ -90,6 +100,7 @@ def test_trade_intent_rejects_nonexistent_user_id_field():
 # Unknown fields
 # ---------------------------------------------------------------------------
 
+
 def test_operation_rejects_unknown_fields():
     with pytest.raises(Exception):
         Operation.model_validate({
@@ -108,6 +119,7 @@ def test_operation_rejects_unknown_fields():
 # ---------------------------------------------------------------------------
 # Forbidden actions/symbols
 # ---------------------------------------------------------------------------
+
 
 def test_trade_intent_rejects_unsupported_symbol():
     """Only BTC-PERP, ETH-PERP, SOL-PERP are permitted."""
@@ -175,6 +187,7 @@ def test_trade_intent_rejects_unsupported_action():
 # JSON-number financial values
 # ---------------------------------------------------------------------------
 
+
 def test_trade_intent_rejects_float_quantity():
     """Financial decimals must be strings, not JSON numbers."""
     with pytest.raises(Exception):
@@ -196,6 +209,7 @@ def test_trade_intent_rejects_float_quantity():
 # ---------------------------------------------------------------------------
 # Non-canonical decimals
 # ---------------------------------------------------------------------------
+
 
 def test_trade_intent_rejects_noncanonical_decimal():
     """Decimals with trailing zeros are non-canonical and must be rejected."""
@@ -232,6 +246,7 @@ def test_trade_intent_rejects_noncanonical_decimal():
 # Missing stop for OPEN/INCREASE
 # ---------------------------------------------------------------------------
 
+
 def test_trade_intent_requires_stop_for_open():
     """OPEN position_effect requires a stop."""
     with pytest.raises(Exception):
@@ -266,6 +281,7 @@ def test_trade_intent_requires_stop_for_open():
 # ---------------------------------------------------------------------------
 # MARKET + GTC / LIMIT + IOC rejections
 # ---------------------------------------------------------------------------
+
 
 def test_trade_intent_market_requires_ioc():
     with pytest.raises(Exception):
@@ -331,6 +347,7 @@ def test_trade_intent_limit_rejects_ioc():
 # Confirmation ticket must have risk-increasing intent
 # ---------------------------------------------------------------------------
 
+
 def test_confirmation_ticket_rejects_reduce_or_close():
     """Confirmation tickets only for OPEN or INCREASE."""
     valid_ticket = {
@@ -383,28 +400,23 @@ def test_confirmation_ticket_rejects_reduce_or_close():
 # Bound-field confirmation ticket mutations
 # ---------------------------------------------------------------------------
 
+
 def test_confirmation_ticket_rejects_bad_hash():
     """A confirmation ticket with a hash that doesn't match the content must be validated."""
     ticket_path = FIXTURES_VALID_DIR / "confirmation-ticket-open.json"
     ticket = json.loads(ticket_path.read_text())["value"]
-    # Modify a bound field but keep the original hash
     tampered = json.loads(json.dumps(ticket))
     tampered["intent"]["quantity"] = "0.050"
-    # The hash no longer matches — but Pydantic won't catch hash semantics.
-    # This is an application-layer check, not a schema check.
-    # The test ensures the schema still validates structurally.
-    # Hash verification happens in confirmation.verify_confirmation_hash()
     fields = load_confirmation_fields()
     golden = ticket["confirmation_hash"]
     from hermes_agent.confirmation import verify_confirmation_hash as _verify_hash
-    assert not _verify_hash(
-        tampered, fields, golden
-    )
+    assert not _verify_hash(tampered, fields, golden)
 
 
 # ---------------------------------------------------------------------------
 # MCP tool-specific: no model-supplied scope
 # ---------------------------------------------------------------------------
+
 
 def test_all_mcp_tools_reject_model_supplied_scope():
     """Every MCP tool input schema must reject user_id/account_id/session_id."""
@@ -424,15 +436,16 @@ def test_all_mcp_tools_reject_model_supplied_scope():
 # All domain types can round-trip matrix values
 # ---------------------------------------------------------------------------
 
-import json as _json
 
-
-MATRIX_PATH = Path(__file__).parent.parent.parent.parent / "contracts" / "fixtures" / "matrix" / "domain-values.json"
+MATRIX_PATH = (
+    Path(__file__).parent.parent.parent.parent
+    / "contracts" / "fixtures" / "matrix" / "domain-values.json"
+)
 
 
 def test_all_domain_types_round_trip():
     """Every domain type in the matrix round-trips through Pydantic."""
-    matrix = _json.loads(MATRIX_PATH.read_text())
+    matrix = json.loads(MATRIX_PATH.read_text())
     for name, value in matrix.items():
         if name.startswith("_"):
             continue
@@ -445,16 +458,27 @@ def test_all_domain_types_round_trip():
         assert revalidated.model_dump() == exported, f"{name}: round-trip failed"
 
 
+def test_matrix_all_pass_jsonschema():
+    """All frozen matrix values must pass JSON Schema validation."""
+    matrix = json.loads(MATRIX_PATH.read_text())
+    for name, value in matrix.items():
+        if name.startswith("_"):
+            continue
+        if name not in DOMAIN_TYPES:
+            continue
+        validate_with_jsonschema(name, value)
+
+
 def test_matrix_unknown_field_rejected():
     """Adding an unknown field to any matrix value must fail."""
-    matrix = _json.loads(MATRIX_PATH.read_text())
+    matrix = json.loads(MATRIX_PATH.read_text())
     for name, value in matrix.items():
         if name.startswith("_"):
             continue
         model = DOMAIN_TYPES.get(name)
         if model is None:
             continue
-        modified = _json.loads(_json.dumps(value))
+        modified = json.loads(json.dumps(value))
         modified["unexpected_field"] = "rejected"
         with pytest.raises(Exception):
             model.model_validate(modified)
@@ -462,18 +486,106 @@ def test_matrix_unknown_field_rejected():
 
 def test_matrix_missing_required_rejected():
     """Removing a required field from any matrix value must fail."""
-    matrix = _json.loads(MATRIX_PATH.read_text())
+    matrix = json.loads(MATRIX_PATH.read_text())
     for name, value in matrix.items():
         if name.startswith("_"):
             continue
         model = DOMAIN_TYPES.get(name)
         if model is None:
             continue
-        # Get the fields from the model
-        required = [f for f in model.model_fields if model.model_fields[f].is_required()]
+        required = [
+            f for f in model.model_fields if model.model_fields[f].is_required()
+        ]
         if not required:
             continue
-        modified = _json.loads(_json.dumps(value))
+        modified = json.loads(json.dumps(value))
         del modified[required[0]]
         with pytest.raises(Exception):
             model.model_validate(modified)
+
+
+# ---------------------------------------------------------------------------
+# ExecutionCommand-specific tests
+# ---------------------------------------------------------------------------
+
+
+def test_execution_command_rejects_bogus_action():
+    """ExecutionCommand must reject actions outside the frozen enum."""
+    with pytest.raises(Exception):
+        ExecutionCommand.model_validate({
+            "schema_version": "fit.trade.v1",
+            "command_id": "12345678-1234-4234-8234-123456789abc",
+            "operation_id": "66666666-6666-4666-8666-666666666666",
+            "attempt_id": "88888888-8888-4888-8888-888888888888",
+            "authorization_type": "USER_CONFIRMATION",
+            "authorization_id": "55555555-5555-4555-8555-555555555555",
+            "action": "EXECUTE_RAW_TRADE",  # bogus
+            "client_order_id": "0123456789abcdef0123456789abcdef",
+            "symbol": "BTC-PERP",
+            "side": "BUY",
+            "order_type": "MARKET",
+            "time_in_force": "IOC",
+            "quantity": "0.025",
+            "worst_acceptable_price": "118689",
+            "reduce_only": False,
+            "created_at": "2026-07-29T04:00:10Z",
+        })
+
+
+def test_execution_command_rejects_bogus_authorization_type():
+    """ExecutionCommand must reject authorization_type outside the frozen enum."""
+    with pytest.raises(Exception):
+        ExecutionCommand.model_validate({
+            "schema_version": "fit.trade.v1",
+            "command_id": "12345678-1234-4234-8234-123456789abc",
+            "operation_id": "66666666-6666-4666-8666-666666666666",
+            "attempt_id": "88888888-8888-4888-8888-888888888888",
+            "authorization_type": "DIRECT_SIGNING",  # bogus
+            "authorization_id": "55555555-5555-4555-8555-555555555555",
+            "action": "PLACE_ORDER",
+            "client_order_id": "0123456789abcdef0123456789abcdef",
+            "symbol": "BTC-PERP",
+            "side": "BUY",
+            "order_type": "MARKET",
+            "time_in_force": "IOC",
+            "quantity": "0.025",
+            "worst_acceptable_price": "118689",
+            "reduce_only": False,
+            "created_at": "2026-07-29T04:00:10Z",
+        })
+
+
+def test_automation_grant_rejects_old_state():
+    """AutomationGrant must use the frozen schema states: DISABLED, ENABLED, SAFETY_PAUSED."""
+    from hermes_agent.contracts import AutomationGrant
+    # Valid states
+    AutomationGrant.model_validate({
+        "schema_version": "fit.trade.v1",
+        "grant_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "user_id": "22222222-2222-4222-8222-222222222222",
+        "account_id": "33333333-3333-4333-8333-333333333333",
+        "state": "ENABLED",
+        "allowed_symbols": ["BTC-PERP"],
+        "risk_policy_version": "risk-v1",
+        "strategy_version": "strategy-style-v1",
+        "model_version": "model-hermes-v1",
+        "review_model_version": "model-review-v1",
+        "maximum_notional": "1000",
+        "authorization_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    })
+    # Reject old state values
+    with pytest.raises(Exception):
+        AutomationGrant.model_validate({
+            "schema_version": "fit.trade.v1",
+            "grant_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            "user_id": "22222222-2222-4222-8222-222222222222",
+            "account_id": "33333333-3333-4333-8333-333333333333",
+            "state": "ACTIVE",  # old, not in frozen schema
+            "allowed_symbols": ["BTC-PERP"],
+            "risk_policy_version": "risk-v1",
+            "strategy_version": "strategy-style-v1",
+            "model_version": "model-hermes-v1",
+            "review_model_version": "model-review-v1",
+            "maximum_notional": "1000",
+            "authorization_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        })

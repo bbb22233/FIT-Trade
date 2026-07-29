@@ -5,11 +5,15 @@ Primary entry point for P0-003 acceptance checks.
 
 from __future__ import annotations
 
+import datetime as _datetime
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator, SchemaError
+from jsonschema import Draft202012Validator, FormatChecker
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012 as _REF_DRAFT202012
 
 from . import confirmation
 from .contracts import BaseDomain, DOMAIN_TYPES
@@ -21,6 +25,7 @@ CONFIRMATION_FIELDS_PATH = CONTRACTS_ROOT / "confirmation-fields.json"
 FIXTURES_VALID_DIR = CONTRACTS_ROOT / "fixtures" / "valid"
 FIXTURES_INVALID_DIR = CONTRACTS_ROOT / "fixtures" / "invalid"
 GOLDEN_DIR = CONTRACTS_ROOT / "fixtures" / "golden"
+MATRIX_PATH = CONTRACTS_ROOT / "fixtures" / "matrix" / "domain-values.json"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -30,6 +35,7 @@ def _load_json(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_fixture(path: Path) -> tuple[str, dict[str, Any]]:
     """Load a fixture file. Returns (schema_name, value)."""
@@ -55,9 +61,15 @@ def load_invalid_fixtures() -> list[tuple[str, dict[str, Any], str, Path]]:
     return result
 
 
+def load_matrix_values() -> dict[str, dict[str, Any]]:
+    """Load the frozen domain-values matrix. Returns {schema_name: value, ...}."""
+    return _load_json(MATRIX_PATH)
+
+
 # ---------------------------------------------------------------------------
 # Pydantic validation
 # ---------------------------------------------------------------------------
+
 
 def validate_with_pydantic(schema_name: str, value: dict[str, Any]) -> BaseDomain:
     """Validate a domain value using the strict Pydantic model.
@@ -73,23 +85,103 @@ def validate_with_pydantic(schema_name: str, value: dict[str, Any]) -> BaseDomai
 
 
 # ---------------------------------------------------------------------------
-# JSON Schema validation (for cross-check)
+# JSON Schema validation (with referencing Registry and format checking)
 # ---------------------------------------------------------------------------
 
-def _compile_validators() -> dict[str, Draft202012Validator]:
+# Custom date-time format checker matching project UTC-only rules:
+# YYYY-MM-DD[ Tt]HH:MM:SS[.f+][Zz] — rejects no-zone and numeric offsets.
+# Leap second 23:59:60Z is valid.
+_DATETIME_UTC_RE = re.compile(
+    r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
+    r"[Tt ](?:[01]\d|2[0-3]):[0-5]\d:(?:[0-5]\d|60)"
+    r"(?:\.\d+)?[Zz]$",
+)
+
+
+def _check_datetime_utc(instance: object) -> bool:
+    """Reject date-time values that lack terminal Z/z or use numeric offsets.
+
+    Raises ValueError on invalid input; returns True for valid UTC date-times.
+    """
+    if not isinstance(instance, str):
+        raise ValueError("date-time must be a string")
+    m = _DATETIME_UTC_RE.match(instance)
+    if not m:
+        raise ValueError(
+            f"date-time must use terminal Z/z (UTC only): {instance!r}"
+        )
+    # Validate the calendar date
+    try:
+        date_part = instance[:10]
+        _datetime.date.fromisoformat(date_part)
+    except ValueError as exc:
+        raise ValueError(f"date-time date invalid: {instance!r}") from exc
+    # Leap second 60 is only valid at 23:59:60
+    time_part = instance[11:]
+    second_str = time_part[6:8]
+    if second_str == "60" and time_part[:5] != "23:59":
+        raise ValueError(
+            f"leap second 60 only valid at 23:59:60: {instance!r}"
+        )
+    return True
+
+
+# Custom format checker: merge stock checkers with our date-time checker
+_CUSTOM_FORMAT_CHECKER = FormatChecker(())
+_CUSTOM_FORMAT_CHECKER.checkers = (
+    Draft202012Validator.FORMAT_CHECKER.checkers
+    | {"date-time": (_check_datetime_utc, ValueError)}
+)
+
+
+def _build_jsonschema_validators() -> dict[str, Draft202012Validator]:
+    """Build per-$def Draft202012Validator instances with referencing Registry.
+
+    Uses referencing.Registry with the full frozen schema resource so that
+    $ref: '#/$defs/...' resolves correctly within each sub-schema.  Full
+    format checking (uuid, custom UTC date-time, etc.) is active.
+    """
     schema = _load_json(SCHEMA_PATH)
+    schema_id: str = schema.get("$id", "")
+
+    # Build a referencing Registry containing the full schema as a resource
+    resource = Resource.from_contents(
+        schema, default_specification=_REF_DRAFT202012,
+    )
+    registry: Registry = Registry().with_resource(
+        uri=schema_id, resource=resource,
+    )
+
     validators: dict[str, Draft202012Validator] = {}
-    for name, defn in schema["$defs"].items():
-        validators[name] = Draft202012Validator(defn, registry={"$id": schema["$id"]})
+    for name in schema["$defs"]:
+        # Compile each $def via an absolute $ref so that cross-$def
+        # references and local pointers resolve through the Registry.
+        validators[name] = Draft202012Validator(
+            {"$ref": f"{schema_id}#/$defs/{name}"},
+            registry=registry,
+            format_checker=_CUSTOM_FORMAT_CHECKER,
+        )
     return validators
 
 
-def validate_with_jsonschema(schema_name: str, value: dict[str, Any]) -> None:
-    """Validate a domain value using the raw JSON Schema.
+# Cache compiled validators
+_json_schema_validators: dict[str, Draft202012Validator] | None = None
 
+
+def _get_jsonschema_validators() -> dict[str, Draft202012Validator]:
+    global _json_schema_validators
+    if _json_schema_validators is None:
+        _json_schema_validators = _build_jsonschema_validators()
+    return _json_schema_validators
+
+
+def validate_with_jsonschema(schema_name: str, value: dict[str, Any]) -> None:
+    """Validate a domain value using the raw JSON Schema with format checking.
+
+    Resolves $ref correctly via referencing Registry.
     Raises jsonschema.ValidationError on failure.
     """
-    validators = _compile_validators()
+    validators = _get_jsonschema_validators()
     v = validators.get(schema_name)
     if v is None:
         raise ValueError(f"Unknown schema: {schema_name}")
@@ -99,6 +191,7 @@ def validate_with_jsonschema(schema_name: str, value: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Confirmation hash
 # ---------------------------------------------------------------------------
+
 
 def load_confirmation_fields() -> list[str]:
     """Load the confirmation binding field list."""
@@ -118,6 +211,7 @@ def load_golden_hash() -> str:
 # ---------------------------------------------------------------------------
 # Full acceptance check
 # ---------------------------------------------------------------------------
+
 
 def run_acceptance_checks() -> dict[str, Any]:
     """Run all P0-003 acceptance checks.
@@ -181,19 +275,18 @@ def run_acceptance_checks() -> dict[str, Any]:
         ticket_fixture = _load_json(FIXTURES_VALID_DIR / "confirmation-ticket-open.json")
         ticket = ticket_fixture["value"]
         binding = confirmation.confirmation_binding(ticket, fields)
-        mutated_any = False
         ignored_fields = []
         for field in fields:
             import copy
             mutated = copy.deepcopy(binding)
             mutated[field] = _mutate_value(mutated[field])
+            import hashlib
             mutated_hash = hashlib.sha256(
                 confirmation.canonicalize(mutated).encode("utf-8")
             ).hexdigest()
             if mutated_hash == golden:
                 ignored_fields.append(field)
-                mutated_any = True
-        if not mutated_any:
+        if not ignored_fields:
             results["confirmation_field_sensitivity"] = "PASS"
         else:
             results["confirmation_field_sensitivity"] = f"FAIL: ignored {ignored_fields}"
@@ -218,6 +311,3 @@ def _mutate_value(value: Any) -> Any:
     if value is None:
         return "mutation"
     return {**value, "mutation": True}
-
-
-import hashlib  # needed at module scope for the checks

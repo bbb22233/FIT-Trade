@@ -1,14 +1,17 @@
 """FIT-Trade v1 domain contracts — strict Pydantic v2 models.
 
-Every model mirrors contracts/jsonschema/fit-trade-v1.schema.json.
+Every model mirrors contracts/jsonschema/fit-trade-v1.schema.json exactly.
 Unknown fields are rejected via model_config(extra='forbid').
 All financial values are represented as canonical decimal strings.
+
+The constants and enums are derived solely from the frozen schema;
+no independent enums, tool-name lists, or effect maps exist.
 """
 
 from __future__ import annotations
 
+import datetime as _datetime
 import re
-from datetime import datetime
 from enum import Enum
 from typing import Annotated, Literal
 
@@ -18,6 +21,7 @@ from pydantic import (
     StringConstraints,
     field_validator,
     model_validator,
+    functional_validators,
 )
 
 # ---------------------------------------------------------------------------
@@ -27,7 +31,7 @@ from pydantic import (
 SCHEMA_VERSION = "fit.trade.v1"
 
 # ---------------------------------------------------------------------------
-# Enums
+# Enums — exact mirror of the JSON Schema $defs
 # ---------------------------------------------------------------------------
 
 
@@ -125,57 +129,204 @@ class ProtectionState(str, Enum):
     CLOSED = "CLOSED"
 
 
+class ReconciliationState(str, Enum):
+    PENDING = "PENDING"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+    REJECTED = "REJECTED"
+    NOT_FOUND = "NOT_FOUND"
+    MANUAL_RECONCILIATION = "MANUAL_RECONCILIATION"
+
+
+class EvidenceSource(str, Enum):
+    CLOID = "CLOID"
+    OID = "OID"
+    OPEN_ORDERS = "OPEN_ORDERS"
+    HISTORICAL_ORDERS = "HISTORICAL_ORDERS"
+    FILLS = "FILLS"
+
+
+class ExecutionAction(str, Enum):
+    PLACE_ORDER = "PLACE_ORDER"
+    CANCEL_ENTRY = "CANCEL_ENTRY"
+    REPLACE_STOP = "REPLACE_STOP"
+    RECONCILE = "RECONCILE"
+
+
+class AuthorizationType(str, Enum):
+    USER_CONFIRMATION = "USER_CONFIRMATION"
+    AUTOMATION_GRANT = "AUTOMATION_GRANT"
+    RISK_REDUCTION = "RISK_REDUCTION"
+
+
+class ExecutionResultStatus(str, Enum):
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+    REJECTED = "REJECTED"
+    NOT_DISPATCHED = "NOT_DISPATCHED"
+    UNKNOWN_REQUIRES_RECONCILIATION = "UNKNOWN_REQUIRES_RECONCILIATION"
+
+
+class GrantState(str, Enum):
+    DISABLED = "DISABLED"
+    ENABLED = "ENABLED"
+    SAFETY_PAUSED = "SAFETY_PAUSED"
+
+
+class AuditActorType(str, Enum):
+    USER = "USER"
+    DEVICE = "DEVICE"
+    HERMES = "HERMES"
+    SYSTEM = "SYSTEM"
+
+
+class AuditSubjectType(str, Enum):
+    INTENT = "INTENT"
+    CONFIRMATION = "CONFIRMATION"
+    OPERATION = "OPERATION"
+    ORDER = "ORDER"
+    POSITION = "POSITION"
+    AUTOMATION_GRANT = "AUTOMATION_GRANT"
+
+
 # ---------------------------------------------------------------------------
 # Shared constrained types
 # ---------------------------------------------------------------------------
 
-# RFC 8785 canonical decimal: sign? (1-9[0-9]{0,17} | 0) (.[0-9]{0,17}[1-9])?
-# No leading zeros, no trailing zeros, no exponent, no plus sign.
+# Decimal: matches JSON Schema "Decimal" $defs
 DECIMAL_RE = re.compile(
     r"^-?(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{0,17}[1-9])?$"
 )
 
-# Non-negative decimal: same but no leading minus.
+# Non-negative decimal
 NON_NEGATIVE_DECIMAL_RE = re.compile(
     r"^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{0,17}[1-9])?$"
 )
 
-# Positive: non-negative but not exactly "0".
+# Positive: non-negative but not exactly "0"
 POSITIVE_DECIMAL_RE = re.compile(
     r"^(?:0\.[0-9]{0,17}[1-9]|[1-9][0-9]{0,17}(?:\.[0-9]{0,17}[1-9])?)$"
 )
 
-# Fraction: [0, 1] as canonical decimal.
+# Fraction: [0, 1] as canonical decimal
 FRACTION_RE = re.compile(
     r"^(?:0(?:\.[0-9]{0,17}[1-9])?|1)$"
 )
 
-# Positive fraction: (0, 1] as canonical decimal.
+# Positive fraction: (0, 1] as canonical decimal
 POSITIVE_FRACTION_RE = re.compile(
     r"^(?:0\.[0-9]{0,17}[1-9]|1)$"
 )
 
 DecimalStr = Annotated[str, StringConstraints(pattern=DECIMAL_RE.pattern, max_length=38)]
-NonNegativeDecimalStr = Annotated[str, StringConstraints(pattern=NON_NEGATIVE_DECIMAL_RE.pattern, max_length=38)]
-PositiveDecimalStr = Annotated[str, StringConstraints(pattern=POSITIVE_DECIMAL_RE.pattern, max_length=38)]
-FractionStr = Annotated[str, StringConstraints(pattern=FRACTION_RE.pattern, max_length=38)]
-PositiveFractionStr = Annotated[str, StringConstraints(pattern=POSITIVE_FRACTION_RE.pattern, max_length=38)]
-UUIDStr = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", min_length=36, max_length=36)]
-TimestampStr = Annotated[str, StringConstraints(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")]
+NonNegativeDecimalStr = Annotated[
+    str, StringConstraints(pattern=NON_NEGATIVE_DECIMAL_RE.pattern, max_length=38)
+]
+PositiveDecimalStr = Annotated[
+    str, StringConstraints(pattern=POSITIVE_DECIMAL_RE.pattern, max_length=38)
+]
+FractionStr = Annotated[
+    str, StringConstraints(pattern=FRACTION_RE.pattern, max_length=38)
+]
+PositiveFractionStr = Annotated[
+    str, StringConstraints(pattern=POSITIVE_FRACTION_RE.pattern, max_length=38)
+]
+
+UUIDStr = Annotated[
+    str,
+    StringConstraints(
+        pattern=r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+        min_length=36,
+        max_length=36,
+    ),
+]
+# Timestamp: UTC only (Z/z terminal), accepts T/t/space separator,
+# fractional seconds, and valid 23:59:60 leap second.
+# Rejects no-zone and numeric-offset (even +00:00) forms.
+_TIMESTAMP_PATTERN = (
+    r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
+    r"[Tt ](?:[01]\d|2[0-3]):[0-5]\d:(?:[0-5]\d|60)"
+    r"(?:\.\d+)?[Zz]$"
+)
+
+_TIMESTAMP_RE = re.compile(_TIMESTAMP_PATTERN)
+
+
+def _validate_timestamp_strict(v: str) -> str:
+    """Reject no-zone or numeric-offset timestamps; accept only UTC Z/z."""
+    m = _TIMESTAMP_RE.match(v)
+    if not m:
+        raise ValueError(f"timestamp must use terminal Z/z (UTC only): {v!r}")
+    # Parse date/time parts for leap-second and calendar checks.
+    try:
+        # Extract date part: YYYY-MM-DD
+        date_part, time_part = v[:10], v[11:]  # separator is at position 10
+        _datetime.date.fromisoformat(date_part)
+    except ValueError as exc:
+        raise ValueError(f"timestamp date invalid: {v!r}") from exc
+    # Leap second 60 is only valid at 23:59:60
+    second_str = time_part[6:8]  # seconds portion after HH:MM:
+    if second_str == "60":
+        if time_part[:5] != "23:59":
+            raise ValueError(
+                f"leap second 60 only valid at 23:59:60, got: {v!r}"
+            )
+    return v
+
+
+TimestampStr = Annotated[
+    str,
+    StringConstraints(pattern=_TIMESTAMP_PATTERN),
+    functional_validators.AfterValidator(_validate_timestamp_strict),
+]
 ClientOrderIdStr = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{32}$")]
-VersionStr = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")]
 NonceStr = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{32,128}$")]
 HashStr = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
 
+# Version patterns (for fields where schema uses maxLength:64, not the strict pattern)
+VersionStr = Annotated[str, StringConstraints(max_length=64)]
+
+# Risk policy version (specific pattern)
+RiskPolicyVersionStr = Annotated[
+    str, StringConstraints(pattern=r"^risk-[a-z0-9][a-z0-9._-]{0,63}$", max_length=64)
+]
+
+# Strategy version (specific pattern where used)
+StrategyVersionStr = Annotated[
+    str, StringConstraints(pattern=r"^strategy-[a-z0-9][a-z0-9._-]{0,63}$", max_length=64)
+]
+
+# Model version (specific pattern where used)
+ModelVersionStr = Annotated[
+    str, StringConstraints(pattern=r"^model-[a-z0-9][a-z0-9._-]{0,63}$", max_length=64)
+]
+
+# Execution error code pattern
+ErrorCodeStr = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{2,95}$")]
+
+# Reason codes pattern
+ReasonCodeStr = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{2,63}$")]
+
+# Stop order IDs in active_stop_order_ids
+StopOrderIdStr = Annotated[
+    str, StringConstraints(min_length=1, max_length=128, pattern=r"\S")
+]
+
+# Event type pattern for AuditEvent
+EventTypeStr = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{2,95}$")]
+
 
 class BaseDomain(BaseModel):
-    """Base for all domain objects — rejects unknown fields."""
-    model_config = {"extra": "forbid"}
+    """Base for all domain objects — forbids unknown fields and silences model_ namespace warning."""
+
+    model_config = {
+        "extra": "forbid",
+        "protected_namespaces": (),
+    }
 
 
 # ---------------------------------------------------------------------------
 # Nested types
 # ---------------------------------------------------------------------------
+
 
 class StopMarket(BaseDomain):
     type: Literal["STOP_MARKET"] = "STOP_MARKET"
@@ -195,8 +346,9 @@ class SymbolLeverage(BaseDomain):
 
 
 # ---------------------------------------------------------------------------
-# Core domain objects
+# Core domain objects — exact mirror of fit-trade-v1.schema.json $defs
 # ---------------------------------------------------------------------------
+
 
 class TradeIntent(BaseDomain):
     schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
@@ -217,10 +369,10 @@ class TradeIntent(BaseDomain):
     worst_acceptable_price: PositiveDecimalStr
     stop: StopMarket | None = None
     take_profit_plan: list[TakeProfitLeg] = Field(default_factory=list, max_length=8)
-    risk_policy_version: str = Field(pattern=r"^risk-[a-z0-9][a-z0-9._-]{0,63}$")
+    risk_policy_version: RiskPolicyVersionStr
     market_snapshot_id: UUIDStr
-    strategy_version: str = Field(pattern=r"^strategy-[a-z0-9][a-z0-9._-]{0,63}$")
-    model_version: str = Field(pattern=r"^model-[a-z0-9][a-z0-9._-]{0,63}$")
+    strategy_version: StrategyVersionStr
+    model_version: ModelVersionStr
     source: Literal["USER_DIRECTED", "AUTOMATION"]
     created_at: TimestampStr
 
@@ -236,7 +388,10 @@ class TradeIntent(BaseDomain):
         if self.order_type == OrderType.MARKET and self.time_in_force != TimeInForce.IOC:
             raise ValueError("MARKET orders must use IOC time_in_force")
         # LIMIT => GTC or ALO only
-        if self.order_type == OrderType.LIMIT and self.time_in_force not in (TimeInForce.GTC, TimeInForce.ALO):
+        if self.order_type == OrderType.LIMIT and self.time_in_force not in (
+            TimeInForce.GTC,
+            TimeInForce.ALO,
+        ):
             raise ValueError("LIMIT orders must use GTC or ALO time_in_force")
         return self
 
@@ -261,9 +416,13 @@ class ConfirmationTicket(BaseDomain):
 
     @model_validator(mode="after")
     def _intent_must_be_risk_increasing(self) -> "ConfirmationTicket":
-        if self.intent.position_effect not in (PositionEffect.OPEN, PositionEffect.INCREASE):
+        if self.intent.position_effect not in (
+            PositionEffect.OPEN,
+            PositionEffect.INCREASE,
+        ):
             raise ValueError(
-                f"confirmation intent must be OPEN or INCREASE, got {self.intent.position_effect.value}"
+                f"confirmation intent must be OPEN or INCREASE, got "
+                f"{self.intent.position_effect.value}"
             )
         return self
 
@@ -341,13 +500,38 @@ class PositionSnapshot(BaseDomain):
 
 class RiskPolicy(BaseDomain):
     schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
-    risk_policy_version: str = Field(pattern=r"^risk-[a-z0-9][a-z0-9._-]{0,63}$")
+    risk_policy_version: RiskPolicyVersionStr
     allowed_symbols: list[Symbol] = Field(min_length=1)
-    maximum_trade_risk_fraction: FractionStr
-    maximum_total_risk_fraction: FractionStr
-    maximum_leverage_by_symbol: list[SymbolLeverage] = Field(min_length=1)
-    maximum_slippage_fraction: FractionStr
+    maximum_trade_risk_fraction: PositiveFractionStr
+    maximum_total_risk_fraction: PositiveFractionStr
+    maximum_leverage_by_symbol: list[SymbolLeverage] = Field(
+        min_length=3, max_length=3,
+    )
+    maximum_slippage_fraction: PositiveFractionStr
     created_at: TimestampStr
+
+    @field_validator("allowed_symbols")
+    @classmethod
+    def _validate_unique_symbols(cls, v: list[Symbol]) -> list[Symbol]:
+        if len(v) != len(set(v)):
+            raise ValueError("allowed_symbols must have unique items")
+        return v
+
+    @field_validator("maximum_leverage_by_symbol")
+    @classmethod
+    def _validate_leverage_unique_symbols(
+        cls, v: list[SymbolLeverage]
+    ) -> list[SymbolLeverage]:
+        symbols = [item.symbol for item in v]
+        if len(symbols) != len(set(symbols)):
+            raise ValueError("maximum_leverage_by_symbol must have unique symbols")
+        expected = {Symbol.BTC_PERP, Symbol.ETH_PERP, Symbol.SOL_PERP}
+        if set(symbols) != expected:
+            raise ValueError(
+                "maximum_leverage_by_symbol must contain exactly one entry "
+                "for BTC-PERP, ETH-PERP, and SOL-PERP"
+            )
+        return v
 
 
 class AutomationGrant(BaseDomain):
@@ -355,21 +539,28 @@ class AutomationGrant(BaseDomain):
     grant_id: UUIDStr
     user_id: UUIDStr
     account_id: UUIDStr
-    state: Literal["ACTIVE", "DISABLED", "PAUSED"]
+    state: GrantState
     allowed_symbols: list[Symbol] = Field(min_length=1)
-    risk_policy_version: str = Field(pattern=r"^risk-[a-z0-9][a-z0-9._-]{0,63}$")
-    strategy_version: str = Field(pattern=r"^strategy-[a-z0-9][a-z0-9._-]{0,63}$")
-    model_version: str = Field(pattern=r"^model-[a-z0-9][a-z0-9._-]{0,63}$")
-    review_model_version: str = Field(pattern=r"^model-[a-z0-9][a-z0-9._-]{0,63}$")
+    risk_policy_version: VersionStr
+    strategy_version: VersionStr
+    model_version: VersionStr
+    review_model_version: VersionStr
     maximum_notional: PositiveDecimalStr
-    authorization_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    authorization_hash: HashStr
+
+    @field_validator("allowed_symbols")
+    @classmethod
+    def _validate_unique_symbols(cls, v: list[Symbol]) -> list[Symbol]:
+        if len(v) != len(set(v)):
+            raise ValueError("allowed_symbols must have unique items")
+        return v
 
 
 class ModelProposal(BaseDomain):
     schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
     proposal_id: UUIDStr
-    model_version: str = Field(pattern=r"^model-[a-z0-9][a-z0-9._-]{0,63}$")
-    decision: Literal["NO_TRADE", "PROPOSE_TRADE"]
+    model_version: VersionStr
+    decision: Literal["PROPOSE_TRADE", "NO_TRADE"]
     intent: TradeIntent | None = None
     created_at: TimestampStr
 
@@ -386,9 +577,9 @@ class ModelReview(BaseDomain):
     schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
     review_id: UUIDStr
     proposal_id: UUIDStr
-    review_model_version: str = Field(pattern=r"^model-[a-z0-9][a-z0-9._-]{0,63}$")
-    decision: Literal["NO_TRADE", "APPROVE", "REJECT"]
-    reason_codes: list[str] = Field(default_factory=list)
+    review_model_version: VersionStr
+    decision: Literal["APPROVE", "REJECT", "NO_TRADE"]
+    reason_codes: list[ReasonCodeStr] = Field(min_length=1, max_length=32)
     created_at: TimestampStr
 
 
@@ -396,16 +587,23 @@ class RiskDecision(BaseDomain):
     schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
     decision_id: UUIDStr
     intent_id: UUIDStr
-    risk_policy_version: str = Field(pattern=r"^risk-[a-z0-9][a-z0-9._-]{0,63}$")
+    risk_policy_version: VersionStr
     result: Literal["ADMITTED", "REJECTED"]
-    reason_codes: list[str] = Field(default_factory=list)
-    admitted_quantity: PositiveDecimalStr | None = None
-    maximum_loss: NonNegativeDecimalStr | None = None
-    maximum_loss_fraction: FractionStr | None = None
-    post_trade_total_risk: NonNegativeDecimalStr | None = None
-    post_trade_total_risk_fraction: FractionStr | None = None
-    market_snapshot_id: UUIDStr | None = None
+    reason_codes: list[ReasonCodeStr] = Field(default_factory=list, max_length=32)
+    admitted_quantity: NonNegativeDecimalStr
+    maximum_loss: NonNegativeDecimalStr
+    maximum_loss_fraction: FractionStr
+    post_trade_total_risk: NonNegativeDecimalStr
+    post_trade_total_risk_fraction: FractionStr
+    market_snapshot_id: UUIDStr
     decided_at: TimestampStr
+
+    @field_validator("reason_codes")
+    @classmethod
+    def _validate_unique_reason_codes(cls, v: list[str]) -> list[str]:
+        if len(v) != len(set(v)):
+            raise ValueError("reason_codes must have unique items")
+        return v
 
 
 class ExecutionCommand(BaseDomain):
@@ -413,11 +611,12 @@ class ExecutionCommand(BaseDomain):
     command_id: UUIDStr
     operation_id: UUIDStr
     attempt_id: UUIDStr
-    authorization_type: Literal["USER_CONFIRMATION", "AUTOMATION"]
+    authorization_type: AuthorizationType
     authorization_id: UUIDStr
-    action: Literal["PLACE_ORDER", "CANCEL_ORDER", "MODIFY_ORDER", "TIGHTEN_STOP", "EMERGENCY_CLOSE"]
+    action: ExecutionAction
+    # Conditional fields (required when action='PLACE_ORDER')
     client_order_id: ClientOrderIdStr | None = None
-    symbol: Symbol
+    symbol: Symbol | None = None
     side: Side | None = None
     order_type: OrderType | None = None
     time_in_force: TimeInForce | None = None
@@ -426,14 +625,47 @@ class ExecutionCommand(BaseDomain):
     reduce_only: bool = False
     created_at: TimestampStr
 
+    @model_validator(mode="after")
+    def _enforce_conditional_rules(self) -> "ExecutionCommand":
+        # PLACE_ORDER requires order fields
+        if self.action == ExecutionAction.PLACE_ORDER:
+            missing = []
+            for field_name in (
+                "client_order_id", "symbol", "side", "order_type",
+                "time_in_force", "quantity", "worst_acceptable_price",
+            ):
+                if getattr(self, field_name) is None:
+                    missing.append(field_name)
+            if missing:
+                raise ValueError(
+                    f"PLACE_ORDER requires fields: {', '.join(missing)}"
+                )
+            # MARKET => IOC only
+            if self.order_type == OrderType.MARKET and self.time_in_force != TimeInForce.IOC:
+                raise ValueError("PLACE_ORDER MARKET requires IOC time_in_force")
+            # LIMIT => GTC or ALO
+            if self.order_type == OrderType.LIMIT and self.time_in_force not in (
+                TimeInForce.GTC,
+                TimeInForce.ALO,
+            ):
+                raise ValueError("PLACE_ORDER LIMIT requires GTC or ALO time_in_force")
+
+        # RISK_REDUCTION enforces reduce_only=true
+        if self.authorization_type == AuthorizationType.RISK_REDUCTION:
+            if self.reduce_only is not True:
+                raise ValueError("RISK_REDUCTION requires reduce_only=true")
+
+        return self
+
 
 class ExecutionResult(BaseDomain):
     schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
     result_id: UUIDStr
     command_id: UUIDStr
     attempt_id: UUIDStr
-    status: Literal["ACKNOWLEDGED", "REJECTED", "UNKNOWN_REQUIRES_RECONCILIATION"]
+    status: ExecutionResultStatus
     exchange_order_id: str | None = Field(default=None, max_length=128)
+    error_code: ErrorCodeStr | None = None
     observed_at: TimestampStr
 
 
@@ -442,11 +674,41 @@ class ProtectionStatus(BaseDomain):
     protection_status_id: UUIDStr
     position_id: UUIDStr
     state: ProtectionState
+    # NonNegativeDecimal by default; when state=PROTECTED, must be PositiveDecimal
     absolute_live_position_quantity: NonNegativeDecimalStr
-    active_stop_order_ids: list[str] = Field(min_length=1)
-    coverage_evidence_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    active_stop_order_ids: list[StopOrderIdStr] = Field(
+        default_factory=list, max_length=32,
+    )
+    coverage_evidence_hash: HashStr | None = None
     data_status: DataStatus
     observed_at: TimestampStr
+
+    @field_validator("active_stop_order_ids")
+    @classmethod
+    def _validate_unique_stop_ids(cls, v: list[str]) -> list[str]:
+        if len(v) != len(set(v)):
+            raise ValueError("active_stop_order_ids must have unique items")
+        return v
+
+    @model_validator(mode="after")
+    def _enforce_protected_conditionals(self) -> "ProtectionStatus":
+        if self.state == ProtectionState.PROTECTED:
+            # Must have at least one stop order
+            if len(self.active_stop_order_ids) < 1:
+                raise ValueError(
+                    "PROTECTED state requires at least one active_stop_order_id"
+                )
+            # Must have coverage_evidence_hash
+            if self.coverage_evidence_hash is None:
+                raise ValueError(
+                    "PROTECTED state requires coverage_evidence_hash"
+                )
+            # absolute_live_position_quantity must be positive (not zero)
+            if not POSITIVE_DECIMAL_RE.match(self.absolute_live_position_quantity):
+                raise ValueError(
+                    "PROTECTED state requires positive absolute_live_position_quantity"
+                )
+        return self
 
 
 class ReconciliationStatus(BaseDomain):
@@ -455,9 +717,19 @@ class ReconciliationStatus(BaseDomain):
     operation_id: UUIDStr
     attempt_id: UUIDStr
     client_order_id: ClientOrderIdStr
-    state: Literal["PENDING", "RECONCILED", "MANUAL_REQUIRED"]
-    evidence_sources: list[Literal["CLOID", "OID", "FILL", "ORDERBOOK", "EXCHANGE_EVENT"]] = Field(min_length=1)
+    state: ReconciliationState
+    evidence_sources: list[EvidenceSource] = Field(min_length=1)
+    exchange_order_id: str | None = Field(default=None, max_length=128)
     checked_at: TimestampStr
+
+    @field_validator("evidence_sources")
+    @classmethod
+    def _validate_unique_evidence_sources(
+        cls, v: list[EvidenceSource]
+    ) -> list[EvidenceSource]:
+        if len(v) != len(set(v)):
+            raise ValueError("evidence_sources must have unique items")
+        return v
 
 
 class AgentFeedback(BaseDomain):
@@ -480,25 +752,32 @@ class AutomationAuthorization(BaseDomain):
     account_id: UUIDStr
     device_id: UUIDStr
     session_id: UUIDStr
-    risk_policy_version: str = Field(pattern=r"^risk-[a-z0-9][a-z0-9._-]{0,63}$")
-    strategy_version: str = Field(pattern=r"^strategy-[a-z0-9][a-z0-9._-]{0,63}$")
-    model_version: str = Field(pattern=r"^model-[a-z0-9][a-z0-9._-]{0,63}$")
-    review_model_version: str = Field(pattern=r"^model-[a-z0-9][a-z0-9._-]{0,63}$")
+    risk_policy_version: VersionStr
+    strategy_version: VersionStr
+    model_version: VersionStr
+    review_model_version: VersionStr
     allowed_symbols: list[Symbol] = Field(min_length=1)
     maximum_notional: PositiveDecimalStr
-    authorization_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    authorization_hash: HashStr
     authorized_at: TimestampStr
+
+    @field_validator("allowed_symbols")
+    @classmethod
+    def _validate_unique_symbols(cls, v: list[Symbol]) -> list[Symbol]:
+        if len(v) != len(set(v)):
+            raise ValueError("allowed_symbols must have unique items")
+        return v
 
 
 class AuditEvent(BaseDomain):
     schema_version: Literal["fit.trade.v1"] = "fit.trade.v1"
     event_id: UUIDStr
-    event_type: str = Field(min_length=1, max_length=64)
-    actor_type: Literal["USER", "SYSTEM"]
-    subject_type: str = Field(min_length=1, max_length=32)
+    event_type: EventTypeStr
+    actor_type: AuditActorType
+    subject_type: AuditSubjectType
     subject_id: UUIDStr
     occurred_at: TimestampStr
-    payload_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    payload_hash: HashStr
 
 
 # ---------------------------------------------------------------------------
