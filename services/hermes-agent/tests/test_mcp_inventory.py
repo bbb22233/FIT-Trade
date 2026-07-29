@@ -1,13 +1,14 @@
 """Test the MCP tool inventory against all frozen invariants."""
 import pytest
+import jsonschema
 from hermes_agent.mcp_tools import (
     validate_mcp_inventory,
     get_tool_by_name,
     get_tool_names,
     FORBIDDEN_PATTERN,
-    EXPECTED_TOOL_NAMES,
-    EXPECTED_RISK_EFFECTS,
+    FORBIDDEN_CAPABILITIES,
     SERVER_SCOPE_FIELDS,
+    load_mcp_inventory,
 )
 
 
@@ -16,18 +17,34 @@ def test_mcp_inventory_has_exactly_ten_tools():
     assert len(tools) == 10
 
 
-def test_mcp_inventory_names_match_expected():
+def test_mcp_inventory_names_derived_from_inventory():
+    """get_tool_names must derive names from the validated inventory only."""
     tools = validate_mcp_inventory()
     actual = sorted(t["name"] for t in tools)
-    assert actual == EXPECTED_TOOL_NAMES
+    names = get_tool_names()
+    assert names == actual
 
 
-def test_mcp_inventory_risk_effects_correct():
+def test_mcp_inventory_names_match_schema_enum():
+    """Tool names must match the schema enum (validated by JSON Schema)."""
     tools = validate_mcp_inventory()
+    allowed = {
+        "get_market_snapshot", "get_account_state", "get_positions",
+        "get_open_orders", "get_risk_limits", "create_trade_intent",
+        "request_reduce_position", "cancel_entry_order", "tighten_stop",
+        "submit_trade_feedback",
+    }
+    actual = {t["name"] for t in tools}
+    assert actual == allowed
+
+
+def test_mcp_inventory_risk_effects_are_valid():
+    """Every tool must have a valid risk_effect from the frozen enum."""
+    tools = validate_mcp_inventory()
+    valid_effects = {"READ_ONLY", "PROPOSE_INCREASE", "REDUCE_RISK", "LEARNING_ONLY"}
     for tool in tools:
-        name = tool["name"]
-        assert tool["risk_effect"] == EXPECTED_RISK_EFFECTS[name], (
-            f"{name}: wrong risk_effect"
+        assert tool["risk_effect"] in valid_effects, (
+            f"{tool['name']}: invalid risk_effect '{tool['risk_effect']}'"
         )
 
 
@@ -36,6 +53,9 @@ def test_mcp_inventory_no_forbidden_names():
     for tool in tools:
         assert not FORBIDDEN_PATTERN.search(tool["name"]), (
             f"forbidden MCP name: {tool['name']}"
+        )
+        assert tool["name"] not in FORBIDDEN_CAPABILITIES, (
+            f"forbidden capability: {tool['name']}"
         )
 
 
@@ -73,16 +93,9 @@ def test_mcp_input_schemas_forbid_additional_properties():
 
 def test_mcp_forbidden_tool_types():
     """Verify no raw signing, order, withdraw, transfer, SQL, or shell tools exist."""
-    FORBIDDEN_NAMES = {
-        "raw_signing", "raw_sign", "sign_order", "sign_transaction",
-        "place_order", "place_raw_order", "submit_order",
-        "withdraw", "request_withdrawal", "transfer", "transfer_funds",
-        "execute_sql", "run_query", "exec_shell", "spawn_process",
-        "read_private_key", "get_wallet", "wallet_action",
-    }
     tools = validate_mcp_inventory()
     tool_names = {t["name"] for t in tools}
-    for forbidden in FORBIDDEN_NAMES:
+    for forbidden in FORBIDDEN_CAPABILITIES:
         assert forbidden not in tool_names, f"forbidden MCP tool present: {forbidden}"
 
 
@@ -135,6 +148,23 @@ def test_mcp_create_trade_intent_rejects_model_supplied_ids():
             v.validate(injected)
 
 
-def test_mcp_covers_get_tool_names():
-    """get_tool_names returns the correct list."""
-    assert get_tool_names() == EXPECTED_TOOL_NAMES
+def test_mcp_inventory_validates_against_schema_with_format():
+    """The entire inventory document must validate against mcp-tools-v1.schema.json."""
+    inventory = load_mcp_inventory()
+    from jsonschema import Draft202012Validator
+    from hermes_agent.mcp_tools import MCP_SCHEMA_PATH, _load_json as _load
+    schema = _load(MCP_SCHEMA_PATH)
+    validator = Draft202012Validator(
+        schema, format_checker=Draft202012Validator.FORMAT_CHECKER,
+    )
+    validator.validate(inventory)  # should not raise
+
+
+def test_get_tool_names_returns_from_validated_inventory():
+    """get_tool_names must return names sorted from the validated inventory."""
+    names = get_tool_names()
+    assert len(names) == 10
+    assert names == sorted(names)  # must be sorted
+    # Verify each name resolves to a tool
+    for name in names:
+        get_tool_by_name(name)  # should not raise

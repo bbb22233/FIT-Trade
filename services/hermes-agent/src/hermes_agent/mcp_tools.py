@@ -1,6 +1,10 @@
 """FIT-Trade MCP tool inventory — loads and validates the frozen ten-tool surface.
 
-Consumes contracts/mcp-tools-v1.json and exposes only that tool list.
+Consumes contracts/mcp-tools-v1.json and validates it against
+contracts/jsonschema/mcp-tools-v1.schema.json with full format checking.
+Derives tool names, risk effects, and all invariants from the validated
+inventory — never from hardcoded duplicates.
+
 Rejects forbidden capabilities: raw signing, raw order, withdraw, transfer,
 SQL, shell, exec, spawn.
 """
@@ -11,6 +15,8 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+
+from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 # Relative to the repo root (services/hermes-agent/)
 CONTRACTS_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent / "contracts"
@@ -23,90 +29,95 @@ FORBIDDEN_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-EXPECTED_TOOL_NAMES = sorted([
-    "cancel_entry_order",
-    "create_trade_intent",
-    "get_account_state",
-    "get_market_snapshot",
-    "get_open_orders",
-    "get_positions",
-    "get_risk_limits",
-    "request_reduce_position",
-    "submit_trade_feedback",
-    "tighten_stop",
-])
-
-EXPECTED_RISK_EFFECTS: dict[str, str] = {
-    "cancel_entry_order": "REDUCE_RISK",
-    "create_trade_intent": "PROPOSE_INCREASE",
-    "get_account_state": "READ_ONLY",
-    "get_market_snapshot": "READ_ONLY",
-    "get_open_orders": "READ_ONLY",
-    "get_positions": "READ_ONLY",
-    "get_risk_limits": "READ_ONLY",
-    "request_reduce_position": "REDUCE_RISK",
-    "submit_trade_feedback": "LEARNING_ONLY",
-    "tighten_stop": "REDUCE_RISK",
+FORBIDDEN_CAPABILITIES = {
+    "raw_signing", "raw_sign", "sign_order", "sign_transaction",
+    "place_order", "place_raw_order", "submit_order",
+    "withdraw", "request_withdrawal", "transfer", "transfer_funds",
+    "execute_sql", "run_query", "exec_shell", "spawn_process",
+    "read_private_key", "get_wallet", "wallet_action",
 }
 
 SERVER_SCOPE_FIELDS = {"user_id", "account_id", "session_id"}
+SERVER_SCOPE_CONST = ["user_id", "account_id", "session_id"]
+
+
+# ---------------------------------------------------------------------------
+# Cached validators and inventory
+# ---------------------------------------------------------------------------
+
+_inventory_schema_validator: Draft202012Validator | None = None
+_validated_inventory: list[dict[str, Any]] | None = None
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text())
 
 
 def load_mcp_inventory() -> dict[str, Any]:
     """Load the frozen MCP tool inventory from contracts."""
     if not MCP_TOOLS_PATH.exists():
         raise FileNotFoundError(f"MCP inventory not found: {MCP_TOOLS_PATH}")
-    return json.loads(MCP_TOOLS_PATH.read_text())
+    return _load_json(MCP_TOOLS_PATH)
+
+
+def _get_inventory_schema_validator() -> Draft202012Validator:
+    """Return a cached Draft202012Validator for mcp-tools-v1.schema.json with format checking."""
+    global _inventory_schema_validator
+    if _inventory_schema_validator is None:
+        schema = _load_json(MCP_SCHEMA_PATH)
+        _inventory_schema_validator = Draft202012Validator(
+            schema, format_checker=Draft202012Validator.FORMAT_CHECKER,
+        )
+    return _inventory_schema_validator
 
 
 def validate_mcp_inventory(inventory: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Validate the MCP tool inventory against all frozen invariants.
+    """Validate the MCP tool inventory against the frozen JSON Schema and invariants.
 
-    Returns the list of validated tool definitions.
+    Steps:
+      1. Validate the inventory document against mcp-tools-v1.schema.json (format checking on).
+      2. Enforce generic security invariants: forbidden capabilities, exact count 10,
+         server-injected scope, additionalProperties false.
+      3. Cache and return the validated tool list.
 
-    Raises ValueError on any violation.
+    Raises ValidationError or ValueError on any violation.
     """
     if inventory is None:
         inventory = load_mcp_inventory()
 
-    if inventory.get("schema_version") != "fit.mcp.v1":
-        raise ValueError("MCP inventory must be schema_version fit.mcp.v1")
+    # 1. Validate against the frozen JSON Schema with format checking
+    validator = _get_inventory_schema_validator()
+    try:
+        validator.validate(inventory)
+    except ValidationError as e:
+        raise ValueError(f"MCP inventory schema validation failed: {e.message}") from e
 
     tools: list[dict[str, Any]] = inventory.get("tools", [])
+
+    # 2. Generic security invariants (schema enforces count=10 but double-check)
     if len(tools) != 10:
         raise ValueError(f"MCP inventory must have exactly 10 tools, got {len(tools)}")
 
-    # Verify all expected names are present
-    actual_names = sorted(t.get("name", "") for t in tools)
-    if actual_names != EXPECTED_TOOL_NAMES:
-        raise ValueError(
-            f"MCP tool names mismatch: expected {EXPECTED_TOOL_NAMES}, got {actual_names}"
-        )
-
+    # 3. Forbidden capabilities
     for tool in tools:
         name = tool["name"]
-        risk = tool.get("risk_effect")
 
-        # Forbidden names
+        # Forbidden name patterns
         if FORBIDDEN_PATTERN.search(name):
             raise ValueError(f"MCP tool '{name}' matches forbidden pattern")
 
-        # Risk effect must match
-        expected_risk = EXPECTED_RISK_EFFECTS.get(name)
-        if risk != expected_risk:
-            raise ValueError(
-                f"MCP tool '{name}' has risk_effect '{risk}', expected '{expected_risk}'"
-            )
+        # Forbidden explicit tool names
+        if name in FORBIDDEN_CAPABILITIES:
+            raise ValueError(f"MCP tool '{name}' is a forbidden capability")
 
-        # Server-injected scope must be correct
-        scope = tool.get("server_injected_scope", [])
-        if sorted(scope) != sorted(SERVER_SCOPE_FIELDS):
-            raise ValueError(
-                f"MCP tool '{name}' has wrong server_injected_scope: {scope}"
-            )
-
-        # Input schema must reject server-injected fields
+        # input_schema must have additionalProperties: false
         input_schema = tool.get("input_schema", {})
+        if input_schema.get("additionalProperties") is not False:
+            raise ValueError(
+                f"MCP tool '{name}' input_schema must forbid additionalProperties"
+            )
+
+        # Server-injected fields must NOT appear in input_schema properties
         props = input_schema.get("properties", {})
         for field in SERVER_SCOPE_FIELDS:
             if field in props:
@@ -114,11 +125,13 @@ def validate_mcp_inventory(inventory: dict[str, Any] | None = None) -> list[dict
                     f"MCP tool '{name}' exposes server-injected field '{field}' in input_schema"
                 )
 
-        # Every input_schema must have additionalProperties: false
-        if input_schema.get("additionalProperties") is not False:
-            raise ValueError(f"MCP tool '{name}' input_schema must forbid additionalProperties")
-
     return tools
+
+
+def get_tool_names() -> list[str]:
+    """Return the sorted list of validated tool names, derived from the frozen inventory."""
+    tools = validate_mcp_inventory()
+    return sorted(t["name"] for t in tools)
 
 
 def get_tool_by_name(name: str) -> dict[str, Any]:
@@ -128,8 +141,3 @@ def get_tool_by_name(name: str) -> dict[str, Any]:
         if tool["name"] == name:
             return tool
     raise KeyError(f"MCP tool not found: {name}")
-
-
-def get_tool_names() -> list[str]:
-    """Return the sorted list of validated tool names."""
-    return EXPECTED_TOOL_NAMES.copy()
