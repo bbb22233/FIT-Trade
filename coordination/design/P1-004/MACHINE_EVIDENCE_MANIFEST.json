@@ -1,0 +1,280 @@
+{
+  "schema_version": "fit.p1-004.postgres-design-evidence.v2",
+  "task_id": "P1-004-DESIGN-R2",
+  "design_status": "FROZEN_DESIGN_ONLY",
+  "review_status": "NOT_EXECUTED",
+  "baseline_commit": "9b4b113a4032f7f0eee88297781e3b2d069b1f18",
+  "superseded_candidate": "ce256978361df494ad95b2fd3cba39ccbc724da5",
+  "interface_capsule_commit": "f61474ba4f96624f34ff478bd0047c28e72becab",
+  "accepted_authority": "interface capsule takes precedence where more specific",
+  "scope": {
+    "allowed_paths": [
+      "coordination/design/P1-004/DESIGN.md",
+      "coordination/design/P1-004/TEST_CHECKLIST.md",
+      "coordination/design/P1-004/MACHINE_EVIDENCE_MANIFEST.json"
+    ],
+    "code_implemented": false,
+    "postgres_executed": false,
+    "live_wallet_connected": false,
+    "exchange_write_enabled": false,
+    "deployed": false,
+    "merged": false,
+    "pushed": false
+  },
+  "requirements": [
+    {
+      "id": "P1-004-R2-REQ-001",
+      "status": "FROZEN",
+      "assertion": "operations_attempts_orders_have_global_primary_fact_ids_not_null_owner_tuples_owner_covering_uniques_and_composite_fks"
+    },
+    {
+      "id": "P1-004-R2-REQ-002",
+      "status": "FROZEN",
+      "assertion": "owner_and_control_plane_idempotency_scopes_have_distinct_non_null_unique_keys"
+    },
+    {
+      "id": "P1-004-R2-REQ-003",
+      "status": "FROZEN",
+      "assertion": "aead_nonce_ledger_survives_cache_ttl_and_collision_fails_closed"
+    },
+    {
+      "id": "P1-004-R2-REQ-004",
+      "status": "FROZEN",
+      "assertion": "confirmation_full_authority_and_consumption_claim_equality_are_declarative"
+    },
+    {
+      "id": "P1-004-R2-REQ-005",
+      "status": "FROZEN",
+      "assertion": "wf_01_through_wf_11_have_one_transaction_atomic_write_sets_and_one_final_head_cas"
+    },
+    {
+      "id": "P1-004-R2-REQ-006",
+      "status": "FROZEN",
+      "assertion": "quarantine_is_immutable_audited_and_term_follows_commit_else_delayed_nak"
+    },
+    {
+      "id": "P1-004-R2-REQ-007",
+      "status": "FROZEN",
+      "assertion": "only_authorize_once_active_with_exact_binding_is_controlled_replay_consumable"
+    },
+    {
+      "id": "P1-004-R2-REQ-008",
+      "status": "FROZEN",
+      "assertion": "inbox_digest_scope_order_and_applied_status_are_one_commit_before_ack"
+    },
+    {
+      "id": "P1-004-R2-REQ-009",
+      "status": "FROZEN",
+      "assertion": "one_durable_clock_snapshot_and_watermark_fail_closed_on_rollback"
+    },
+    {
+      "id": "P1-004-R2-REQ-010",
+      "status": "FROZEN",
+      "assertion": "transport_limits_are_one_versioned_source_without_override"
+    },
+    {
+      "id": "P1-004-R2-REQ-011",
+      "status": "FROZEN",
+      "assertion": "design_evidence_never_converts_unexecuted_database_or_runtime_checks_to_pass"
+    }
+  ],
+  "idempotency": {
+    "owner_unique_key": [
+      "user_id",
+      "trading_account_id",
+      "ownership_id",
+      "route_template",
+      "stable_key_kind",
+      "stable_key_digest"
+    ],
+    "control_plane_unique_key": [
+      "authority_kind",
+      "control_plane_aggregate_id",
+      "route_template",
+      "stable_key_kind",
+      "stable_key_digest"
+    ],
+    "ordinary_nullable_unique_allowed": false
+  },
+  "nonce_ledger": {
+    "table": "aead_nonce_ledger",
+    "primary_key": ["key_id", "nonce"],
+    "unique_key": ["claim_id"],
+    "cleanup_with_cache_ttl": false,
+    "reservation_attempt_limit": 3,
+    "exhaustion_result": "NONCE_RESERVATION_FAILED"
+  },
+  "durable_owner_facts": {
+    "operations": {
+      "primary_key": ["operation_id"],
+      "owner_covering_unique": ["operation_id", "user_id", "trading_account_id", "ownership_id"],
+      "ownership_foreign_key": ["user_id", "trading_account_id", "ownership_id"],
+      "cross_owner_same_id_result": "PRIMARY_KEY_REJECT_BEFORE_INSERT"
+    },
+    "execution_attempts": {
+      "primary_key": ["attempt_id"],
+      "owner_covering_unique": ["attempt_id", "operation_id", "user_id", "trading_account_id", "ownership_id"],
+      "operation_foreign_key": ["operation_id", "user_id", "trading_account_id", "ownership_id"],
+      "ownership_foreign_key": ["user_id", "trading_account_id", "ownership_id"],
+      "cross_owner_same_id_result": "PRIMARY_KEY_REJECT_BEFORE_INSERT"
+    },
+    "orders": {
+      "primary_key": ["order_id"],
+      "owner_covering_unique": ["order_id", "attempt_id", "operation_id", "user_id", "trading_account_id", "ownership_id"],
+      "attempt_foreign_key": ["attempt_id", "operation_id", "user_id", "trading_account_id", "ownership_id"],
+      "operation_foreign_key": ["operation_id", "user_id", "trading_account_id", "ownership_id"],
+      "ownership_foreign_key": ["user_id", "trading_account_id", "ownership_id"],
+      "cross_owner_same_id_result": "PRIMARY_KEY_REJECT_BEFORE_INSERT"
+    }
+  },
+  "confirmation": {
+    "full_authority_key": [
+      "confirmation_id",
+      "user_id",
+      "trading_account_id",
+      "ownership_id",
+      "session_id",
+      "device_id",
+      "purpose",
+      "intent_id",
+      "intent_digest"
+    ],
+    "operation_covering_key": [
+      "operation_id",
+      "confirmation_id",
+      "user_id",
+      "trading_account_id",
+      "ownership_id",
+      "intent_id"
+    ],
+    "consumption_claim_equality_fk": ["confirmation_id", "request_claim_id"],
+    "negative_mutations": ["ownership_id", "session_id", "device_id", "request_claim_id"]
+  },
+  "request_workflows": [
+    {"id":"WF-01","name":"successful_login","authority":"OWNER_ACTIVE","stable_key_kind":"IDEMPOTENCY_KEY","locks":["source_throttle","resolved_user_throttle","active_ownership","result_claim","SESSION_aggregate_head"],"writes":["throttle_state","pre_auth_invalidation","session","refresh_family","refresh_token_digest","login_audit","history_outbox_LOGIN_SUCCEEDED_v_plus_1","nonce_reservation","sealed_cache_last"],"event_plan":"1","replay":"EXACT_CACHE_OR_RECONCILIATION_NO_REEXECUTION"},
+    {"id":"WF-02","name":"real_enrollment_challenge_creation","authority":"OWNER_ACTIVE","stable_key_kind":"IDEMPOTENCY_KEY","locks":["shared_throttles","active_ownership","result_claim","ENROLLMENT_CHALLENGE_aggregate_head"],"writes":["throttle_state","real_challenge","challenge_audit","history_outbox_ENROLLMENT_CHALLENGE_ISSUED_v_plus_1","nonce_reservation","sealed_cache_last"],"event_plan":"1","replay":"EXACT_CACHE_OR_RECONCILIATION_NO_REEXECUTION","synthetic_path_writes":0},
+    {"id":"WF-03","name":"failed_enrollment_proof","authority":"REAL_CHALLENGE_OWNER","stable_key_kind":"IDEMPOTENCY_KEY","locks":["result_claim","real_challenge","proof_binding","ENROLLMENT_CHALLENGE_aggregate_head"],"writes":["consume_one_challenge_attempt","rejected_proof_audit","history_outbox_ENROLLMENT_PROOF_REJECTED_v_plus_1","nonce_reservation","sealed_cache_last"],"event_plan":"1","replay":"EXACT_CACHE_OR_RECONCILIATION_NO_REEXECUTION","forbidden_writes":["device","session","family","credential","second_proof_attempt"]},
+    {"id":"WF-04","name":"password_failure","authority":"AUTH_SECURITY_SOURCE_ONLY_OR_RESOLVED_USER","stable_key_kind":"REQUEST_ID","locks":["source_throttle","optional_resolved_user_throttle","result_claim","AUTH_THROTTLE_aggregate_head_only_if_new_lock"],"writes":["source_failure","optional_user_failure","next_allowed_or_lock","ordered_audit_notification_history_outbox_per_newly_locked_dimension","nonce_reservation","sealed_cache_last"],"event_plan":"2_times_L_source_then_user_L_0_1_2","replay":"SAME_REQUEST_NO_INCREMENT_CACHE_LOSS_NO_REPEAT"},
+    {"id":"WF-05","name":"ordinary_device_enrollment","authority":"REAL_CHALLENGE_OWNER_ACTIVE_RECHECK","stable_key_kind":"IDEMPOTENCY_KEY","locks":["result_claim","challenge","active_ownership","global_device_key_uniqueness","DEVICE_aggregate_head"],"writes":["consume_challenge","new_device","retain_prior_device_session_family","new_session_family_token","audit","notification","history_outbox_DEVICE_ENROLLED_v_plus_1_v_plus_2","nonce_reservation","sealed_cache_last"],"event_plan":"2_audit_then_notification","replay":"EXACT_CACHE_OR_RECONCILIATION_NO_REEXECUTION"},
+    {"id":"WF-06","name":"replacement_device_enrollment","authority":"REAL_CHALLENGE_OWNER_ACTIVE_RECHECK","stable_key_kind":"IDEMPOTENCY_KEY","locks":["result_claim","challenge","ownership","prior_device_session_family_deterministic_id_order","global_device_key_uniqueness","DEVICE_aggregate_head"],"writes":["consume_challenge","revoke_all_prior_device_session_family","new_replacement_device","new_session_family_token","audit","notification","history_outbox_DEVICE_REPLACED_v_plus_1_v_plus_2","nonce_reservation","sealed_cache_last"],"event_plan":"2_audit_then_notification","replay":"EXACT_CACHE_OR_RECONCILIATION_NO_REEXECUTION"},
+    {"id":"WF-07","name":"refresh_rotation","authority":"REFRESH_FAMILY_OWNER","stable_key_kind":"IDEMPOTENCY_KEY","locks":["result_claim","refresh_family","family_deadline","rotated_reuse","individual_expiry","active_rotation","REFRESH_FAMILY_aggregate_head_only_on_reuse"],"writes":["rotate_active_digest_or_revoke_descendants","reuse_audit_notification_history_outbox_v_plus_1_v_plus_2_if_reuse","nonce_reservation","sealed_cache_last"],"event_plan":"0_active_or_2_reuse","replay":"SAME_KEY_NEVER_RECLASSIFIES_REUSE_CACHE_LOSS_NO_REPEAT"},
+    {"id":"WF-08","name":"device_revocation","authority":"OWNER_ACTIVE_TARGET_OWNER_RECHECK","stable_key_kind":"IDEMPOTENCY_KEY","locks":["target_device","owner","result_claim","dependent_sessions_families","DEVICE_aggregate_head"],"writes":["device_revocation","dependent_session_family_revocations","audit","notification","history_outbox_DEVICE_REVOKED_v_plus_1_v_plus_2","nonce_reservation","sealed_cache_last"],"event_plan":"2_audit_then_notification","replay":"EXACT_CACHE_OR_RECONCILIATION_NO_REEXECUTION"},
+    {"id":"WF-09","name":"session_revocation","authority":"OWNER_ACTIVE_TARGET_OWNER_RECHECK","stable_key_kind":"IDEMPOTENCY_KEY","locks":["target_session","owner","result_claim","refresh_family","SESSION_aggregate_head"],"writes":["session_family_revocation","audit","notification","history_outbox_SESSION_REVOKED_v_plus_1_v_plus_2","nonce_reservation","sealed_cache_last"],"event_plan":"2_audit_then_notification","replay":"EXACT_CACHE_OR_RECONCILIATION_NO_REEXECUTION"},
+    {"id":"WF-10","name":"owner_mutation","authority":"OWNER_ACTIVE_ALLOWLISTED_TARGET_RECHECK","stable_key_kind":"IDEMPOTENCY_KEY","locks":["owner_target","result_claim","business_aggregate_head"],"writes":["allowlisted_business_effect","audit","history_outbox_OWNER_MUTATION_COMMITTED_v_plus_1","nonce_reservation","sealed_cache_last"],"event_plan":"1","replay":"EXACT_CACHE_OR_RECONCILIATION_NO_REEXECUTION"},
+    {"id":"WF-11","name":"confirmation_consume","authority":"OWNER_OWNERSHIP_SESSION_DEVICE_FULL_AUTHORITY","stable_key_kind":"IDEMPOTENCY_KEY","locks":["owner_ownership","result_claim","confirmation","prelinked_awaiting_confirmation_operation","full_authority_and_expected_version_checks"],"writes":["consumed_or_expired_confirmation_cas","consumption_claim_equality_link_if_consumed","confirmed_or_expired_operation_cas","owner_audit","history_outbox_OPERATION_v_plus_1","nonce_reservation","sealed_cache_last"],"event_plan":"1","replay":"EXACT_CACHE_OR_DURABLE_OPERATION_RECONCILIATION_NO_REEXECUTION"}
+  ],
+  "transport_limits": {
+    "schema_version": "fit.transport-limits.dev.v1",
+    "max_request_target_bytes": 8192,
+    "max_header_bytes": 16384,
+    "max_unauthenticated_body_bytes": 16384,
+    "max_authenticated_body_bytes": 65536,
+    "max_credential_workflow_body_bytes": 32768,
+    "max_response_body_bytes": 65536,
+    "max_websocket_data_frame_bytes": 65536,
+    "max_websocket_application_control_bytes": 4096,
+    "max_websocket_protocol_control_bytes": 125,
+    "http_header_read_deadline_ms": 5000,
+    "http_read_deadline_ms": 10000,
+    "http_write_deadline_ms": 15000,
+    "http_idle_deadline_ms": 60000,
+    "websocket_read_deadline_ms": 75000,
+    "websocket_write_deadline_ms": 10000,
+    "websocket_ping_interval_ms": 30000,
+    "websocket_reauth_issue_before_expiry_ms": 60000,
+    "websocket_reauth_max_response_ms": 60000,
+    "max_http_connections_global": 256,
+    "max_websocket_connections_global": 128,
+    "max_inflight_requests_global": 256,
+    "max_handler_goroutines_per_connection": 2,
+    "max_admission_queue_depth": 128,
+    "shutdown_grace_ms": 10000,
+    "forced_close_at_ms_from_shutdown": 10000,
+    "cleanup_deadline_ms_from_shutdown": 15000,
+    "per_source_per_session_manifest": "http-rate-limits-v1.json",
+    "composition": "DENY_IF_ANY_DENIES",
+    "override_allowed": false
+  },
+  "replay_authorization": {
+    "consumable_predicate": "decision=AUTHORIZE_ONCE AND state=ACTIVE AND complete_binding AND consumed_at IS NULL AND consumed_by_worker_id IS NULL AND snapshot < expires_at",
+    "partial_unique_predicate": "decision=AUTHORIZE_ONCE AND state=ACTIVE",
+    "terminal_decisions": ["DENY_PERMANENTLY", "REQUIRE_MANUAL_RECONCILIATION"],
+    "term_after_isolation_commit": true,
+    "isolation_failure_action": "DELAYED_NAK"
+  },
+  "evidence_cases": [
+    {"id": "P1-004-EV-037", "requirement": "P1-004-R2-REQ-001", "case": "owner-fact-primary-keys-and-composite-fks", "expected": "PRIMARY_KEY_OR_COMPOSITE_FK_REJECT_BEFORE_INSERT_OR_STATE_CHANGE"},
+    {"id": "P1-004-EV-038", "requirement": "P1-004-R2-REQ-002", "case": "typed-idempotency-scope", "expected": "REJECT_NULL_OR_CROSS_SCOPE"},
+    {"id": "P1-004-EV-039", "requirement": "P1-004-R2-REQ-003", "case": "nonce-ledger-ttl-collision", "expected": "TTL_DOES_NOT_RELEASE_NONCE"},
+    {"id": "P1-004-EV-040", "requirement": "P1-004-R2-REQ-004", "case": "confirmation-full-authority-and-claim-equality", "expected": "REJECT_BEFORE_CAS_CACHE_OR_RECONCILIATION"},
+    {"id": "P1-004-EV-041", "requirement": "P1-004-R2-REQ-005", "case": "workflow-atomic-write-sets", "expected": "EACH_WF_EACH_DECLARED_WRITE_AND_COMMIT_IS_COMPLETE_OR_ABSENT"},
+    {"id": "P1-004-EV-042", "requirement": "P1-004-R2-REQ-006", "case": "quarantine-term-nak-replay-matrix", "expected": "TERM_ONLY_AFTER_COMMIT"},
+    {"id": "P1-004-EV-043", "requirement": "P1-004-R2-REQ-007", "case": "controlled-replay-inbox", "expected": "ONE_EFFECT_ONE_AUTHORIZATION_CONSUMPTION"},
+    {"id": "P1-004-EV-044", "requirement": "P1-004-R2-REQ-008", "case": "clock-and-transport-limits-capsule", "expected": "ALL_FIELDS_EQUALITY_ONE_OVER_DEADLINE_REAUTH_HANDLER_OVERRIDE_AND_DENY_IF_ANY_DENIES_FAIL_CLOSED"}
+  ],
+  "requirement_coverage": {
+    "P1-004-R2-REQ-001": ["P1-004-EV-037"],
+    "P1-004-R2-REQ-002": ["P1-004-EV-038"],
+    "P1-004-R2-REQ-003": ["P1-004-EV-039"],
+    "P1-004-R2-REQ-004": ["P1-004-EV-040"],
+    "P1-004-R2-REQ-005": ["P1-004-EV-041"],
+    "P1-004-R2-REQ-006": ["P1-004-EV-042"],
+    "P1-004-R2-REQ-007": ["P1-004-EV-042", "P1-004-EV-043"],
+    "P1-004-R2-REQ-008": ["P1-004-EV-043"],
+    "P1-004-R2-REQ-009": ["P1-004-EV-044"],
+    "P1-004-R2-REQ-010": ["P1-004-EV-044"],
+    "P1-004-R2-REQ-011": ["P1-004-R2-ORACLE-002"]
+  },
+  "oracles": [
+    {
+      "id": "P1-004-R2-ORACLE-001",
+      "phase": "design-static",
+      "command": "set -euo pipefail; : \"${CANDIDATE:?set candidate}\"; test \"$(git rev-parse \"${CANDIDATE}^\")\" = 9b4b113a4032f7f0eee88297781e3b2d069b1f18; git diff-tree --no-commit-id --name-only -r \"$CANDIDATE\" | sort | diff -u <(printf '%s\\n' coordination/design/P1-004/DESIGN.md coordination/design/P1-004/MACHINE_EVIDENCE_MANIFEST.json coordination/design/P1-004/TEST_CHECKLIST.md) -"
+    },
+    {
+      "id": "P1-004-R2-ORACLE-002",
+      "phase": "design-static",
+      "command": "set -euo pipefail; : \"${CANDIDATE:?set candidate}\"; git show \"${CANDIDATE}:coordination/design/P1-004/MACHINE_EVIDENCE_MANIFEST.json\" | jq -e '(.requirements|length)==11 and ([.requirements[].id]|unique|length)==11 and (.request_workflows|length)==11 and ([.request_workflows[].id]|unique|length)==11 and all(.request_workflows[]; (.authority|type)==\"string\" and (.locks|length)>0 and (.writes|length)>0 and .writes[-1]==\"sealed_cache_last\" and (.event_plan|type)==\"string\" and (.replay|type)==\"string\") and .durable_owner_facts.operations.primary_key==[\"operation_id\"] and .durable_owner_facts.execution_attempts.primary_key==[\"attempt_id\"] and .durable_owner_facts.orders.primary_key==[\"order_id\"] and .scope.code_implemented==false and .scope.postgres_executed==false and .review_status==\"NOT_EXECUTED\"'"
+    },
+    {
+      "id": "P1-004-R2-ORACLE-003",
+      "phase": "design-static",
+      "command": "set -euo pipefail; : \"${CANDIDATE:?set candidate}\"; DOC=$(git show \"${CANDIDATE}:coordination/design/P1-004/DESIGN.md\"); for token in 'aead_nonce_ledger' 'never TTL-cleaned' 'NONCE_RESERVATION_FAILED' 'ordinary nullable `UNIQUE`' '`operations.operation_id`' '`execution_attempts.attempt_id`' '`orders.order_id`' 'PRIMARY KEY'; do printf '%s\\n' \"$DOC\" | rg -F \"$token\" >/dev/null; done"
+    },
+    {
+      "id": "P1-004-R2-ORACLE-004",
+      "phase": "design-static",
+      "command": "set -euo pipefail; : \"${CANDIDATE:?set candidate}\"; DOC=$(git show \"${CANDIDATE}:coordination/design/P1-004/DESIGN.md\"); for token in '(confirmation_id,user_id,trading_account_id,ownership_id,session_id,device_id,purpose,intent_id,intent_digest)' '(confirmation_id,request_claim_id)' 'DURABLE_OPERATION_RECONCILIATION' 'WF-11'; do printf '%s\\n' \"$DOC\" | rg -F \"$token\" >/dev/null; done"
+    },
+    {
+      "id": "P1-004-R2-ORACLE-005",
+      "phase": "design-static",
+      "command": "set -euo pipefail; : \"${CANDIDATE:?set candidate}\"; DOC=$(git show \"${CANDIDATE}:coordination/design/P1-004/DESIGN.md\"); MANIFEST=$(git show \"${CANDIDATE}:coordination/design/P1-004/MACHINE_EVIDENCE_MANIFEST.json\"); test \"$(printf '%s\\n' \"$DOC\" | rg '^##### WF-[0-9]{2} ' | wc -l | tr -d ' ')\" = 11; test \"$(printf '%s\\n' \"$DOC\" | rg -F 'Authority and stable key:' | wc -l | tr -d ' ')\" = 11; test \"$(printf '%s\\n' \"$DOC\" | rg -F 'Lock/check order:' | wc -l | tr -d ' ')\" = 11; test \"$(printf '%s\\n' \"$DOC\" | rg -F 'Event plan:' | wc -l | tr -d ' ')\" = 11; WF07=$(printf '%s\\n' \"$DOC\" | awk '/^##### WF-07 /{inside=1} /^##### WF-08 /{inside=0} inside'); printf '%s\\n' \"$WF07\" | rg -F 'one ordered audit/notification pair' >/dev/null; printf '%s\\n' \"$WF07\" | rg -F 'exactly two events (`v+1`, `v+2`)' >/dev/null; printf '%s\\n' \"$WF07\" | rg -F 'one CAS `v -> v+2`' >/dev/null; ! printf '%s\\n' \"$WF07\" | rg -F 'two ordered audit/notification pairs' >/dev/null; printf '%s\\n' \"$MANIFEST\" | jq -e '(.request_workflows[] | select(.id == \"WF-07\") | (.event_plan == \"0_active_or_2_reuse\" and ((.writes | index(\"reuse_audit_notification_history_outbox_v_plus_1_v_plus_2_if_reuse\")) != null)))' >/dev/null; printf '%s\\n' \"$DOC\" | rg -F 'commit_response_cache` is the **last durable write**' >/dev/null; printf '%s\\n' \"$DOC\" | rg -F 'v+1..v+n' >/dev/null"
+    },
+    {
+      "id": "P1-004-R2-ORACLE-006",
+      "phase": "design-static",
+      "command": "set -euo pipefail; : \"${CANDIDATE:?set candidate}\"; DOC=$(git show \"${CANDIDATE}:coordination/design/P1-004/DESIGN.md\"); for token in 'Only then may P1-005 `TERM`' 'delayed `NAK`' \"decision='AUTHORIZE_ONCE'\" 'Inbox `APPLIED`' 'http_header_read_deadline_ms=5000' 'websocket_reauth_issue_before_expiry_ms=60000' 'websocket_reauth_max_response_ms=60000' 'max_handler_goroutines_per_connection=2' 'deny-if-any-denies'; do printf '%s\\n' \"$DOC\" | rg -F \"$token\" >/dev/null; done; git show \"${CANDIDATE}:coordination/design/P1-004/MACHINE_EVIDENCE_MANIFEST.json\" | jq -e '.transport_limits.http_header_read_deadline_ms==5000 and .transport_limits.websocket_reauth_issue_before_expiry_ms==60000 and .transport_limits.websocket_reauth_max_response_ms==60000 and .transport_limits.max_handler_goroutines_per_connection==2 and .transport_limits.composition==\"DENY_IF_ANY_DENIES\" and .transport_limits.override_allowed==false' >/dev/null"
+    },
+    {
+      "id": "P1-004-R2-ORACLE-007",
+      "phase": "implementation-required",
+      "command": "make p1-004-verify EVIDENCE_ID=P1-004-EV-039 CASE=nonce-ledger-ttl-collision",
+      "required_result": "REAL_POSTGRES_PASS_WITH_REDACTED_ARTIFACT_HASH",
+      "design_turn_executed": false
+    },
+    {
+      "id": "P1-004-R2-ORACLE-008",
+      "phase": "implementation-required",
+      "command": "make p1-004-fault-verify EVIDENCE_ID=P1-004-EV-041 WORKFLOW=WF-01..WF-11 CUT=every-write-and-commit",
+      "required_result": "REAL_POSTGRES_PASS_WITH_COMPLETE_CUT_MATRIX",
+      "design_turn_executed": false
+    }
+  ],
+  "completion_rule": {
+    "design_pass_requires": ["all_design_static_oracles_pass", "json_valid", "scope_clean", "single_direct_child_commit"],
+    "implementation_pass_requires": ["every_evidence_case_once", "real_postgresql", "redacted_artifact_hash", "no_skipped_or_mocked_probe"],
+    "false_pass_values": ["PASS_FROM_DOCUMENT_ONLY", "PASS_WITH_SKIPPED_CASE", "PASS_WITH_MOCK_DATABASE", "PASS_WITHOUT_ARTIFACT"],
+    "authorization_granted": false
+  }
+}
