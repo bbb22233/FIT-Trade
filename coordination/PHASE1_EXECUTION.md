@@ -70,14 +70,16 @@ descendant base before implementation.
 
 - Enrollment Challenge and Device Action Challenge TTL: 120 seconds, single use.
 - New-device enrollment first verifies the account password, then issues a
-  domain-separated Enrollment Challenge. It binds purpose, server-resolved user,
-  candidate public-key fingerprint, nonce, issued time, and expiry; it contains
-  no device, session, or trading-account ID. The candidate Ed25519 key signs the
-  Challenge, proving possession of the new key before it is registered. The
-  server then generates the device ID, binds the globally unique public key to
-  the server-owned user, and creates the device and first session atomically.
-  Client-supplied owner IDs, duplicate keys, cross-owner key rebinding, invalid
-  proof, and replay fail closed and are audited.
+  domain-separated Enrollment Challenge. It binds purpose, a server-issued
+  opaque subject handle, candidate public-key fingerprint, nonce, issued time,
+  and expiry; it contains no user, device, session, or trading-account ID. Only
+  after a valid password does the server-side handle map to a resolved User. The
+  candidate Ed25519 key signs the Challenge, proving possession of the new key
+  before it is registered. The server then generates the device ID, binds the
+  globally unique public key to the server-owned user, and creates the device
+  and first session atomically. Client-supplied owner IDs, duplicate keys,
+  cross-owner key rebinding, invalid proof, and replay fail closed and are
+  audited.
 - Replacement enrollment when every prior device is unavailable proves
   possession of the replacement key, not a lost key. After password verification
   and valid Enrollment Challenge proof, it atomically revokes all prior devices,
@@ -89,10 +91,16 @@ descendant base before implementation.
   result. A visibly non-production test profile may reduce cost, but tests must
   verify production-profile metadata and one production-profile vector.
 - Session access token TTL: 15 minutes.
+- Each rotating refresh token has a 7-day TTL. A rotated token expires at the
+  earlier of seven days from its issuance or the family deadline.
 - Rotating refresh-token family maximum lifetime is a hard 30 days measured
   from family creation. Rotation never moves that deadline.
 - Refresh-token reuse revokes the complete token family, including every
-  already-issued descendant. Each descendant must be rejected after reuse.
+  already-issued descendant. Presentation of any already-rotated token before
+  the family deadline is reuse even if that token's individual TTL has passed.
+  An individually expired but never-rotated token is rejected as expired and
+  cannot rotate; family-expired tokens are rejected. Each descendant must be
+  rejected after reuse.
 - Only token digests are stored; plaintext tokens never enter logs or storage.
 - Successful login creates a new random session ID and token family and
   invalidates every presented pre-authentication identifier. Ordinary enrollment
@@ -110,39 +118,74 @@ descendant base before implementation.
   Revoked keys fail closed. Phase 1 tests this server protocol with synthetic
   keys; iOS LocalAuthentication and Windows Hello integration are later
   client-phase work and are not claimed by Phase 1.
-- Login responses are enumeration-resistant. Account and source counters are
-  independent and atomic. Here "account counter" is keyed by the server-owned
-  product User ID, never a trading-account ID. The source counter increments for
-  every failed login; the account counter increments only when the submitted
-  identifier resolves server-side, without changing the generic response. For
-  either dimension, failures one through four impose delays of 1, 2, 4, and 8
-  seconds before another attempt; the fifth failure in 15 minutes imposes a
-  15-minute lock. A request is denied when either counter is delayed or locked.
-  At lock expiry, that dimension's failures, delay, and lock are atomically
-  cleared, so its next failure is failure one. Successful authentication resets
-  only that User's consecutive-failure counter; it does not clear source-abuse
-  state. Concurrent attempts cannot skip a delay, reset, or threshold. Every
-  lock creates an AuditIntent and internal NotificationIntent.
+- Every account-password verification path is enumeration-resistant and uses
+  one shared verifier and the same independent, atomic account/source counters.
+  The exact starts are `POST /v1/auth/login`,
+  `POST /v1/auth/device-enrollments/start`, and
+  `POST /v1/auth/device-replacements/start`; attempts aggregate across all three
+  so changing routes cannot bypass a delay or lock. In addition to delay/lock
+  state, their combined traffic is limited to 10/minute with burst 3 per source.
+  "Account counter" is keyed by the server-owned product User ID, never a
+  trading-account ID. The source counter increments for every failed
+  verification; the account counter increments only when the submitted
+  identifier resolves server-side, without changing that route's generic
+  response, status, envelope, or minimum timing. An unknown identifier or wrong
+  password on an enrollment start receives an indistinguishable synthetic
+  Enrollment Challenge wire object with a random opaque subject handle. It has
+  no accepted server-side state, is never persisted, and can never complete.
+- For either throttle dimension, failures one through four impose delays of 1,
+  2, 4, and 8 seconds before another attempt; the fifth failure in 15 minutes
+  imposes a 15-minute lock. A request is denied when either counter is delayed
+  or locked. At lock expiry, that dimension's failures, delay, and lock are
+  atomically cleared, so its next failure is failure one. Successful password
+  verification resets only that User's consecutive-failure counter; it does not
+  clear source-abuse state. Concurrent attempts and cross-route attempts cannot
+  skip a delay, reset, or threshold. Every lock creates an AuditIntent and
+  internal NotificationIntent.
 - Non-login authenticated HTTP is limited to 20 requests/second with burst 40
-  per session and 50 requests/second with burst 100 per source. The only
-  unauthenticated non-login routes are `/health/live`, limited to 60/minute with
-  burst 10 per source, and `/health/ready`, limited to 5/minute with burst 2 per
-  source; every other unauthenticated route rejects. WebSocket creation is
+  per session and 50 requests/second with burst 100 per source. The complete
+  unauthenticated route allowlist is: the three password-verification starts
+  above; `POST /v1/auth/device-enrollments/complete` and
+  `POST /v1/auth/device-replacements/complete`, limited together to 10/minute
+  with burst 3 per source and one attempt per Challenge; `POST /v1/auth/refresh`,
+  limited to 30/minute with burst 5 per source and 10/minute with burst 3 per
+  token family; `/health/live`, limited to 60/minute with burst 10 per source;
+  and `/health/ready`, limited to 5/minute with burst 2 per source. Every other
+  route requires authentication before handler dispatch. WebSocket creation is
   limited to 2/second with burst 2 and 5 concurrent connections per session,
   plus 10/second with burst 20 and 20 concurrent connections per source. In
   Phase 1, source means the direct peer IP; forwarding headers are untrusted and
   cannot select a rate-limit identity.
+- A WebSocket upgrade requires a valid access token and binds the connection to
+  the server-authored user, trading account, device, session, and token expiry.
+  Fresh access tokens are obtained only from the HTTPS refresh route, never over
+  WebSocket. Sixty seconds before access expiry, or immediately if less than 60
+  seconds remain at connection time, the server sends one `REAUTH_REQUIRED`
+  control frame containing a single-use random nonce and a deadline equal to
+  the earlier of 60 seconds or access-token expiry. The client must return one
+  `REAUTH` control frame containing that nonce and a fresh access token from the
+  same user, trading account, device, session, and refresh family. Successful
+  verification atomically rebinds the connection to the new token expiry and
+  consumes the nonce.
+- Unsolicited, duplicated, late, cross-owner, cross-account, cross-device,
+  cross-session, cross-family, expired, or malformed `REAUTH` fails closed.
+  Verification must finish strictly before the deadline; equality is expired.
+  Application frames are rejected while an expired token awaits reauthorization;
+  missing or failed reauthorization closes with policy code 4401. Session/device
+  revocation closes the socket within five seconds regardless of reauthorization.
+  Control frames, bearer tokens, and nonces never enter logs, traces, metrics, or
+  application messages.
 - Audit and Notification scope is a required tagged union. `OWNER` requires
   server-authored user and trading-account IDs and is the only scope permitted
   for business effects. `AUTH_SECURITY` is limited to pre-authentication,
   login, session, and device security events; it requires a server-derived
   pseudonymous source key, permits user ID only after unambiguous resolution,
-  and prohibits trading-account ID before account selection. `SYSTEM` is
-  limited to recovery, WAL, and infrastructure events and prohibits user and
-  trading-account IDs. `AUTH_SECURITY` and `SYSTEM` records are control-plane
-  facts, never business entities or authority to access owner data. Unknown
-  identifiers and source-only locks must use `AUTH_SECURITY` without a phantom
-  owner.
+  and always prohibits trading-account ID, even after account selection.
+  `SYSTEM` is limited to recovery, WAL, and infrastructure events and prohibits
+  user and trading-account IDs. `AUTH_SECURITY` and `SYSTEM` records are
+  control-plane facts, never business entities or authority to access owner
+  data. Unknown identifiers and source-only locks must use `AUTH_SECURITY`
+  without a phantom owner.
 - The pseudonymous source key is
   `HMAC-SHA-256(runtime_source_key, canonical_direct_peer_ip)`, where the peer is
   encoded as the normalized 16-byte IPv6 form (IPv4 uses IPv4-mapped form).
@@ -152,16 +195,20 @@ descendant base before implementation.
 - AuditEvent common required fields are event ID, actor type and actor ID,
   tagged scope, server occurrence time, causation ID, correlation ID, schema
   version, and payload digest. `OWNER` and request-triggered `AUTH_SECURITY`
-  events additionally require request ID; `SYSTEM` events instead require a
-  system incident/operation ID and prohibit a fabricated request ID. Device and
-  session IDs are present only when the allowlisted kind has them.
+  events additionally require request ID. Background `AUTH_SECURITY` events
+  instead require a security incident/operation ID and prohibit a fabricated
+  request ID. `SYSTEM` events require a system incident/operation ID and also
+  prohibit a fabricated request ID. Device and session IDs are present only
+  when the allowlisted kind has them.
 - Internal Notification requires notification ID, frozen kind enum, severity
   (`INFO`, `WARNING`, or `CRITICAL`), tagged scope, server occurrence time,
   message-code enum, schema-validated message arguments, causation ID,
   correlation ID, and payload digest. Phase 1 kinds are
-  `LOGIN_ACCOUNT_LOCKED`, `LOGIN_SOURCE_LOCKED`, `DEVICE_ENROLLED`,
-  `DEVICE_REPLACED`, `DEVICE_REVOKED`, `SESSION_REVOKED`,
-  `REFRESH_REUSE_DETECTED`, and `WAL_ARCHIVE_INTERRUPTED`. Arbitrary text,
+  `LOGIN_ACCOUNT_LOCKED` (`WARNING`), `LOGIN_SOURCE_LOCKED` (`WARNING`),
+  `DEVICE_ENROLLED` (`INFO`), `DEVICE_REPLACED` (`CRITICAL`),
+  `DEVICE_REVOKED` (`WARNING`), `SESSION_REVOKED` (`INFO`),
+  `REFRESH_REUSE_DETECTED` (`CRITICAL`), and `WAL_ARCHIVE_INTERRUPTED`
+  (`CRITICAL`). A kind with any other severity fails closed. Arbitrary text,
   destination, address, credential, Email, Push, and webhook fields are
   forbidden.
 - Phase 1 NATS service principals are exactly `outbox-publisher`,
