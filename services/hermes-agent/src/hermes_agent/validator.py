@@ -1,6 +1,12 @@
 """FIT-Trade P0 validator — wires contracts, MCP tools, and confirmation hash.
 
 Primary entry point for P0-003 acceptance checks.
+
+Design boundary: confirmation expiry, atomic nonce consumption, replay
+idempotency, authenticated operation consumption, and cross-object
+PROTECTION_FULL_COVERAGE aggregate validation are deliberate Go-core
+responsibilities per coordination/tasks/P0-002.md.  Python does not
+implement any of these; the Go core enforces them downstream.
 """
 
 from __future__ import annotations
