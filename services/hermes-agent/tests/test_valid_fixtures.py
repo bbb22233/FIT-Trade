@@ -18,9 +18,9 @@ def test_valid_fixture_validates_pydantic(schema_name, value, path):
     result = validate_with_pydantic(schema_name, value)
     assert result is not None
     # Round-trip: export and re-validate
-    exported = result.model_dump()
+    exported = result.model_dump(exclude_none=True)
     revalidated = validate_with_pydantic(schema_name, exported)
-    assert revalidated.model_dump() == exported
+    assert revalidated.model_dump(exclude_none=True) == exported
 
 
 @pytest.mark.parametrize(

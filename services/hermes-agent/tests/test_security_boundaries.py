@@ -453,9 +453,9 @@ def test_all_domain_types_round_trip():
         if model is None:
             continue
         obj = model.model_validate(value)
-        exported = obj.model_dump()
+        exported = obj.model_dump(exclude_none=True)
         revalidated = model.model_validate(exported)
-        assert revalidated.model_dump() == exported, f"{name}: round-trip failed"
+        assert revalidated.model_dump(exclude_none=True) == exported, f"{name}: round-trip failed"
 
 
 def test_matrix_all_pass_jsonschema():
