@@ -1,0 +1,468 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "OSS-001",
+  "reviewed_at": "2026-07-29",
+  "review_status": "BOUNDARIES_FROZEN",
+  "evidence_policy": {
+    "source_class": "official_upstream_github_only",
+    "floating_refs_allowed": false,
+    "unknown_scripts_executed": false,
+    "live_exchange_contacted": false,
+    "credentials_collected": false
+  },
+  "compatibility_baseline": {
+    "go": "1.23",
+    "python": ">=3.11,<3.14",
+    "phase": "development_and_simulation_only"
+  },
+  "dependencies": [
+    {
+      "name": "hyperliquid-python-sdk",
+      "source_url": "https://github.com/hyperliquid-dex/hyperliquid-python-sdk",
+      "ref": "0.24.0",
+      "commit_or_tag": "2fdb18f9517675ea03695a0962bd19eece9c83f0",
+      "license": "MIT",
+      "license_url": "https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/0.24.0/LICENSE.md",
+      "use_mode": "current_phase_read_only_and_simulation_runtime",
+      "allowed_components": [
+        "Info read APIs",
+        "public and account read data types",
+        "WebSocket subscription message types",
+        "precision and official request-shape references"
+      ],
+      "forbidden_components": [
+        "Hermes or client access to Exchange order methods",
+        "wallet and signer loading",
+        "live exchange write endpoints",
+        "example secret configuration flow",
+        "treating WebSocket callbacks as authoritative trading state"
+      ],
+      "review_status": "APPROVED_CURRENT_PHASE_READ_ONLY",
+      "security_boundaries": [
+        "SDK is confined to the Hyperliquid adapter layer",
+        "no signer or wallet in the current phase",
+        "unknown execution state fails closed",
+        "reconnect must enter STALE or RECONCILING until REST reconciliation succeeds"
+      ],
+      "upgrade_policy": "Pin an official release and resolved commit; review Info, Exchange, WebSocket, precision and signing diffs; run read-only and disconnect/reorder/duplicate/gap reconciliation tests. An upgrade never authorizes write access.",
+      "evidence_urls": [
+        "https://github.com/hyperliquid-dex/hyperliquid-python-sdk/releases/tag/0.24.0",
+        "https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/0.24.0/hyperliquid/websocket_manager.py#L77-L162",
+        "https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/0.24.0/pyproject.toml"
+      ]
+    },
+    {
+      "name": "lightweight-charts",
+      "source_url": "https://github.com/tradingview/lightweight-charts",
+      "ref": "v5.2.0",
+      "commit_or_tag": "868cae27bd1acafa0128d8d868ea740a59ae42ce",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/tradingview/lightweight-charts/blob/v5.2.0/LICENSE",
+      "use_mode": "web_chart_runtime",
+      "allowed_components": [
+        "candlestick and volume rendering",
+        "order and protection markers",
+        "reviewed primitive and plugin APIs"
+      ],
+      "forbidden_components": [
+        "deriving server order state from chart state",
+        "other proprietary TradingView libraries",
+        "browser-number trading arithmetic",
+        "hiding simulation labels"
+      ],
+      "review_status": "APPROVED_WITH_ATTRIBUTION",
+      "security_boundaries": [
+        "chart is presentation only",
+        "TradingView NOTICE attribution and user-visible link are mandatory",
+        "tslib BSD Zero Clause attribution is preserved"
+      ],
+      "upgrade_policy": "Pin the exact npm version and lockfile integrity; diff LICENSE, NOTICE, tslib attribution and rendering/plugin APIs; run browser and Tauri visual/interaction regression.",
+      "evidence_urls": [
+        "https://github.com/tradingview/lightweight-charts/releases/tag/v5.2.0",
+        "https://github.com/tradingview/lightweight-charts/blob/v5.2.0/NOTICE",
+        "https://github.com/tradingview/lightweight-charts/blob/v5.2.0/README.md#license"
+      ]
+    },
+    {
+      "name": "NousResearch/hermes-agent",
+      "source_url": "https://github.com/NousResearch/hermes-agent",
+      "ref": "v2026.7.20",
+      "commit_or_tag": "3ef6bbd201263d354fd83ec55b3c306ded2eb72a",
+      "license": "MIT",
+      "license_url": "https://github.com/NousResearch/hermes-agent/blob/v2026.7.20/LICENSE",
+      "use_mode": "os_isolated_agent_runtime",
+      "allowed_components": [
+        "model routing",
+        "controlled agent loop",
+        "prompt and intent translation",
+        "reviewed MCP tool adapters",
+        "offline evaluation"
+      ],
+      "forbidden_components": [
+        "host shell or terminal",
+        "SSH and Docker socket",
+        "browser automation and arbitrary MCP",
+        "automatic skill installation",
+        "unattended cron and messaging gateways",
+        "unrestricted network access",
+        "signing, ordering, transfer, withdrawal, SQL or risk-policy tools"
+      ],
+      "review_status": "APPROVED_ISOLATED_RUNTIME",
+      "security_boundaries": [
+        "dedicated unprivileged identity in a container or equivalent OS sandbox",
+        "read-only root filesystem and minimal mounts",
+        "default-deny egress limited to approved model endpoints and the controlled Go MCP gateway",
+        "no host shell, SSH, Docker socket, wallet, signer or exchange executor route",
+        "server injects identity and Go validates schema, confirmation, risk and state transitions"
+      ],
+      "upgrade_policy": "Pin tag, resolved commit and Python lockfile; default-deny every new tool or network endpoint; compare persistence and migration behavior; rerun MCP inventory, prompt-injection and isolation-escape tests.",
+      "evidence_urls": [
+        "https://github.com/NousResearch/hermes-agent/releases/tag/v2026.7.20",
+        "https://github.com/NousResearch/hermes-agent/blob/v2026.7.20/README.md",
+        "https://github.com/NousResearch/hermes-agent/blob/v2026.7.20/pyproject.toml"
+      ]
+    },
+    {
+      "name": "pgx-v5",
+      "source_url": "https://github.com/jackc/pgx",
+      "ref": "v5.7.6",
+      "commit_or_tag": "a2fca037434a0a7096b095d4ed87cdffb03b626e",
+      "license": "MIT",
+      "license_url": "https://github.com/jackc/pgx/blob/v5.7.6/LICENSE",
+      "use_mode": "go_postgresql_runtime",
+      "allowed_components": [
+        "pgxpool",
+        "parameterized queries",
+        "transactions",
+        "PostgreSQL types"
+      ],
+      "forbidden_components": [
+        "Hermes or client database access",
+        "superuser DSN",
+        "string-concatenated SQL",
+        "connection secrets in logs",
+        "bypassing tenant or account scope"
+      ],
+      "review_status": "APPROVED_GO_1_23",
+      "security_boundaries": [
+        "database access exists only in server-owned services",
+        "credentials are injected outside source and logs",
+        "Go 1.23 compatibility is mandatory"
+      ],
+      "upgrade_policy": "Keep major version v5. Raise the Go baseline in a separate change before considering v5.8 or newer; then run migration, concurrency, disconnect and recovery tests.",
+      "latest_observed": {
+        "ref": "v5.9.2",
+        "go_requirement": "1.25.0",
+        "disposition": "not_admitted_on_go_1_23"
+      },
+      "evidence_urls": [
+        "https://github.com/jackc/pgx/tree/v5.7.6",
+        "https://github.com/jackc/pgx/blob/v5.7.6/go.mod"
+      ]
+    },
+    {
+      "name": "sqlc",
+      "source_url": "https://github.com/sqlc-dev/sqlc",
+      "ref": "v1.31.1",
+      "commit_or_tag": "a95e91d70ad9e1181253c333a1cfdd75ae4b95a5",
+      "license": "MIT",
+      "license_url": "https://github.com/sqlc-dev/sqlc/blob/v1.31.1/LICENSE",
+      "use_mode": "build_time_generator_only",
+      "allowed_components": [
+        "sqlc generate against reviewed SQL",
+        "Go query code generation in development and CI"
+      ],
+      "forbidden_components": [
+        "production runtime dependency",
+        "online plugins",
+        "model-generated SQL execution",
+        "Hermes mutation of query files",
+        "unreviewed generated-code diffs"
+      ],
+      "review_status": "APPROVED_BUILD_ONLY",
+      "security_boundaries": [
+        "official release artifact only",
+        "verify the SHA-256 digest published in GitHub Release metadata",
+        "do not build from source with the current Go 1.23 toolchain"
+      ],
+      "upgrade_policy": "Pin the official release asset and digest, pin sqlc configuration schema, review deterministic generated diffs, and run database integration tests.",
+      "evidence_urls": [
+        "https://github.com/sqlc-dev/sqlc/releases/tag/v1.31.1",
+        "https://github.com/sqlc-dev/sqlc/blob/v1.31.1/go.mod"
+      ]
+    },
+    {
+      "name": "nats.go",
+      "source_url": "https://github.com/nats-io/nats.go",
+      "ref": "v1.48.0",
+      "commit_or_tag": "a0e7b702c6b8ef9f86d09008d8cfcb4623fdd608",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/nats-io/nats.go/blob/v1.48.0/LICENSE",
+      "use_mode": "go_internal_messaging_runtime",
+      "allowed_components": [
+        "internal request-reply",
+        "publish-subscribe",
+        "reviewed JetStream durable consumers",
+        "connection state callbacks"
+      ],
+      "forbidden_components": [
+        "public NATS exposure",
+        "authoritative trading state in the message bus",
+        "signing material in messages",
+        "unbounded retries",
+        "non-idempotent redelivery handling",
+        "risk increase while reconnecting"
+      ],
+      "review_status": "APPROVED_GO_1_23",
+      "security_boundaries": [
+        "internal network only",
+        "server-authored state remains authoritative",
+        "disconnect and reconnect are explicit service states"
+      ],
+      "upgrade_policy": "Review reconnect, drain and JetStream ack/redelivery semantics and run disconnect, duplicate, reorder and consumer-restart tests. Raise Go separately before v1.49 or newer.",
+      "latest_observed": {
+        "ref": "v1.52.0",
+        "go_requirement": "1.25.0",
+        "disposition": "not_admitted_on_go_1_23"
+      },
+      "evidence_urls": [
+        "https://github.com/nats-io/nats.go/releases/tag/v1.48.0",
+        "https://github.com/nats-io/nats.go/blob/v1.48.0/go.mod"
+      ]
+    },
+    {
+      "name": "chi",
+      "source_url": "https://github.com/go-chi/chi",
+      "ref": "v5.3.1",
+      "commit_or_tag": "8b258c7bb28f97a5f2a856ff7ef962578fec9215",
+      "license": "MIT",
+      "license_url": "https://github.com/go-chi/chi/blob/v5.3.1/LICENSE",
+      "use_mode": "go_http_router_runtime",
+      "allowed_components": [
+        "routing",
+        "middleware composition",
+        "URL parameter parsing"
+      ],
+      "forbidden_components": [
+        "routing as authorization",
+        "public pprof or debug routes",
+        "logging authorization headers or bodies",
+        "unbounded bodies or timeouts"
+      ],
+      "review_status": "APPROVED_GO_1_23",
+      "security_boundaries": [
+        "authentication and authorization remain explicit server middleware",
+        "request sizes and timeouts are bounded",
+        "debug routes are not exposed"
+      ],
+      "upgrade_policy": "Keep major version v5 and recheck middleware order, route matching, security headers, request-size limits and timeout tests.",
+      "evidence_urls": [
+        "https://github.com/go-chi/chi/releases/tag/v5.3.1",
+        "https://github.com/go-chi/chi/blob/v5.3.1/go.mod"
+      ]
+    },
+    {
+      "name": "opentelemetry-go",
+      "source_url": "https://github.com/open-telemetry/opentelemetry-go",
+      "ref": "v1.38.0",
+      "commit_or_tag": "84e3f3ac8b25204f3a0f77a805437a5e08573b35",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/open-telemetry/opentelemetry-go/blob/v1.38.0/LICENSE",
+      "use_mode": "go_telemetry_runtime",
+      "allowed_components": [
+        "trace and metric API",
+        "minimally configured SDK",
+        "internal exporter"
+      ],
+      "forbidden_components": [
+        "credentials or authorization headers",
+        "complete request or response bodies",
+        "Hermes prompts or personal trade rationales",
+        "high-cardinality sensitive attributes",
+        "automatic public exporters",
+        "telemetry affecting trading state"
+      ],
+      "review_status": "APPROVED_GO_1_23",
+      "security_boundaries": [
+        "attribute allowlist and redaction",
+        "explicit internal exporter endpoint",
+        "telemetry is non-authoritative and fail-open relative to service availability"
+      ],
+      "upgrade_policy": "Audit the attribute allowlist and exporter endpoint, then test sampling, backpressure, shutdown and redaction. Raise Go separately before v1.39 or newer.",
+      "latest_observed": {
+        "ref": "v1.44.0",
+        "go_requirement": "1.25.0",
+        "disposition": "not_admitted_on_go_1_23"
+      },
+      "evidence_urls": [
+        "https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.38.0",
+        "https://github.com/open-telemetry/opentelemetry-go/blob/v1.38.0/go.mod"
+      ]
+    },
+    {
+      "name": "testcontainers-go",
+      "source_url": "https://github.com/testcontainers/testcontainers-go",
+      "ref": "v0.38.0",
+      "commit_or_tag": "41bd60184bf156af3dbb7f5b7fbb58da3603ada4",
+      "license": "MIT",
+      "license_url": "https://github.com/testcontainers/testcontainers-go/blob/v0.38.0/LICENSE",
+      "use_mode": "development_and_integration_test_only",
+      "allowed_components": [
+        "PostgreSQL test containers",
+        "NATS test containers",
+        "fault-injection containers with pinned image digests"
+      ],
+      "forbidden_components": [
+        "production runtime dependency",
+        "Hermes Docker socket access",
+        "floating image tags",
+        "real credentials or accounts",
+        "interpreting test success as live-trading authorization"
+      ],
+      "review_status": "APPROVED_TEST_ONLY_GO_1_23",
+      "security_boundaries": [
+        "development and CI only",
+        "pinned image digests",
+        "isolated networks and deterministic cleanup"
+      ],
+      "upgrade_policy": "Review Docker API and cleanup changes, lock test image digests, and validate failed-run cleanup and parallel isolation. Raise Go separately before v0.39 or newer.",
+      "latest_observed": {
+        "ref": "v0.43.0",
+        "go_requirement": "1.25.0",
+        "disposition": "not_admitted_on_go_1_23"
+      },
+      "evidence_urls": [
+        "https://github.com/testcontainers/testcontainers-go/releases/tag/v0.38.0",
+        "https://github.com/testcontainers/testcontainers-go/blob/v0.38.0/go.mod"
+      ]
+    },
+    {
+      "name": "Tauri",
+      "source_url": "https://github.com/tauri-apps/tauri",
+      "ref": "tauri-v2.11.5",
+      "commit_or_tag": "7cd71369c00978a3783b6ae3e9972358abbe4ae6",
+      "license": "Apache-2.0 OR MIT",
+      "license_url": "https://github.com/tauri-apps/tauri/blob/tauri-v2.11.5/Cargo.toml#L39-L44",
+      "use_mode": "desktop_shell_runtime",
+      "allowed_components": [
+        "desktop windows",
+        "controlled IPC",
+        "system device-authentication bridge",
+        "explicit minimal capabilities"
+      ],
+      "forbidden_components": [
+        "default shell, process, filesystem, global HTTP or updater powers",
+        "WebView secret access",
+        "signer sidecar",
+        "remote content with local command rights",
+        "unpinned or unsigned updates"
+      ],
+      "review_status": "APPROVED_DESKTOP_WITH_CAPABILITY_REVIEW",
+      "security_boundaries": [
+        "capability allowlist and restrictive CSP",
+        "validated command arguments",
+        "no signer or wallet material in WebView or sidecar",
+        "signed and pinned update channel when updates are later enabled"
+      ],
+      "upgrade_policy": "Keep Rust crates and JavaScript packages on the same exact release; diff capabilities and CSP; test command validation, path traversal, remote content, update signatures and desktop UI.",
+      "evidence_urls": [
+        "https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.11.5",
+        "https://github.com/tauri-apps/tauri/blob/tauri-v2.11.5/LICENSE_APACHE-2.0",
+        "https://github.com/tauri-apps/tauri/blob/tauri-v2.11.5/LICENSE_MIT"
+      ]
+    },
+    {
+      "name": "Hummingbot",
+      "source_url": "https://github.com/hummingbot/hummingbot",
+      "ref": "v2.15.0",
+      "commit_or_tag": "816b8ab539360557cee7d9248c2f24473b10b16f",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/hummingbot/hummingbot/blob/v2.15.0/LICENSE",
+      "use_mode": "reference_only",
+      "allowed_components": [
+        "connector responsibility ideas",
+        "WebSocket and REST test-scenario ideas",
+        "order-lifecycle edge-case inventory"
+      ],
+      "forbidden_components": [
+        "runtime dependency",
+        "copying authentication, signing, ordering, fee, builder, reconnect or strategy code",
+        "using Hummingbot state as authoritative state",
+        "copying default builder address, fee or injection behavior"
+      ],
+      "review_status": "REFERENCE_ONLY",
+      "security_boundaries": [
+        "clean implementation against Hyperliquid official sources",
+        "no Hummingbot builder field or fee",
+        "any future builder support requires a separate explicit product, legal, security and user-consent review"
+      ],
+      "upgrade_policy": "No runtime upgrade path. Refresh the reference snapshot only in a separate evidence task.",
+      "evidence_urls": [
+        "https://github.com/hummingbot/hummingbot/releases/tag/v2.15.0",
+        "https://github.com/hummingbot/hummingbot/blob/v2.15.0/hummingbot/connector/derivative/hyperliquid_perpetual/hyperliquid_perpetual_constants.py#L9-L23",
+        "https://github.com/hummingbot/hummingbot/blob/v2.15.0/hummingbot/connector/derivative/hyperliquid_perpetual/hyperliquid_perpetual_derivative.py#L630-L691"
+      ]
+    },
+    {
+      "name": "CCXT",
+      "source_url": "https://github.com/ccxt/ccxt",
+      "ref": "v4.5.70",
+      "commit_or_tag": "48410ae2a126d6bc09845432705b2ef41010da34",
+      "license": "MIT",
+      "license_url": "https://github.com/ccxt/ccxt/blob/v4.5.70/LICENSE.txt",
+      "use_mode": "reference_only",
+      "allowed_components": [
+        "exchange error-taxonomy ideas",
+        "market and order naming ideas",
+        "cross-exchange edge-case inventory"
+      ],
+      "forbidden_components": [
+        "runtime dependency",
+        "Hyperliquid behavioral authority",
+        "copying signing or request code",
+        "multi-exchange scope expansion",
+        "dynamic loading of bundled exchange implementations"
+      ],
+      "review_status": "REFERENCE_ONLY",
+      "security_boundaries": [
+        "Hyperliquid official API and SDK remain primary",
+        "single-exchange BTC, ETH and SOL perpetual scope is preserved"
+      ],
+      "upgrade_policy": "No runtime upgrade path. Refresh the reference snapshot only in a separate evidence task.",
+      "evidence_urls": [
+        "https://github.com/ccxt/ccxt/releases/tag/v4.5.70"
+      ]
+    },
+    {
+      "name": "Freqtrade",
+      "source_url": "https://github.com/freqtrade/freqtrade",
+      "ref": "2026.6",
+      "commit_or_tag": "b604e2fd70539f7f73d3c62c16ce0b155bbab319",
+      "license": "GPL-3.0",
+      "license_url": "https://github.com/freqtrade/freqtrade/blob/2026.6/LICENSE",
+      "use_mode": "prohibited",
+      "allowed_components": [],
+      "forbidden_components": [
+        "dependency",
+        "vendored code",
+        "submodule",
+        "container image",
+        "copied or rewritten code snippets",
+        "strategies",
+        "tests",
+        "configuration",
+        "documentation",
+        "assets"
+      ],
+      "review_status": "PROHIBITED",
+      "security_boundaries": [
+        "generic concepts must be independently derived from protocol or official API sources",
+        "retain clean-implementation evidence"
+      ],
+      "upgrade_policy": "Not applicable. The project is not eligible for dependency upgrade or code import.",
+      "evidence_urls": [
+        "https://github.com/freqtrade/freqtrade/releases/tag/2026.6"
+      ]
+    }
+  ]
+}
