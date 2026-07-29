@@ -257,6 +257,8 @@
       "challenge_issued": true,
       "nonce_matches": true,
       "nonce_consumed": false,
+      "user_active": true,
+      "account_ownership_active": true,
       "user_matches": true,
       "account_matches": true,
       "device_matches": true,

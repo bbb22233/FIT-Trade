@@ -213,6 +213,8 @@
     "algorithm": "SHA-256",
     "canonicalization": "RFC8785_JCS",
     "version": "fit.platform.request-digest.v1",
+    "confirmation_route_template": "/v1/confirmations/{confirmation_id}/consume",
+    "request_envelope_validation_keyword": "x-fit-request-digest",
     "bound_fields": [
       "schema_version",
       "method",
@@ -244,6 +246,22 @@
       "idempotency_key"
     ],
     "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
+    "raw_request_target_decoder": {
+      "implementation_contract": "parseStrictRequestTarget",
+      "entry_point": "BEFORE_FRAMEWORK_ROUTING_AND_PARAMETER_BINDING",
+      "path_encoding": "EXACT_ASCII_NO_PERCENT_ENCODING",
+      "reject_path": [
+        "fragment",
+        "backslash",
+        "empty_segment",
+        "dot_segment",
+        "percent_encoded_path_byte",
+        "invalid_utf8"
+      ],
+      "query_parameter_multiplicity": "EXACTLY_ZERO_OR_ONE_VALUE_PER_DECODED_KEY",
+      "reject_duplicate_decoded_query_keys": true,
+      "plus_is_literal_plus_not_space": true
+    },
     "strict_raw_json_decoder": {
       "implementation_contract": "parseStrictJson",
       "allowed_whitespace_bytes": [
@@ -281,6 +299,7 @@
     ],
     "success": "ATOMIC_REBIND_AND_CONSUME_NONCE",
     "upgrade_binding_validation": "VALID_UNEXPIRED_ACCESS_TOKEN_AND_ACTIVE_USER_ACCOUNT_DEVICE_SESSION_REFRESH_FAMILY_EXACT_MATCH",
+    "reauthorization_binding_validation": "VALID_FRESH_ACCESS_TOKEN_AND_ACTIVE_USER_ACCOUNT_OWNERSHIP_DEVICE_SESSION_REFRESH_FAMILY_EXACT_MATCH_AT_VERIFICATION_TIME",
     "application_frame_while_reauth_pending": "ALLOW_UNTIL_CURRENT_ACCESS_EXPIRY",
     "redacted_fields": [
       "access_token_transport",

@@ -132,10 +132,14 @@
         "schema_version": "fit.platform.request-envelope.v1",
         "request_id": "80000000-0000-4000-8000-000000000001",
         "method": "POST",
-        "route_template": "/v1/operations/{operation_id}/confirm",
-        "path": {},
+        "route_template": "/v1/confirmations/{confirmation_id}/consume",
+        "path": {
+          "confirmation_id": "70000000-0000-4000-8000-000000000001"
+        },
         "query": {},
-        "body": {},
+        "body": {
+          "confirmation_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
         "user_id": "10000000-0000-4000-8000-000000000001",
         "trading_account_id": "20000000-0000-4000-8000-000000000001",
         "session_id": "40000000-0000-4000-8000-000000000001",
@@ -143,7 +147,7 @@
         "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         "server_received_at": "2026-07-29T10:00:00Z",
         "identity_origin": "CLIENT",
-        "canonical_request_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        "canonical_request_digest": "f91d3ea3d0211dfefe0b24fd2c3972b9b7ea1541c430420ff090b7c96f42405a"
       }
     },
     {
@@ -200,7 +204,7 @@
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
         "payload_schema_version": "fit.platform.event-payload.v1",
-        "payload_digest": "64f6d2619890aa0778a0c31e24b784bccaf022bc6f875e00db3bab87b0d0c6d5",
+        "payload_digest": "b536ef95e629419676ba813dd5c487e1efb4330e2d267caf98507f89f2344dd9",
         "payload": {
           "schema_version": "fit.platform.event-payload.v1",
           "subject": "fit.platform.v1.owner.owner-mutation-committed",
@@ -211,8 +215,28 @@
             "trading_account_id": "20000000-0000-4000-8000-000000000001"
           },
           "data": {
-            "operation_id": "70000000-0000-4000-8000-000000000001",
-            "decision": "CONFIRM"
+            "record_type": "audit",
+            "record_id": "c0000000-0000-4000-8000-000000000001",
+            "record": {
+              "schema_version": "fit.platform.audit-event.v1",
+              "event_id": "c0000000-0000-4000-8000-000000000001",
+              "kind": "OWNER_MUTATION_COMMITTED",
+              "actor": {
+                "type": "USER",
+                "id": "synthetic-owner"
+              },
+              "scope": {
+                "type": "OWNER",
+                "user_id": "10000000-0000-4000-8000-000000000001",
+                "trading_account_id": "20000000-0000-4000-8000-000000000001"
+              },
+              "trigger": "REQUEST",
+              "causation_id": "80000000-0000-4000-8000-000000000001",
+              "correlation_id": "b0000000-0000-4000-8000-000000000001",
+              "request_id": "80000000-0000-4000-8000-000000000001",
+              "occurred_at": "2026-07-29T10:00:01Z",
+              "payload_digest": "7678a37c13827625b17e9a88b35c9818c3817218b2504c07cb521ecfbc01deb9"
+            }
           }
         }
       }
@@ -240,7 +264,7 @@
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "request_id": "80000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+        "payload_digest": "437d57c6fe0cb006ea4148d8cf5f5d6f22a16a5a672854748af255574fc706dd"
       }
     },
     {
@@ -266,7 +290,7 @@
         "request_id": "80000000-0000-4000-8000-000000000001",
         "session_id": "40000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_digest": "4444444444444444444444444444444444444444444444444444444444444444"
+        "payload_digest": "9374582d76a3ec20a6345576afaf416a6916fec41d0f0c399664a2dfce26b019"
       }
     },
     {
@@ -290,7 +314,7 @@
         "system_operation_id": "f0000000-0000-4000-8000-000000000002",
         "request_id": "80000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_digest": "5555555555555555555555555555555555555555555555555555555555555555"
+        "payload_digest": "a0957a31981030e31024e8a0f6496ab2e6128cdcf22028efdc733e817d5cbda9"
       }
     },
     {
@@ -336,7 +360,7 @@
         "request_id": "80000000-0000-4000-8000-000000000001",
         "device_id": "30000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+        "payload_digest": "06dbb78bd264e55e502471383a9ab9799009b4515f808e9ae2f8aca6a0663113"
       }
     },
     {
@@ -359,7 +383,7 @@
         "causation_id": "80000000-0000-4000-8000-000000000001",
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_digest": "6666666666666666666666666666666666666666666666666666666666666666"
+        "payload_digest": "e3023489f6ac39be8d1094f24a8d5853424005ea9ee10293a02a8ea094d1fcf8"
       }
     },
     {
@@ -382,7 +406,7 @@
         "causation_id": "80000000-0000-4000-8000-000000000001",
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_digest": "6666666666666666666666666666666666666666666666666666666666666666",
+        "payload_digest": "13550dcbd3b6c35b4f70b46de8ff5af152322356d8a6c4f79c5d3d16a2f5c469",
         "webhook": "synthetic-destination-is-forbidden"
       }
     },
@@ -408,7 +432,7 @@
         "causation_id": "f0000000-0000-4000-8000-000000000002",
         "correlation_id": "b0000000-0000-4000-8000-000000000002",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_digest": "7777777777777777777777777777777777777777777777777777777777777777"
+        "payload_digest": "6af6875b83255f53bcfbef9092dc1df848017779aa1bf5963f8480e1891b7f04"
       }
     },
     {
@@ -443,31 +467,55 @@
         "outbox_id": "d0000000-0000-4000-8000-000000000001",
         "event": {
           "schema_version": "fit.platform.event-envelope.v1",
-          "subject": "fit.platform.v1.system.wal-archive-interrupted",
+          "subject": "fit.platform.v1.owner.owner-mutation-committed",
           "stream": "FIT_PLATFORM_V1",
           "event_id": "a0000000-0000-4000-8000-000000000001",
-          "event_kind": "WAL_ARCHIVE_INTERRUPTED",
+          "event_kind": "OWNER_MUTATION_COMMITTED",
           "scope": {
-            "type": "SYSTEM"
+            "type": "OWNER",
+            "user_id": "10000000-0000-4000-8000-000000000001",
+            "trading_account_id": "20000000-0000-4000-8000-000000000001"
           },
-          "aggregate_type": "WAL_INCIDENT",
-          "aggregate_id": "f0000000-0000-4000-8000-000000000002",
+          "aggregate_type": "OPERATION",
+          "aggregate_id": "70000000-0000-4000-8000-000000000001",
           "aggregate_version": 1,
-          "causation_id": "f0000000-0000-4000-8000-000000000002",
-          "correlation_id": "b0000000-0000-4000-8000-000000000002",
+          "causation_id": "80000000-0000-4000-8000-000000000001",
+          "correlation_id": "b0000000-0000-4000-8000-000000000001",
           "occurred_at": "2026-07-29T10:00:01Z",
           "payload_schema_version": "fit.platform.event-payload.v1",
-          "payload_digest": "ee474caca197d2177f8855ddfc5a1ba1a9a97ad370f12210a0a485a86b8609c6",
+          "payload_digest": "b536ef95e629419676ba813dd5c487e1efb4330e2d267caf98507f89f2344dd9",
           "payload": {
             "schema_version": "fit.platform.event-payload.v1",
-            "subject": "fit.platform.v1.system.wal-archive-interrupted",
-            "event_kind": "WAL_ARCHIVE_INTERRUPTED",
+            "subject": "fit.platform.v1.owner.owner-mutation-committed",
+            "event_kind": "OWNER_MUTATION_COMMITTED",
             "scope": {
-              "type": "SYSTEM"
+              "type": "OWNER",
+              "user_id": "10000000-0000-4000-8000-000000000001",
+              "trading_account_id": "20000000-0000-4000-8000-000000000001"
             },
             "data": {
-              "incident_id": "f0000000-0000-4000-8000-000000000002",
-              "archive_age_seconds": 61
+              "record_type": "audit",
+              "record_id": "c0000000-0000-4000-8000-000000000001",
+              "record": {
+                "schema_version": "fit.platform.audit-event.v1",
+                "event_id": "c0000000-0000-4000-8000-000000000001",
+                "kind": "OWNER_MUTATION_COMMITTED",
+                "actor": {
+                  "type": "USER",
+                  "id": "synthetic-owner"
+                },
+                "scope": {
+                  "type": "OWNER",
+                  "user_id": "10000000-0000-4000-8000-000000000001",
+                  "trading_account_id": "20000000-0000-4000-8000-000000000001"
+                },
+                "trigger": "REQUEST",
+                "causation_id": "80000000-0000-4000-8000-000000000001",
+                "correlation_id": "b0000000-0000-4000-8000-000000000001",
+                "request_id": "80000000-0000-4000-8000-000000000001",
+                "occurred_at": "2026-07-29T10:00:01Z",
+                "payload_digest": "7678a37c13827625b17e9a88b35c9818c3817218b2504c07cb521ecfbc01deb9"
+              }
             }
           }
         },

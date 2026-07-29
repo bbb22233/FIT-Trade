@@ -50,6 +50,11 @@
       "audit_event_kind": "LOGIN_SUCCEEDED",
       "outbox_subject": "fit.platform.v1.auth-security.login-succeeded",
       "new_session_and_family_required": true,
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_RESULT_FROM_AEAD_RESPONSE_CACHE",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
+      "response_cache": "AEAD_CIPHERTEXT_ONLY_RUNTIME_KEY_NOT_DATABASE_TTL_120_SECONDS",
+      "response_cache_expired_same_key": "RECONCILIATION_REQUIRED_NO_REEXECUTION",
       "commit_before_credential_response": true
     },
     {
@@ -70,6 +75,9 @@
       ],
       "audit_event_kind": "ENROLLMENT_CHALLENGE_ISSUED",
       "outbox_subject": "fit.platform.v1.auth-security.enrollment-challenge-issued",
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_CHALLENGE",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
       "commit_before_challenge_response": true
     },
     {
@@ -97,6 +105,9 @@
       ],
       "audit_event_kind": "ENROLLMENT_PROOF_REJECTED",
       "outbox_subject": "fit.platform.v1.auth-security.enrollment-proof-rejected",
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_REJECTION",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
       "commit_before_rejection_response": true
     },
     {
@@ -108,6 +119,9 @@
         "persist_device_revocation_notification",
         "write_device_revocation_outbox_events"
       ],
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_RESULT",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
       "commit_before_response": true
     },
     {
@@ -119,6 +133,9 @@
         "persist_session_revocation_notification",
         "write_session_revocation_outbox_events"
       ],
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_RESULT",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
       "commit_before_response": true
     },
     {
@@ -130,6 +147,9 @@
         "write_immutable_audit_event",
         "write_outbox_event"
       ],
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_RESULT",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
       "commit_before_response": true
     },
     {
@@ -157,6 +177,9 @@
         "persist_lock_audit_notification_and_outbox_only_if_threshold_reached"
       ],
       "rolling_window_seconds": 900,
+      "stable_request_key": "request_id",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_REJECTION_WITHOUT_INCREMENT",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
       "commit_before_rejection_response": true
     },
     {
@@ -176,6 +199,11 @@
         "prior_session_revocation",
         "prior_refresh_family_revocation"
       ],
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_RESULT_FROM_AEAD_RESPONSE_CACHE",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
+      "response_cache": "AEAD_CIPHERTEXT_ONLY_RUNTIME_KEY_NOT_DATABASE_TTL_120_SECONDS",
+      "response_cache_expired_same_key": "RECONCILIATION_REQUIRED_NO_REEXECUTION",
       "commit_before_response": true
     },
     {
@@ -194,6 +222,11 @@
         "write_outbox_events"
       ],
       "revocation_before_new_session": true,
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_RESULT_FROM_AEAD_RESPONSE_CACHE",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
+      "response_cache": "AEAD_CIPHERTEXT_ONLY_RUNTIME_KEY_NOT_DATABASE_TTL_120_SECONDS",
+      "response_cache_expired_same_key": "RECONCILIATION_REQUIRED_NO_REEXECUTION",
       "commit_before_response": true
     },
     {
@@ -208,6 +241,12 @@
         "write_internal_notification_if_reuse",
         "write_outbox_events_if_reuse"
       ],
+      "stable_request_key": "idempotency_key",
+      "same_key_same_digest_after_response_loss": "RETURN_RECORDED_ROTATION_FROM_AEAD_RESPONSE_CACHE_WITHOUT_REUSE_CLASSIFICATION",
+      "same_key_different_digest": "IDEMPOTENCY_CONFLICT",
+      "different_key_for_rotated_digest": "REVOKE_FAMILY_AND_DESCENDANTS",
+      "response_cache": "AEAD_CIPHERTEXT_ONLY_RUNTIME_KEY_NOT_DATABASE_TTL_120_SECONDS",
+      "response_cache_expired_same_key": "RECONCILIATION_REQUIRED_NO_REEXECUTION",
       "commit_before_credential_response": true
     },
     {
@@ -256,10 +295,12 @@
     "refresh_token.session_id references session.session_id",
     "refresh_token.family_id equals refresh_family.family_id",
     "refresh_token.session_id equals refresh_family.session_id",
-    "refresh_token.rotated_to_digest references an acyclic descendant in the same family and session",
+    "refresh_token.rotated_to_digest references an acyclic descendant issued before the parent expires in the same family and session",
     "inbox.event_id is unique per consumer",
     "outbox.event.event_id is globally unique",
     "aggregate_version is unique and contiguous per aggregate",
+    "aggregate event version greater than the starting version links the exact previous event ID",
+    "audit and notification payload_digest equals SHA-256 over RFC8785 JCS of the complete record with payload_digest omitted",
     "device public key fingerprint is globally unique",
     "audit and notification scope never fabricates owner identity"
   ],

@@ -590,6 +590,80 @@
         }
       }
     },
+    "EnrollmentChallengeState": {
+      "type": "object",
+      "x-fit-enrollment-challenge-state": true,
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "subject_handle_digest",
+        "user_id",
+        "trading_account_id",
+        "source_key",
+        "request_id",
+        "challenge",
+        "status",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.enrollment-challenge-state.v1"
+        },
+        "subject_handle_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "trading_account_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "source_key": {
+          "$ref": "#/$defs/SourceKeyDigest"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "challenge": {
+          "$ref": "#/$defs/EnrollmentChallenge"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "CONSUMED"
+          ]
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "consumed_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "CONSUMED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "consumed_at"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "consumed_at"
+              ]
+            }
+          }
+        }
+      ]
+    },
     "DeviceActionChallenge": {
       "type": "object",
       "x-fit-time-window": {
@@ -897,6 +971,7 @@
     },
     "RequestEnvelope": {
       "type": "object",
+      "x-fit-request-digest": true,
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -1075,6 +1150,7 @@
     },
     "EventPayload": {
       "type": "object",
+      "x-fit-event-payload": true,
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -1251,6 +1327,9 @@
         },
         "payload": {
           "$ref": "#/$defs/EventPayload"
+        },
+        "previous_event_id": {
+          "$ref": "#/$defs/Uuid"
         }
       },
       "allOf": [
@@ -1577,6 +1656,42 @@
         }
       ]
     },
+    "AggregateEventHistory": {
+      "type": "object",
+      "x-fit-aggregate-history": true,
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "aggregate_type",
+        "aggregate_id",
+        "starting_version",
+        "events"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.aggregate-event-history.v1"
+        },
+        "aggregate_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "aggregate_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "starting_version": {
+          "const": 1
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/EventEnvelope"
+          }
+        }
+      }
+    },
     "AuditCore": {
       "type": "object",
       "required": [
@@ -1664,6 +1779,7 @@
     },
     "AuditEvent": {
       "type": "object",
+      "x-fit-durable-record-digest": true,
       "unevaluatedProperties": false,
       "required": [
         "schema_version",
@@ -1997,6 +2113,7 @@
     },
     "Notification": {
       "type": "object",
+      "x-fit-durable-record-digest": true,
       "unevaluatedProperties": false,
       "required": [
         "schema_version",

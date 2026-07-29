@@ -6,22 +6,19 @@
     "value": {
       "schema_version": "fit.platform.request-digest.v1",
       "method": "POST",
-      "route_template": "/v1/operations/{operation_id}/confirm",
+      "route_template": "/v1/confirmations/{confirmation_id}/consume",
       "path": {
-        "operation_id": "70000000-0000-4000-8000-000000000001"
+        "confirmation_id": "70000000-0000-4000-8000-000000000001"
       },
-      "query": {
-        "mode": "strict"
-      },
+      "query": {},
       "body": {
-        "decision": "CONFIRM",
-        "reason_code": "USER_APPROVED"
+        "confirmation_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "user_id": "10000000-0000-4000-8000-000000000001",
       "trading_account_id": "20000000-0000-4000-8000-000000000001"
     },
-    "canonical_utf8": "{\"body\":{\"decision\":\"CONFIRM\",\"reason_code\":\"USER_APPROVED\"},\"method\":\"POST\",\"path\":{\"operation_id\":\"70000000-0000-4000-8000-000000000001\"},\"query\":{\"mode\":\"strict\"},\"route_template\":\"/v1/operations/{operation_id}/confirm\",\"schema_version\":\"fit.platform.request-digest.v1\",\"trading_account_id\":\"20000000-0000-4000-8000-000000000001\",\"user_id\":\"10000000-0000-4000-8000-000000000001\"}",
-    "sha256": "945e2d0a0435b6e074da85dfd2038a61449f27040e2a39d7d2ea638bcd1c16a2"
+    "canonical_utf8": "{\"body\":{\"confirmation_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"method\":\"POST\",\"path\":{\"confirmation_id\":\"70000000-0000-4000-8000-000000000001\"},\"query\":{},\"route_template\":\"/v1/confirmations/{confirmation_id}/consume\",\"schema_version\":\"fit.platform.request-digest.v1\",\"trading_account_id\":\"20000000-0000-4000-8000-000000000001\",\"user_id\":\"10000000-0000-4000-8000-000000000001\"}",
+    "sha256": "f91d3ea3d0211dfefe0b24fd2c3972b9b7ea1541c430420ff090b7c96f42405a"
   },
   "payload_digest": {
     "canonicalization": "RFC8785_JCS",
@@ -54,12 +51,12 @@
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "request_id": "80000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
-        "payload_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+        "payload_digest": "ac320d308aad8f34714f18a5f57d1d4c258de36e385d8bea8aa3a7ceeb14b612"
       }
     }
     },
-    "canonical_utf8": "{\"data\":{\"record\":{\"actor\":{\"id\":\"auth-service\",\"type\":\"SERVICE\"},\"causation_id\":\"80000000-0000-4000-8000-000000000001\",\"correlation_id\":\"b0000000-0000-4000-8000-000000000001\",\"event_id\":\"e0000000-0000-4000-8000-000000000001\",\"kind\":\"LOGIN_SOURCE_LOCKED\",\"occurred_at\":\"2026-07-29T10:00:01Z\",\"payload_digest\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"request_id\":\"80000000-0000-4000-8000-000000000001\",\"schema_version\":\"fit.platform.audit-event.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\"},\"trigger\":\"REQUEST\"},\"record_id\":\"e0000000-0000-4000-8000-000000000001\",\"record_type\":\"audit\"},\"event_kind\":\"LOGIN_SOURCE_LOCKED\",\"schema_version\":\"fit.platform.event-payload.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\"},\"subject\":\"fit.platform.v1.auth-security.login-source-locked\"}",
-    "sha256": "885be5aef0fe888ef0ac1c0022c0e51b8fdedc5791429378f1284edc4d66a169"
+    "canonical_utf8": "{\"data\":{\"record\":{\"actor\":{\"id\":\"auth-service\",\"type\":\"SERVICE\"},\"causation_id\":\"80000000-0000-4000-8000-000000000001\",\"correlation_id\":\"b0000000-0000-4000-8000-000000000001\",\"event_id\":\"e0000000-0000-4000-8000-000000000001\",\"kind\":\"LOGIN_SOURCE_LOCKED\",\"occurred_at\":\"2026-07-29T10:00:01Z\",\"payload_digest\":\"ac320d308aad8f34714f18a5f57d1d4c258de36e385d8bea8aa3a7ceeb14b612\",\"request_id\":\"80000000-0000-4000-8000-000000000001\",\"schema_version\":\"fit.platform.audit-event.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\"},\"trigger\":\"REQUEST\"},\"record_id\":\"e0000000-0000-4000-8000-000000000001\",\"record_type\":\"audit\"},\"event_kind\":\"LOGIN_SOURCE_LOCKED\",\"schema_version\":\"fit.platform.event-payload.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\"},\"subject\":\"fit.platform.v1.auth-security.login-source-locked\"}",
+    "sha256": "b9026a06ccba1a45d6b5b9d4c7fafe47da8078a3115c389ea3b0ecf384ba89d9"
   },
   "ed25519_proofs": {
     "signature_input_formula": "UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))",

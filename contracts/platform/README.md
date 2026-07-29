@@ -16,6 +16,9 @@ signer, wallet, or trading action.
 - `manifests/security-values-v1.json` and
   `manifests/http-rate-limits-v1.json` freeze authentication and ingress
   constants.
+- `manifests/websocket-protocol-v1.json` is the versioned Phase 1 WebSocket
+  overlay. It preserves Phase 0 application messages while superseding the
+  Phase 0-only empty client-message list for Phase 1 control frames.
 - `manifests/nats-permissions-v1.json` freezes all Phase 1 service principals
   and exact subjects.
 - `manifests/transaction-boundaries-v1.json`,
@@ -51,8 +54,9 @@ validator must implement them before accepting a record:
   digest.
 - `x-fit-refresh-family-lineage` validates the complete family as one state:
   every token has the same family/session/deadline, successor digests resolve
-  inside that family, lineage is acyclic, and family revocation covers every
-  already-issued descendant.
+  inside that family, each descendant is issued before its parent expires,
+  lineage is acyclic, and family revocation covers every already-issued
+  descendant.
 - `x-fit-websocket-deadline` requires
   issuance at exactly the later of connection time or 60 seconds before access
   expiry, and
@@ -60,9 +64,28 @@ validator must implement them before accepting a record:
 - `x-fit-payload-integrity` requires the registered
   `fit.platform.event-payload.v1` payload, exact subject/kind/scope agreement,
   a schema-valid complete AuditEvent or Notification durable record with exact
-  record/causation/correlation linkage, and SHA-256 over its RFC 8785 JCS
-  bytes. Unknown or scope-inappropriate payloads are invalid even when their
-  digest is recomputed.
+  record/time/causation/correlation linkage, a durable-record digest over the
+  record with its digest field omitted, and SHA-256 over the payload's RFC 8785
+  JCS bytes. Unknown or scope-inappropriate payloads are invalid even when
+  their outer digest is recomputed.
+- `x-fit-request-digest` recomputes `canonical_request_digest` from the exact
+  method, route template, strictly decoded path/query/body, and server-authored
+  user/account fields. A digest-shaped placeholder or stale digest is invalid.
+- `x-fit-event-payload` makes standalone payload validation context-complete
+  for record kind, scope, identifier, and notification subject class.
+- `x-fit-durable-record-digest` binds every AuditEvent and Notification digest
+  to the RFC 8785 JCS bytes of that record with `payload_digest` omitted.
+- `x-fit-aggregate-history` validates one complete stateful aggregate history
+  from version 1: exact aggregate identity, unique event IDs and versions,
+  contiguous versions, nondecreasing occurrence time, stable correlation, and
+  predecessor linkage.
+- `x-fit-enrollment-challenge-state` binds the public wire Challenge to a
+  server-owned user/account/source/request record and a one-way subject-handle
+  digest. Only this durable state can be consumed.
+- Credential-bearing commit responses are retained for 120 seconds only as
+  AES-256-GCM ciphertext under an ephemeral runtime key. Same-key retries can
+  recover the exact result during that window; after expiry they require
+  reconciliation and never re-execute the committed mutation.
 - `x-fit-authority-field-names` rejects server-authored fields recursively and
   case-insensitively. `ModelToolMutationInput` additionally rejects
   confirmation ID/hash authority while the authenticated HTTP confirmation
@@ -79,6 +102,12 @@ every nesting depth before HTTP handler or WebSocket control-frame dispatch.
 Only JSON's four whitespace bytes are accepted, prototype-mutation keys are
 rejected, and an already-parsed object is not sufficient evidence that the
 input was unambiguous.
+
+The raw HTTP request target is decoded before framework routing. Phase 1 uses
+an exact ASCII path with no percent-encoded path bytes, forbids dot segments,
+backslashes, fragments, empty path segments, duplicate decoded query keys, and
+multi-valued query parameters, and constructs the digest path/query objects
+only after those checks.
 
 Ed25519 signing uses
 `UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))`. Public keys are raw
