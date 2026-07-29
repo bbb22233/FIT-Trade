@@ -39,8 +39,58 @@
     "canonical_utf8": "{\"device_id\":\"30000000-0000-4000-8000-000000000001\",\"event_kind\":\"DEVICE_ENROLLED\",\"schema_version\":\"fit.platform.synthetic-event.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\",\"user_id\":\"10000000-0000-4000-8000-000000000001\"}}",
     "sha256": "c16612094da1e4952b460d90516f8d9d7be3be5a14e36b24f87ef5c24d1b46e5"
   },
+  "ed25519_proofs": {
+    "signature_input_formula": "UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))",
+    "public_key_encoding": "ed25519-public:<32-byte-raw-public-key-lowercase-hex>",
+    "signature_encoding": "ed25519-signature:<64-byte-signature-lowercase-hex>",
+    "fingerprint_formula": "ed25519: + lowercase_hex(SHA-256(raw_32_byte_public_key))",
+    "public_key": "ed25519-public:fb15e0908fdc013b2361616a1a1304b8d7e0aa2d6f20afb70800730bc51c3ede",
+    "public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f",
+    "vectors": [
+      {
+        "name": "enrollment candidate proof",
+        "challenge_schema": "EnrollmentChallenge",
+        "challenge": {
+          "schema_version": "fit.platform.enrollment-challenge.v1",
+          "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+          "purpose": "ADDITIONAL_DEVICE",
+          "subject_handle": "synthetic_subject_handle_0000000000000001",
+          "candidate_public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f",
+          "nonce": "synthetic_enrollment_nonce_00000000000001",
+          "issued_at": "2026-07-29T10:00:00Z",
+          "expires_at": "2026-07-29T10:02:00Z",
+          "single_use": true
+        },
+        "canonical_utf8": "{\"candidate_public_key_fingerprint\":\"ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f\",\"domain\":\"FIT_TRADE_DEVICE_ENROLLMENT_V1\",\"expires_at\":\"2026-07-29T10:02:00Z\",\"issued_at\":\"2026-07-29T10:00:00Z\",\"nonce\":\"synthetic_enrollment_nonce_00000000000001\",\"purpose\":\"ADDITIONAL_DEVICE\",\"schema_version\":\"fit.platform.enrollment-challenge.v1\",\"single_use\":true,\"subject_handle\":\"synthetic_subject_handle_0000000000000001\"}",
+        "signed_bytes_hex": "4649545f54524144455f4445564943455f454e524f4c4c4d454e545f5631007b2263616e6469646174655f7075626c69635f6b65795f66696e6765727072696e74223a22656432353531393a62393439616332623735633330326232323563363561383132633032653763323265656338643564663930656631343964616136633838353935383839313166222c22646f6d61696e223a224649545f54524144455f4445564943455f454e524f4c4c4d454e545f5631222c22657870697265735f6174223a22323032362d30372d32395431303a30323a30305a222c226973737565645f6174223a22323032362d30372d32395431303a30303a30305a222c226e6f6e6365223a2273796e7468657469635f656e726f6c6c6d656e745f6e6f6e63655f3030303030303030303030303031222c22707572706f7365223a224144444954494f4e414c5f444556494345222c22736368656d615f76657273696f6e223a226669742e706c6174666f726d2e656e726f6c6c6d656e742d6368616c6c656e67652e7631222c2273696e676c655f757365223a747275652c227375626a6563745f68616e646c65223a2273796e7468657469635f7375626a6563745f68616e646c655f30303030303030303030303030303031227d",
+        "signature": "ed25519-signature:0274ec9e380070870c4479876860d768b4797554119ca9b35b81dce4478fa01646bb4932bc41a8dde49bafcf97f681ed677f4f6b8149bb8f6f535bc917ab940f"
+      },
+      {
+        "name": "registered device action proof",
+        "challenge_schema": "DeviceActionChallenge",
+        "challenge": {
+          "schema_version": "fit.platform.device-action-challenge.v1",
+          "domain": "FIT_TRADE_DEVICE_ACTION_V1",
+          "user_id": "10000000-0000-4000-8000-000000000001",
+          "trading_account_id": "20000000-0000-4000-8000-000000000001",
+          "device_id": "30000000-0000-4000-8000-000000000001",
+          "session_id": "40000000-0000-4000-8000-000000000001",
+          "action": "OPEN_POSITION",
+          "payload_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "nonce": "synthetic_device_action_nonce_000000000001",
+          "issued_at": "2026-07-29T10:00:00Z",
+          "expires_at": "2026-07-29T10:02:00Z",
+          "single_use": true
+        },
+        "canonical_utf8": "{\"action\":\"OPEN_POSITION\",\"device_id\":\"30000000-0000-4000-8000-000000000001\",\"domain\":\"FIT_TRADE_DEVICE_ACTION_V1\",\"expires_at\":\"2026-07-29T10:02:00Z\",\"issued_at\":\"2026-07-29T10:00:00Z\",\"nonce\":\"synthetic_device_action_nonce_000000000001\",\"payload_hash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"schema_version\":\"fit.platform.device-action-challenge.v1\",\"session_id\":\"40000000-0000-4000-8000-000000000001\",\"single_use\":true,\"trading_account_id\":\"20000000-0000-4000-8000-000000000001\",\"user_id\":\"10000000-0000-4000-8000-000000000001\"}",
+        "signed_bytes_hex": "4649545f54524144455f4445564943455f414354494f4e5f5631007b22616374696f6e223a224f50454e5f504f534954494f4e222c226465766963655f6964223a2233303030303030302d303030302d343030302d383030302d303030303030303030303031222c22646f6d61696e223a224649545f54524144455f4445564943455f414354494f4e5f5631222c22657870697265735f6174223a22323032362d30372d32395431303a30323a30305a222c226973737565645f6174223a22323032362d30372d32395431303a30303a30305a222c226e6f6e6365223a2273796e7468657469635f6465766963655f616374696f6e5f6e6f6e63655f303030303030303030303031222c227061796c6f61645f68617368223a2264646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464222c22736368656d615f76657273696f6e223a226669742e706c6174666f726d2e6465766963652d616374696f6e2d6368616c6c656e67652e7631222c2273657373696f6e5f6964223a2234303030303030302d303030302d343030302d383030302d303030303030303030303031222c2273696e676c655f757365223a747275652c2274726164696e675f6163636f756e745f6964223a2232303030303030302d303030302d343030302d383030302d303030303030303030303031222c22757365725f6964223a2231303030303030302d303030302d343030302d383030302d303030303030303030303031227d",
+        "signature": "ed25519-signature:28f8ebf3f6cd3e887198e0222437b5b3362d818bcdb32e1d3321f500d82135d1aa474e89d62076f6cc0652587ef02b693b2be0e0ee24dd33cf6c8dbce440ac01"
+      }
+    ]
+  },
   "argon2id_production": {
     "profile_id": "argon2id-production-v1",
+    "version": 19,
     "password_utf8": "synthetic-password-vector-only",
     "salt_hex": "000102030405060708090a0b0c0d0e0f",
     "memory_kib": 65536,

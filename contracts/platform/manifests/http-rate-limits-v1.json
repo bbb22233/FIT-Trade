@@ -4,6 +4,15 @@
     "origin": "DIRECT_PEER_IP",
     "forwarding_headers_trusted": false
   },
+  "algorithm": {
+    "rate_groups": "TOKEN_BUCKET",
+    "initial_tokens": "BURST",
+    "refill": "CONTINUOUS_MONOTONIC_TIME",
+    "decision": "DENY_IF_ANY_APPLICABLE_GROUP_DENIES",
+    "state_update": "ATOMIC_PER_SCOPE_KEY",
+    "concurrency": "ATOMIC_LEASE_COUNT_DENY_ABOVE_MAXIMUM",
+    "one_attempt_challenge": "ATOMIC_COMPARE_AND_SET_ZERO_TO_ONE"
+  },
   "unauthenticated_allowlist": [
     {
       "route": "POST /v1/auth/login",

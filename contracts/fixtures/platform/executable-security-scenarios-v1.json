@@ -1,0 +1,255 @@
+{
+  "schema_version": "fit.platform.executable-security-scenarios.v1",
+  "synthetic_enrollment_cases": [
+    {
+      "name": "unknown identifier gets nonpersisted opaque challenge one",
+      "wire": {
+        "schema_version": "fit.platform.enrollment-challenge.v1",
+        "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+        "purpose": "ADDITIONAL_DEVICE",
+        "subject_handle": "synthetic_unknown_subject_8UcL7pQk2Nw5Vr9Xm3",
+        "candidate_public_key_fingerprint": "ed25519:1111111111111111111111111111111111111111111111111111111111111111",
+        "nonce": "synthetic_unknown_nonce_K4mP8sT2vW6yZ9aB3c",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-07-29T10:02:00Z",
+        "single_use": true
+      },
+      "identifier_resolved": false,
+      "server_state_exists": false,
+      "persisted": false,
+      "completion_attempted": true,
+      "devices_before": 0,
+      "devices_after": 0,
+      "sessions_before": 0,
+      "sessions_after": 0,
+      "refresh_families_before": 0,
+      "refresh_families_after": 0,
+      "expected": "REJECT_SYNTHETIC_NO_STATE"
+    },
+    {
+      "name": "repeated unknown identifier gets unrelated nonpersisted handle",
+      "wire": {
+        "schema_version": "fit.platform.enrollment-challenge.v1",
+        "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+        "purpose": "ADDITIONAL_DEVICE",
+        "subject_handle": "synthetic_unknown_subject_3FaR6hJq9Bx2Ds7Nt5",
+        "candidate_public_key_fingerprint": "ed25519:2222222222222222222222222222222222222222222222222222222222222222",
+        "nonce": "synthetic_unknown_nonce_Q7dG2kM5pS8uX4zC9e",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-07-29T10:02:00Z",
+        "single_use": true
+      },
+      "identifier_resolved": false,
+      "server_state_exists": false,
+      "persisted": false,
+      "completion_attempted": true,
+      "devices_before": 0,
+      "devices_after": 0,
+      "sessions_before": 0,
+      "sessions_after": 0,
+      "refresh_families_before": 0,
+      "refresh_families_after": 0,
+      "expected": "REJECT_SYNTHETIC_NO_STATE"
+    }
+  ],
+  "password_throttle_timelines": [
+    {
+      "name": "resolved user delay lock expiry and atomic concurrency",
+      "source_key": "SOURCE_A",
+      "events": [
+        {
+          "at_seconds": 0,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 0.5,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "DENY_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1
+        },
+        {
+          "at_seconds": 1,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 2,
+          "expected_source_failures": 2,
+          "expected_delay_seconds": 2
+        },
+        {
+          "at_seconds": 3,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 3,
+          "expected_source_failures": 3,
+          "expected_delay_seconds": 4
+        },
+        {
+          "at_seconds": 7,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 4,
+          "expected_source_failures": 4,
+          "expected_delay_seconds": 8
+        },
+        {
+          "at_seconds": 15,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "LOCKED",
+          "expected_account_failures": 5,
+          "expected_source_failures": 5,
+          "expected_lock_until_seconds": 915
+        },
+        {
+          "at_seconds": 100,
+          "user_id": "USER_A",
+          "password_valid": true,
+          "expected_decision": "DENY_LOCK",
+          "expected_account_failures": 5,
+          "expected_source_failures": 5
+        },
+        {
+          "at_seconds": 915,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 1,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 916,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 2,
+          "expected_source_failures": 2,
+          "expected_delay_seconds": 2
+        },
+        {
+          "at_seconds": 916,
+          "user_id": "USER_A",
+          "password_valid": false,
+          "expected_decision": "DENY_DELAY",
+          "expected_account_failures": 2,
+          "expected_source_failures": 2
+        }
+      ]
+    },
+    {
+      "name": "unknown identifier locks only source and either dimension denies",
+      "source_key": "SOURCE_B",
+      "events": [
+        {
+          "at_seconds": 0,
+          "user_id": null,
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 0,
+          "expected_source_failures": 1,
+          "expected_delay_seconds": 1
+        },
+        {
+          "at_seconds": 1,
+          "user_id": null,
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 0,
+          "expected_source_failures": 2,
+          "expected_delay_seconds": 2
+        },
+        {
+          "at_seconds": 3,
+          "user_id": null,
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 0,
+          "expected_source_failures": 3,
+          "expected_delay_seconds": 4
+        },
+        {
+          "at_seconds": 7,
+          "user_id": null,
+          "password_valid": false,
+          "expected_decision": "FAILED_DELAY",
+          "expected_account_failures": 0,
+          "expected_source_failures": 4,
+          "expected_delay_seconds": 8
+        },
+        {
+          "at_seconds": 15,
+          "user_id": null,
+          "password_valid": false,
+          "expected_decision": "LOCKED",
+          "expected_account_failures": 0,
+          "expected_source_failures": 5,
+          "expected_lock_until_seconds": 915
+        },
+        {
+          "at_seconds": 16,
+          "user_id": "USER_B",
+          "password_valid": true,
+          "expected_decision": "DENY_LOCK",
+          "expected_account_failures": 0,
+          "expected_source_failures": 5
+        }
+      ]
+    }
+  ],
+  "websocket_upgrade_cases": [
+    {
+      "name": "exact server binding is accepted",
+      "mismatch_field": null,
+      "expected": "ACCEPT"
+    },
+    {
+      "name": "user mismatch rejects",
+      "mismatch_field": "user_id",
+      "expected": "REJECT"
+    },
+    {
+      "name": "account mismatch rejects",
+      "mismatch_field": "trading_account_id",
+      "expected": "REJECT"
+    },
+    {
+      "name": "device mismatch rejects",
+      "mismatch_field": "device_id",
+      "expected": "REJECT"
+    },
+    {
+      "name": "session mismatch rejects",
+      "mismatch_field": "session_id",
+      "expected": "REJECT"
+    },
+    {
+      "name": "family mismatch rejects",
+      "mismatch_field": "refresh_family_id",
+      "expected": "REJECT"
+    }
+  ],
+  "websocket_redaction_cases": [
+    {
+      "field": "access_token_transport",
+      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages"]
+    },
+    {
+      "field": "nonce",
+      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages"]
+    },
+    {
+      "field": "raw_control_frame",
+      "forbidden_sinks": ["logs", "traces", "metrics", "error_messages"]
+    }
+  ]
+}

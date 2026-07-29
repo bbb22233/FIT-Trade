@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash, createHmac } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  createPublicKey,
+  verify as verifySignature,
+} from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -107,6 +112,90 @@ function isoMilliseconds(value) {
   return parsed;
 }
 
+function parseStrictJson(raw) {
+  let cursor = 0;
+  const skipWhitespace = () => {
+    while (/\s/u.test(raw[cursor] ?? "")) cursor += 1;
+  };
+  const parseString = () => {
+    assert.equal(raw[cursor], '"', "expected JSON string");
+    const start = cursor;
+    cursor += 1;
+    while (cursor < raw.length) {
+      if (raw[cursor] === "\\") {
+        cursor += 2;
+        continue;
+      }
+      if (raw[cursor] === '"') {
+        cursor += 1;
+        return JSON.parse(raw.slice(start, cursor));
+      }
+      cursor += 1;
+    }
+    assert.fail("unterminated JSON string");
+  };
+  const parseValue = () => {
+    skipWhitespace();
+    if (raw[cursor] === "{") return parseObject();
+    if (raw[cursor] === "[") return parseArray();
+    if (raw[cursor] === '"') return parseString();
+    const match = raw.slice(cursor).match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/u);
+    assert(match, `invalid JSON value at byte ${cursor}`);
+    cursor += match[0].length;
+    return JSON.parse(match[0]);
+  };
+  const parseArray = () => {
+    const values = [];
+    cursor += 1;
+    skipWhitespace();
+    if (raw[cursor] === "]") {
+      cursor += 1;
+      return values;
+    }
+    while (true) {
+      values.push(parseValue());
+      skipWhitespace();
+      if (raw[cursor] === "]") {
+        cursor += 1;
+        return values;
+      }
+      assert.equal(raw[cursor], ",", "expected array comma");
+      cursor += 1;
+    }
+  };
+  const parseObject = () => {
+    const value = {};
+    const keys = new Set();
+    cursor += 1;
+    skipWhitespace();
+    if (raw[cursor] === "}") {
+      cursor += 1;
+      return value;
+    }
+    while (true) {
+      skipWhitespace();
+      const key = parseString();
+      assert(!keys.has(key), `duplicate JSON object key ${key}`);
+      keys.add(key);
+      skipWhitespace();
+      assert.equal(raw[cursor], ":", "expected object colon");
+      cursor += 1;
+      value[key] = parseValue();
+      skipWhitespace();
+      if (raw[cursor] === "}") {
+        cursor += 1;
+        return value;
+      }
+      assert.equal(raw[cursor], ",", "expected object comma");
+      cursor += 1;
+    }
+  };
+  const value = parseValue();
+  skipWhitespace();
+  assert.equal(cursor, raw.length, "trailing JSON bytes");
+  return value;
+}
+
 function challengeOutcome(item) {
   if (item.synthetic) {
     return "REJECT_SYNTHETIC_NO_STATE";
@@ -143,12 +232,25 @@ function websocketOutcome(item) {
   if (item.revoked) {
     return "CLOSE_REVOKED_WITHIN_5_SECONDS";
   }
+  if (item.event === "APPLICATION_FRAME_WHILE_REAUTH_PENDING") {
+    return "REJECT_APPLICATION_FRAME";
+  }
+  if (item.event === "REAUTH_DEADLINE_WITHOUT_RESPONSE") {
+    return "CLOSE_4401";
+  }
   if (
     !item.challenge_issued ||
+    item.malformed ||
     !item.nonce_matches ||
     item.nonce_consumed ||
-    !item.binding_matches ||
-    !item.fresh_token ||
+    !item.user_matches ||
+    !item.account_matches ||
+    !item.device_matches ||
+    !item.session_matches ||
+    !item.family_matches ||
+    !item.token_valid ||
+    !item.token_fresh ||
+    item.credential_source !== "HTTPS_REFRESH" ||
     isoMilliseconds(item.verification_completed_at) >=
       isoMilliseconds(item.deadline)
   ) {
@@ -176,6 +278,109 @@ function strictRequestDecodeOutcome(item) {
     item.ambiguous_path
     ? "REJECT"
     : "ACCEPT";
+}
+
+function newThrottleDimension() {
+  return { failures: 0, nextAllowedMs: 0, lockedUntilMs: 0 };
+}
+
+function clearExpiredThrottleState(state, nowMs) {
+  if (state.lockedUntilMs > 0 && nowMs >= state.lockedUntilMs) {
+    state.failures = 0;
+    state.nextAllowedMs = 0;
+    state.lockedUntilMs = 0;
+  }
+}
+
+function runThrottleTimeline(timeline, throttle) {
+  const source = newThrottleDimension();
+  const accounts = new Map();
+  for (const event of timeline.events) {
+    const nowMs = event.at_seconds * 1000;
+    const account =
+      event.user_id === null
+        ? null
+        : (accounts.get(event.user_id) ?? newThrottleDimension());
+    if (account !== null) accounts.set(event.user_id, account);
+    clearExpiredThrottleState(source, nowMs);
+    if (account !== null) clearExpiredThrottleState(account, nowMs);
+    const dimensions = [source, ...(account === null ? [] : [account])];
+    let decision;
+    let appliedDelaySeconds = 0;
+    if (dimensions.some((state) => nowMs < state.lockedUntilMs)) {
+      decision = "DENY_LOCK";
+    } else if (dimensions.some((state) => nowMs < state.nextAllowedMs)) {
+      decision = "DENY_DELAY";
+    } else if (event.password_valid) {
+      account.failures = 0;
+      account.nextAllowedMs = 0;
+      account.lockedUntilMs = 0;
+      decision = "PASSWORD_ACCEPTED";
+    } else {
+      for (const state of dimensions) {
+        state.failures += 1;
+        if (state.failures >= throttle.lock_on_failure) {
+          state.lockedUntilMs = nowMs + throttle.lock_seconds * 1000;
+          state.nextAllowedMs = 0;
+        } else {
+          appliedDelaySeconds =
+            throttle.failure_delays_seconds[state.failures - 1];
+          state.nextAllowedMs = nowMs + appliedDelaySeconds * 1000;
+        }
+      }
+      decision = dimensions.some((state) => state.lockedUntilMs > nowMs)
+        ? "LOCKED"
+        : "FAILED_DELAY";
+    }
+    assert.equal(decision, event.expected_decision, `${timeline.name} decision`);
+    assert.equal(
+      account?.failures ?? 0,
+      event.expected_account_failures,
+      `${timeline.name} account failures`,
+    );
+    assert.equal(
+      source.failures,
+      event.expected_source_failures,
+      `${timeline.name} source failures`,
+    );
+    if (Object.hasOwn(event, "expected_delay_seconds")) {
+      assert.equal(
+        appliedDelaySeconds,
+        event.expected_delay_seconds,
+        `${timeline.name} delay`,
+      );
+    }
+    if (Object.hasOwn(event, "expected_lock_until_seconds")) {
+      assert.equal(
+        source.lockedUntilMs / 1000,
+        event.expected_lock_until_seconds,
+        `${timeline.name} source lock expiry`,
+      );
+      if (account !== null) {
+        assert.equal(
+          account.lockedUntilMs / 1000,
+          event.expected_lock_until_seconds,
+          `${timeline.name} account lock expiry`,
+        );
+      }
+    }
+  }
+}
+
+function tokenBucketDecisions(group, timestampsMs) {
+  let tokens = group.burst;
+  let lastMs = timestampsMs[0] ?? 0;
+  return timestampsMs.map((nowMs) => {
+    const elapsedMs = Math.max(0, nowMs - lastMs);
+    tokens = Math.min(
+      group.burst,
+      tokens + (elapsedMs / 1000) * (group.rate / group.per_seconds),
+    );
+    lastMs = nowMs;
+    if (tokens + Number.EPSILON < 1) return false;
+    tokens -= 1;
+    return true;
+  });
 }
 
 function parseIpv4(value) {
@@ -256,6 +461,8 @@ const [
   validFixtureSet,
   invalidFixtureSet,
   scenarios,
+  executableSecurity,
+  linkageChains,
   golden,
   security,
   rateLimits,
@@ -285,6 +492,13 @@ const [
   readJson(path.join(fixtureDirectory, "valid-schema-cases-v1.json")),
   readJson(path.join(fixtureDirectory, "invalid-schema-cases-v1.json")),
   readJson(path.join(fixtureDirectory, "semantic-scenarios-v1.json")),
+  readJson(
+    path.join(
+      fixtureDirectory,
+      "executable-security-scenarios-v1.json",
+    ),
+  ),
+  readJson(path.join(fixtureDirectory, "linkage-chains-v1.json")),
   readJson(path.join(fixtureDirectory, "golden-vectors-v1.json")),
   readJson(
     path.join(platformDirectory, "manifests", "security-values-v1.json"),
@@ -331,6 +545,107 @@ const ajv = new Ajv2020({
   validateFormats: true,
 });
 addFormats(ajv);
+ajv.addKeyword({
+  keyword: "x-fit-time-window",
+  schemaType: "object",
+  type: "object",
+  errors: false,
+  validate: (rule, data) => {
+    const start = Date.parse(data[rule.start]);
+    const end = Date.parse(data[rule.end]);
+    return (
+      Number.isFinite(start) &&
+      Number.isFinite(end) &&
+      end - start === rule.seconds * 1000 &&
+      (!Object.hasOwn(data, "revoked_at") ||
+        Date.parse(data.revoked_at) >= start)
+    );
+  },
+});
+ajv.addKeyword({
+  keyword: "x-fit-refresh-window",
+  schemaType: "boolean",
+  type: "object",
+  errors: false,
+  validate: (_rule, data) => {
+    const issuedAt = Date.parse(data.issued_at);
+    const familyDeadline = Date.parse(data.family_deadline);
+    const expiresAt = Date.parse(data.expires_at);
+    const revokedAt = Object.hasOwn(data, "revoked_at")
+      ? Date.parse(data.revoked_at)
+      : null;
+    return (
+      Number.isFinite(issuedAt) &&
+      Number.isFinite(familyDeadline) &&
+      Number.isFinite(expiresAt) &&
+      familyDeadline > issuedAt &&
+      expiresAt === Math.min(issuedAt + 604_800_000, familyDeadline) &&
+      (revokedAt === null ||
+        (Number.isFinite(revokedAt) &&
+          revokedAt >= issuedAt &&
+          revokedAt <= familyDeadline))
+    );
+  },
+});
+ajv.addKeyword({
+  keyword: "x-fit-websocket-deadline",
+  schemaType: "boolean",
+  type: "object",
+  errors: false,
+  validate: (_rule, data) => {
+    const issuedAt = Date.parse(data.issued_at);
+    const deadline = Date.parse(data.deadline);
+    const accessExpiry = Date.parse(data.current_access_expires_at);
+    return (
+      Number.isFinite(issuedAt) &&
+      Number.isFinite(deadline) &&
+      Number.isFinite(accessExpiry) &&
+      issuedAt < accessExpiry &&
+      deadline === Math.min(issuedAt + 60_000, accessExpiry)
+    );
+  },
+});
+ajv.addKeyword({
+  keyword: "x-fit-payload-integrity",
+  schemaType: "boolean",
+  type: "object",
+  errors: false,
+  validate: (_rule, data) =>
+    data.payload?.schema_version === data.payload_schema_version &&
+    sha256(jcsCanonicalize(data.payload)) === data.payload_digest,
+});
+ajv.addKeyword({
+  keyword: "x-fit-recovery-consistency",
+  schemaType: "boolean",
+  type: "object",
+  errors: false,
+  validate: (_rule, data) => {
+    const committedAt = Date.parse(data.last_committed?.committed_at);
+    const recoveredAt = Date.parse(data.last_recovered?.committed_at);
+    const injectedAt = Date.parse(data.failure?.injected_at);
+    const invokedAt = Date.parse(data.restore?.invoked_at);
+    const completedAt = Date.parse(data.restore?.verification_completed_at);
+    return (
+      [
+        committedAt,
+        recoveredAt,
+        injectedAt,
+        invokedAt,
+        completedAt,
+      ].every(Number.isFinite) &&
+      data.last_committed.sequence === 6000 &&
+      data.last_recovered.sequence <= data.last_committed.sequence &&
+      recoveredAt <= committedAt &&
+      committedAt === injectedAt &&
+      injectedAt <= invokedAt &&
+      invokedAt <= completedAt &&
+      data.observed_rpo.sequence_gap ===
+        data.last_committed.sequence - data.last_recovered.sequence &&
+      data.observed_rpo.time_gap_ms === committedAt - recoveredAt &&
+      data.observed_rto_ms === completedAt - invokedAt
+    );
+  },
+});
 ajv.addSchema(platformSchema);
 
 const platformValidators = new Map();
@@ -379,6 +694,32 @@ for (const fixture of invalidFixtureSet.cases) {
   );
 }
 
+const validateUntrustedMutation = validatorFor("UntrustedMutationInput");
+const validUntrustedMutation = validFixtureSet.cases.find(
+  ({ schema }) => schema === "UntrustedMutationInput",
+).value;
+for (const forbiddenField of [
+  "authorization",
+  "ownership_id",
+  "refresh_family_id",
+  "identity_origin",
+  "role",
+  "actor",
+  "scope",
+  "issued_at",
+  "revoked_at",
+  "signature_verified",
+]) {
+  const mutation = clone(validUntrustedMutation);
+  mutation.body = {
+    nested: [{ deeper: { [forbiddenField]: "client-forged-authority" } }],
+  };
+  assert(
+    !validateUntrustedMutation(mutation),
+    `untrusted recursive input accepted server authority ${forbiddenField}`,
+  );
+}
+
 for (const fixture of validFixtureSet.cases.filter(
   ({ schema }) =>
     schema === "EnrollmentChallenge" || schema === "DeviceActionChallenge",
@@ -420,6 +761,54 @@ assert.equal(
     isoMilliseconds(validRefreshRecord.issued_at),
   security.tokens.refresh_family_max_lifetime_seconds * 1000,
   "initial refresh family deadline drifted",
+);
+for (const mutation of [
+  { ...validSession, access_expires_at: "2026-07-29T11:00:00Z" },
+  { ...validSession, revoked_at: "2026-07-29T10:01:00Z" },
+  {
+    ...validSession,
+    status: "REVOKED",
+    revoked_at: "2026-07-29T09:59:59Z",
+  },
+]) {
+  assert(
+    !validatorFor("Session")(mutation),
+    "Session accepted contradictory state or non-frozen access lifetime",
+  );
+}
+for (const mutation of [
+  { ...validRefreshRecord, expires_at: "2026-08-30T10:00:00Z" },
+  { ...validRefreshRecord, revoked_at: "2026-07-29T10:01:00Z" },
+  {
+    ...validRefreshRecord,
+    status: "REVOKED",
+    revoked_at: "2026-07-29T09:59:59Z",
+  },
+]) {
+  assert(
+    !validatorFor("RefreshTokenRecord")(mutation),
+    "refresh record accepted contradictory state or invalid expiry formula",
+  );
+}
+const validEnrollmentChallenge = validFixtureSet.cases.find(
+  ({ schema }) => schema === "EnrollmentChallenge",
+).value;
+assert(
+  !validatorFor("EnrollmentChallenge")({
+    ...validEnrollmentChallenge,
+    expires_at: "2026-07-29T11:00:00Z",
+  }),
+  "EnrollmentChallenge accepted a non-frozen lifetime",
+);
+const validWebSocketChallenge = validFixtureSet.cases.find(
+  ({ schema }) => schema === "WebSocketReauthRequired",
+).value;
+assert(
+  !validatorFor("WebSocketReauthRequired")({
+    ...validWebSocketChallenge,
+    deadline: "2026-07-29T10:30:00Z",
+  }),
+  "WebSocket challenge accepted deadline after access expiry",
 );
 
 const validRemediation = validFixtureSet.cases.find(
@@ -495,6 +884,9 @@ for (const [kind, severity] of Object.entries(notificationManifest)) {
           type: "AUTH_SECURITY",
           source_key:
             "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          ...(kind === "LOGIN_ACCOUNT_LOCKED"
+            ? { user_id: "10000000-0000-4000-8000-000000000001" }
+            : {}),
         };
   const value = {
     schema_version: "fit.platform.notification-intent.v1",
@@ -537,6 +929,43 @@ for (const scenario of scenarios.challenge_cases) {
     `challenge case failed: ${scenario.name}`,
   );
 }
+const syntheticHandles = new Set();
+for (const scenario of executableSecurity.synthetic_enrollment_cases) {
+  assert(
+    validatorFor("EnrollmentChallenge")(scenario.wire),
+    `synthetic challenge wire is invalid: ${scenario.name}`,
+  );
+  assert.equal(scenario.identifier_resolved, false, scenario.name);
+  assert.equal(scenario.server_state_exists, false, scenario.name);
+  assert.equal(scenario.persisted, false, scenario.name);
+  assert.equal(scenario.completion_attempted, true, scenario.name);
+  assert.equal(scenario.devices_after, scenario.devices_before, scenario.name);
+  assert.equal(scenario.sessions_after, scenario.sessions_before, scenario.name);
+  assert.equal(
+    scenario.refresh_families_after,
+    scenario.refresh_families_before,
+    scenario.name,
+  );
+  assert.equal(
+    challengeOutcome({
+      synthetic: true,
+      already_attempted: false,
+      now: scenario.wire.issued_at,
+      expires_at: scenario.wire.expires_at,
+      proof_valid: true,
+    }),
+    scenario.expected,
+    scenario.name,
+  );
+  assert(!syntheticHandles.has(scenario.wire.subject_handle), scenario.name);
+  syntheticHandles.add(scenario.wire.subject_handle);
+  for (const forbidden of security.challenge.enrollment.wire_forbidden_fields) {
+    assert(
+      !Object.hasOwn(scenario.wire, forbidden),
+      `${scenario.name} leaked ${forbidden}`,
+    );
+  }
+}
 
 for (const scenario of scenarios.refresh_cases) {
   assert.equal(
@@ -578,6 +1007,9 @@ for (const scenario of scenarios.throttle_cases) {
     scenario.expected_lock_seconds,
     `throttle lock failed: ${scenario.name}`,
   );
+}
+for (const timeline of executableSecurity.password_throttle_timelines) {
+  runThrottleTimeline(timeline, security.password_throttle);
 }
 
 const crossRoute = scenarios.cross_route_throttle_case;
@@ -656,6 +1088,25 @@ for (const scenario of scenarios.websocket_cases) {
     `WebSocket case failed: ${scenario.name}`,
   );
 }
+const validWebSocketReauth = scenarios.websocket_cases.find(
+  ({ expected }) => expected === "ATOMIC_REBIND",
+);
+for (const mismatchField of [
+  "nonce_matches",
+  "user_matches",
+  "account_matches",
+  "device_matches",
+  "session_matches",
+  "family_matches",
+  "token_valid",
+  "token_fresh",
+]) {
+  assert.equal(
+    websocketOutcome({ ...validWebSocketReauth, [mismatchField]: false }),
+    "CLOSE_4401",
+    `WebSocket reauthorization accepted ${mismatchField}=false`,
+  );
+}
 for (const scenario of scenarios.websocket_deadline_cases) {
   const calculated = Math.min(
     isoMilliseconds(scenario.issued_at) + 60_000,
@@ -665,6 +1116,39 @@ for (const scenario of scenarios.websocket_deadline_cases) {
     calculated,
     isoMilliseconds(scenario.expected_deadline),
     `WebSocket deadline case failed: ${scenario.name}`,
+  );
+}
+const bindingFixture = validFixtureSet.cases.find(
+  ({ schema }) => schema === "WebSocketBinding",
+).value;
+for (const scenario of executableSecurity.websocket_upgrade_cases) {
+  const tokenClaims = {
+    user_id: bindingFixture.user_id,
+    trading_account_id: bindingFixture.trading_account_id,
+    device_id: bindingFixture.device_id,
+    session_id: bindingFixture.session_id,
+    refresh_family_id: bindingFixture.refresh_family_id,
+  };
+  if (scenario.mismatch_field !== null) {
+    tokenClaims[scenario.mismatch_field] =
+      "99000000-0000-4000-8000-000000000099";
+  }
+  const matches = Object.entries(tokenClaims).every(
+    ([field, value]) => bindingFixture[field] === value,
+  );
+  assert.equal(matches ? "ACCEPT" : "REJECT", scenario.expected, scenario.name);
+}
+for (const scenario of executableSecurity.websocket_redaction_cases) {
+  assert(
+    security.websocket_reauthorization.redacted_fields.includes(
+      scenario.field,
+    ),
+    `missing WebSocket redaction for ${scenario.field}`,
+  );
+  assertDeepEqual(
+    [...scenario.forbidden_sinks].sort(),
+    [...security.websocket_reauthorization.redaction_sinks].sort(),
+    `${scenario.field} redaction sinks drifted`,
   );
 }
 
@@ -682,6 +1166,21 @@ for (const scenario of scenarios.request_decode_cases) {
     scenario.expected,
     `request decoding case failed: ${scenario.name}`,
   );
+}
+for (const [raw, accepted] of [
+  ['{"body":{"decision":"CONFIRM"},"path":{}}', true],
+  ['{"body":{"decision":"CONFIRM","decision":"REJECT"},"path":{}}', false],
+  ['{"body":{"nested":{"scope":"A","scope":"B"}},"path":{}}', false],
+  ['{"items":[{"nonce":"A"},{"nonce":"B"}]}', true],
+]) {
+  let parsed = false;
+  try {
+    parseStrictJson(raw);
+    parsed = true;
+  } catch {
+    parsed = false;
+  }
+  assert.equal(parsed, accepted, `strict raw JSON decision drifted for ${raw}`);
 }
 
 for (const vector of scenarios.source_key_vectors) {
@@ -721,6 +1220,56 @@ for (const scenario of scenarios.rate_limit_cases) {
     );
   }
 }
+for (const [name, group] of Object.entries(rateLimits.groups)) {
+  if (Object.hasOwn(group, "maximum_attempts")) {
+    assert.equal(group.maximum_attempts, 1, `${name} must be one attempt`);
+    const attempts = [0, 1].map((attempt) => attempt < group.maximum_attempts);
+    assertDeepEqual(attempts, [true, false], `${name} compare-and-set boundary`);
+    continue;
+  }
+  const atBurst = Array(group.burst + 1).fill(0);
+  const burstDecisions = tokenBucketDecisions(group, atBurst);
+  assert(
+    burstDecisions.slice(0, group.burst).every(Boolean),
+    `${name} denied inside burst`,
+  );
+  assert.equal(
+    burstDecisions[group.burst],
+    false,
+    `${name} allowed above burst`,
+  );
+  const refillMs = (group.per_seconds / group.rate) * 1000;
+  assert.equal(
+    tokenBucketDecisions(group, [...Array(group.burst).fill(0), refillMs]).at(
+      -1,
+    ),
+    true,
+    `${name} did not refill one token`,
+  );
+  if (Object.hasOwn(group, "maximum_concurrent")) {
+    let concurrent = 0;
+    const acquire = () =>
+      concurrent < group.maximum_concurrent ? ((concurrent += 1), true) : false;
+    for (let index = 0; index < group.maximum_concurrent; index += 1) {
+      assert(acquire(), `${name} denied within concurrency maximum`);
+    }
+    assert.equal(acquire(), false, `${name} exceeded concurrency maximum`);
+    concurrent -= 1;
+    assert(acquire(), `${name} failed to admit after release`);
+  }
+}
+const sessionGroup = rateLimits.groups["authenticated-session"];
+const sourceGroup = rateLimits.groups["authenticated-source"];
+const sessionDenied = tokenBucketDecisions(
+  sessionGroup,
+  Array(sessionGroup.burst + 1).fill(0),
+).at(-1);
+const sourceAllowed = tokenBucketDecisions(sourceGroup, [0])[0];
+assert.equal(
+  sessionDenied && sourceAllowed,
+  false,
+  "applicable rate-limit groups must deny when either dimension denies",
+);
 
 for (const scenario of scenarios.enrollment_effect_cases) {
   const enrollment =
@@ -735,6 +1284,25 @@ for (const scenario of scenarios.enrollment_effect_cases) {
   assert.equal(
     scenario.new_session_origin,
     "SERVER_RANDOM_INDEPENDENT",
+    scenario.purpose,
+  );
+  const expectedFixtureEffect =
+    scenario.purpose === "ADDITIONAL_DEVICE"
+      ? "PRESERVED"
+      : "REVOKED_BEFORE_NEW_SESSION";
+  assert.equal(
+    scenario.expected_prior_devices,
+    expectedFixtureEffect,
+    scenario.purpose,
+  );
+  assert.equal(
+    scenario.expected_prior_sessions,
+    expectedFixtureEffect,
+    scenario.purpose,
+  );
+  assert.equal(
+    scenario.expected_prior_families,
+    expectedFixtureEffect,
     scenario.purpose,
   );
 }
@@ -872,6 +1440,61 @@ assert(
   !recoveryValidator(recoveryWithFailedGate),
   "PASS recovery evidence must reject a failed verification gate",
 );
+for (const mutate of [
+  (value) => {
+    value.workload.fixed_seed = 7;
+  },
+  (value) => {
+    value.workload.event_rate_per_second = 1;
+  },
+  (value) => {
+    value.observed_rpo.sequence_gap = 999;
+  },
+  (value) => {
+    value.observed_rpo.time_gap_ms = 999;
+  },
+  (value) => {
+    value.observed_rto_ms = 1;
+  },
+  (value) => {
+    value.last_recovered.sequence = value.last_committed.sequence + 1;
+  },
+  (value) => {
+    value.failure.injected_at = "2026-07-29T10:08:00Z";
+  },
+  (value) => {
+    value.restore.verification_completed_at = "2026-07-29T10:05:59Z";
+  },
+]) {
+  const adversarial = clone(recoveryFixture);
+  mutate(adversarial);
+  assert(
+    !recoveryValidator(adversarial),
+    "recovery evidence accepted drifted workload, arithmetic, or ordering",
+  );
+}
+
+const validEventEnvelope = validFixtureSet.cases.find(
+  ({ schema }) => schema === "EventEnvelope",
+).value;
+for (const mutate of [
+  (value) => {
+    value.payload.decision = "REJECT";
+  },
+  (value) => {
+    value.payload_schema_version = "fit.platform.changed.v1";
+  },
+  (value) => {
+    value.payload_digest = "0".repeat(64);
+  },
+]) {
+  const adversarial = clone(validEventEnvelope);
+  mutate(adversarial);
+  assert(
+    !validatorFor("EventEnvelope")(adversarial),
+    "event envelope accepted an unbound payload mutation",
+  );
+}
 
 const canonicalGolden = jcsCanonicalize(golden.request_digest.value);
 assert.equal(canonicalGolden, golden.request_digest.canonical_utf8);
@@ -925,6 +1548,108 @@ for (const field of Object.keys(golden.payload_digest.value)) {
     `payload digest must bind ${field}`,
   );
 }
+const rawPublicKey = Buffer.from(
+  golden.ed25519_proofs.public_key.slice("ed25519-public:".length),
+  "hex",
+);
+assert.equal(rawPublicKey.length, 32);
+assert.equal(
+  `ed25519:${sha256(rawPublicKey)}`,
+  golden.ed25519_proofs.public_key_fingerprint,
+  "Ed25519 fingerprint derivation drifted",
+);
+const publicKey = createPublicKey({
+  key: Buffer.concat([
+    Buffer.from("302a300506032b6570032100", "hex"),
+    rawPublicKey,
+  ]),
+  format: "der",
+  type: "spki",
+});
+for (const vector of golden.ed25519_proofs.vectors) {
+  assert(
+    validatorFor(vector.challenge_schema)(vector.challenge),
+    `${vector.name} challenge is not contract-valid`,
+  );
+  const canonical = jcsCanonicalize(vector.challenge);
+  assert.equal(canonical, vector.canonical_utf8, vector.name);
+  const signedBytes = Buffer.concat([
+    Buffer.from(vector.challenge.domain, "utf8"),
+    Buffer.from([0]),
+    Buffer.from(canonical, "utf8"),
+  ]);
+  assert.equal(signedBytes.toString("hex"), vector.signed_bytes_hex, vector.name);
+  const signature = Buffer.from(
+    vector.signature.slice("ed25519-signature:".length),
+    "hex",
+  );
+  assert(
+    verifySignature(null, signedBytes, publicKey, signature),
+    `${vector.name} signature did not verify`,
+  );
+  for (const field of Object.keys(vector.challenge)) {
+    const mutation = clone(vector.challenge);
+    mutation[field] =
+      typeof mutation[field] === "boolean"
+        ? !mutation[field]
+        : `${mutation[field]}-mutated`;
+    const mutatedCanonical = jcsCanonicalize(mutation);
+    const mutatedBytes = Buffer.concat([
+      Buffer.from(mutation.domain, "utf8"),
+      Buffer.from([0]),
+      Buffer.from(mutatedCanonical, "utf8"),
+    ]);
+    assert(
+      !verifySignature(null, mutatedBytes, publicKey, signature),
+      `${vector.name} signature did not bind ${field}`,
+    );
+  }
+  const tamperedSignature = Buffer.from(signature);
+  tamperedSignature[0] ^= 1;
+  assert(
+    !verifySignature(null, signedBytes, publicKey, tamperedSignature),
+    `${vector.name} accepted a tampered signature`,
+  );
+}
+const enrollmentProofVector = golden.ed25519_proofs.vectors.find(
+  ({ challenge_schema }) => challenge_schema === "EnrollmentChallenge",
+);
+const deviceActionProofVector = golden.ed25519_proofs.vectors.find(
+  ({ challenge_schema }) => challenge_schema === "DeviceActionChallenge",
+);
+assertDeepEqual(validEnrollmentChallenge, enrollmentProofVector.challenge);
+assertDeepEqual(
+  validFixtureSet.cases.find(
+    ({ schema }) => schema === "DeviceActionChallenge",
+  ).value,
+  deviceActionProofVector.challenge,
+);
+const validEnrollmentCompletion = validFixtureSet.cases.find(
+  ({ schema }) => schema === "EnrollmentCompletionInput",
+).value;
+assert.equal(
+  validEnrollmentCompletion.candidate_public_key,
+  golden.ed25519_proofs.public_key,
+);
+assert.equal(validEnrollmentCompletion.signature, enrollmentProofVector.signature);
+assert.equal(
+  validFixtureSet.cases.find(({ schema }) => schema === "Device").value
+    .public_key_fingerprint,
+  golden.ed25519_proofs.public_key_fingerprint,
+);
+assert.equal(
+  validFixtureSet.cases.find(
+    ({ schema, name }) =>
+      schema === "DeviceEnrollment" && name.startsWith("ordinary"),
+  ).value.candidate_public_key_fingerprint,
+  golden.ed25519_proofs.public_key_fingerprint,
+);
+assert.equal(
+  validFixtureSet.cases.find(
+    ({ schema }) => schema === "DeviceActionProofInput",
+  ).value.signature,
+  deviceActionProofVector.signature,
+);
 
 assertDeepEqual(
   {
@@ -940,6 +1665,7 @@ assertDeepEqual(
       golden.argon2id_production.result_hex,
       "hex",
     ).length,
+    version: golden.argon2id_production.version,
   },
   {
     profile_id: security.password_hashing.production_profile.profile_id,
@@ -951,6 +1677,7 @@ assertDeepEqual(
       security.password_hashing.production_profile.parallelism,
     salt_bytes: security.password_hashing.production_profile.salt_bytes,
     result_bytes: security.password_hashing.production_profile.result_bytes,
+    version: security.password_hashing.version,
   },
   "Argon2id production vector metadata drifted",
 );
@@ -959,6 +1686,29 @@ assert.equal(
   "79cba77cff303e01dcae3bd6a16dddd07b734b1b91eda7c7d42c574101d9a920",
   "Argon2id production vector digest drifted",
 );
+const nodeCrypto = await import("node:crypto");
+let argonVectorExecution = "NODE_CRYPTO_ARGON2_UNAVAILABLE";
+if (typeof nodeCrypto.argon2Sync === "function") {
+  const result = nodeCrypto.argon2Sync("argon2id", {
+    message: Buffer.from(golden.argon2id_production.password_utf8, "utf8"),
+    nonce: Buffer.from(golden.argon2id_production.salt_hex, "hex"),
+    parallelism: golden.argon2id_production.parallelism,
+    tagLength: golden.argon2id_production.result_bytes,
+    memory: golden.argon2id_production.memory_kib,
+    passes: golden.argon2id_production.iterations,
+  });
+  assert.equal(
+    result.toString("hex"),
+    golden.argon2id_production.result_hex,
+    "Node crypto Argon2id recomputation drifted",
+  );
+  argonVectorExecution = "VERIFIED_BY_NODE_CRYPTO_ARGON2";
+} else {
+  assert(
+    Number(process.versions.node.split(".")[0]) < 24,
+    "Node 24+ contract runtime must expose crypto.argon2Sync",
+  );
+}
 
 const expectedUnauthenticatedRoutes = [
   "GET /health/live",
@@ -1111,6 +1861,193 @@ assert.equal(nats.api_service_has_nats_credential, false);
 assert.equal(nats.user_or_account_claims_allowed, false);
 
 const validateEventEnvelope = validatorFor("EventEnvelope");
+const validateAuditIntent = validatorFor("AuditIntent");
+const validateAuditEvent = validatorFor("AuditEvent");
+const validateNotification = validatorFor("Notification");
+const validateOutbox = validatorFor("OutboxRecord");
+const notificationByKind = {
+  LOGIN_SOURCE_LOCKED: {
+    severity: "WARNING",
+    message_code: "security.login.source_locked",
+    message_args: { lock_seconds: 900 },
+  },
+  LOGIN_ACCOUNT_LOCKED: {
+    severity: "WARNING",
+    message_code: "security.login.account_locked",
+    message_args: { lock_seconds: 900 },
+  },
+  WAL_ARCHIVE_INTERRUPTED: {
+    severity: "CRITICAL",
+    message_code: "system.wal.archive_interrupted",
+    message_args: {
+      incident_id: "25000000-0000-4000-8000-000000000003",
+      archive_age_seconds: 61,
+    },
+  },
+};
+for (const [chainIndex, chain] of linkageChains.chains.entries()) {
+  const actor =
+    chain.scope.type === "SYSTEM"
+      ? { type: "SYSTEM", id: "wal-monitor" }
+      : chain.scope.type === "OWNER"
+        ? { type: "USER", id: "synthetic-owner" }
+        : { type: "SERVICE", id: "auth-service" };
+  const auditIntent = {
+    schema_version: "fit.platform.audit-intent.v1",
+    kind: chain.kind,
+    actor,
+    scope: chain.scope,
+    trigger: chain.trigger,
+    causation_id: chain.causation_id,
+    correlation_id: chain.correlation_id,
+    [chain.operation_link_field]: chain.operation_id,
+  };
+  assert(
+    validateAuditIntent(auditIntent),
+    `${chain.name} AuditIntent invalid: ${ajv.errorsText(
+      validateAuditIntent.errors,
+    )}`,
+  );
+  const auditEvent = {
+    ...auditIntent,
+    schema_version: "fit.platform.audit-event.v1",
+    event_id: chain.audit_event_id,
+    occurred_at: "2026-07-29T10:00:01Z",
+    payload_digest: sha256(jcsCanonicalize(auditIntent)),
+  };
+  assert(
+    validateAuditEvent(auditEvent),
+    `${chain.name} AuditEvent invalid: ${ajv.errorsText(
+      validateAuditEvent.errors,
+    )}`,
+  );
+  const durableRecords = [
+    {
+      recordType: "audit",
+      recordId: chain.audit_event_id,
+      subject: chain.audit_subject,
+      record: auditEvent,
+    },
+  ];
+  if (chain.notification_id !== null) {
+    const details = notificationByKind[chain.kind];
+    assert(details, `${chain.name} lacks notification mapping`);
+    const notificationIntent = {
+      schema_version: "fit.platform.notification-intent.v1",
+      kind: chain.kind,
+      severity: details.severity,
+      scope: chain.scope,
+      message_code: details.message_code,
+      message_args: details.message_args,
+      causation_id: chain.causation_id,
+      correlation_id: chain.correlation_id,
+    };
+    assert(
+      validateNotificationIntent(notificationIntent),
+      `${chain.name} NotificationIntent invalid: ${ajv.errorsText(
+        validateNotificationIntent.errors,
+      )}`,
+    );
+    const notification = {
+      ...notificationIntent,
+      schema_version: "fit.platform.notification.v1",
+      notification_id: chain.notification_id,
+      occurred_at: "2026-07-29T10:00:01Z",
+      payload_digest: sha256(jcsCanonicalize(notificationIntent)),
+    };
+    assert(
+      validateNotification(notification),
+      `${chain.name} Notification invalid: ${ajv.errorsText(
+        validateNotification.errors,
+      )}`,
+    );
+    durableRecords.push({
+      recordType: "notification",
+      recordId: chain.notification_id,
+      subject: chain.notification_subject,
+      record: notification,
+    });
+  }
+  const outboxRecords = durableRecords.map((durable, recordIndex) => {
+    const payload = {
+      schema_version: "fit.platform.persistence-link.v1",
+      record_type: durable.recordType,
+      record_id: durable.recordId,
+      causation_id: chain.causation_id,
+      correlation_id: chain.correlation_id,
+      scope: chain.scope,
+    };
+    const event = {
+      schema_version: "fit.platform.event-envelope.v1",
+      subject: durable.subject,
+      stream: "FIT_PLATFORM_V1",
+      event_id: `26000000-0000-4000-8000-${String(
+        chainIndex * 2 + recordIndex + 1,
+      ).padStart(12, "0")}`,
+      event_kind: chain.kind,
+      scope: chain.scope,
+      aggregate_type: chain.aggregate_type,
+      aggregate_id: chain.aggregate_id,
+      aggregate_version: recordIndex + 1,
+      causation_id: chain.causation_id,
+      correlation_id: chain.correlation_id,
+      occurred_at: "2026-07-29T10:00:01Z",
+      payload_schema_version: payload.schema_version,
+      payload_digest: sha256(jcsCanonicalize(payload)),
+      payload,
+    };
+    const outbox = {
+      schema_version: "fit.platform.outbox-record.v1",
+      outbox_id: `27000000-0000-4000-8000-${String(
+        chainIndex * 2 + recordIndex + 1,
+      ).padStart(12, "0")}`,
+      event,
+      created_at: "2026-07-29T10:00:01Z",
+      publication_state: "PENDING",
+      retention: "NEVER_DELETE_IN_PHASE_1",
+    };
+    assert(
+      validateOutbox(outbox),
+      `${chain.name} Outbox invalid: ${ajv.errorsText(validateOutbox.errors)}`,
+    );
+    return outbox;
+  });
+  assert.equal(
+    outboxRecords.length,
+    chain.expected_outbox_records,
+    `${chain.name} outbox count`,
+  );
+  assertDeepEqual(
+    outboxRecords.map(({ event }) => event.payload.record_id),
+    durableRecords.map(({ recordId }) => recordId),
+    `${chain.name} could not rebuild durable links from Outbox payloads`,
+  );
+  for (const { event } of outboxRecords) {
+    assert.equal(event.causation_id, chain.causation_id, chain.name);
+    assert.equal(event.correlation_id, chain.correlation_id, chain.name);
+    assertDeepEqual(event.scope, chain.scope, chain.name);
+  }
+  assertDeepEqual(
+    chain.recovery_projection.audit_event_ids,
+    [auditEvent.event_id],
+    `${chain.name} recovery audit linkage`,
+  );
+  assertDeepEqual(
+    chain.recovery_projection.notification_ids,
+    durableRecords
+      .filter(({ recordType }) => recordType === "notification")
+      .map(({ recordId }) => recordId),
+    `${chain.name} recovery notification linkage`,
+  );
+  assert.equal(chain.recovery_projection.source, "POSTGRESQL_OUTBOX");
+  assert.equal(chain.recovery_projection.scope_type, chain.scope.type);
+  assert.equal(chain.recovery_projection.phantom_owner, false);
+  if (chain.trigger_context.identifier_resolved === false) {
+    assert(!Object.hasOwn(chain.scope, "user_id"), chain.name);
+    assert(!Object.hasOwn(chain.scope, "trading_account_id"), chain.name);
+  }
+}
+
 for (const [index, binding] of nats.subject_bindings.entries()) {
   const scope =
     binding.scope === "OWNER"
@@ -1124,8 +2061,15 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
             type: "AUTH_SECURITY",
             source_key:
               "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            ...(binding.event_kind === "LOGIN_ACCOUNT_LOCKED"
+              ? { user_id: "10000000-0000-4000-8000-000000000001" }
+              : {}),
           }
         : { type: "SYSTEM" };
+  const payload = {
+    schema_version: "fit.platform.synthetic-event.v1",
+    subject: binding.subject,
+  };
   const envelope = {
     schema_version: "fit.platform.event-envelope.v1",
     subject: binding.subject,
@@ -1140,8 +2084,8 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
     correlation_id: "18000000-0000-4000-8000-000000000001",
     occurred_at: "2026-07-29T10:00:01Z",
     payload_schema_version: "fit.platform.synthetic-event.v1",
-    payload_digest:
-      "1212121212121212121212121212121212121212121212121212121212121212",
+    payload_digest: sha256(jcsCanonicalize(payload)),
+    payload,
   };
   assert(
     validateEventEnvelope(envelope),
@@ -1157,6 +2101,14 @@ for (const [index, binding] of nats.subject_bindings.entries()) {
     !validateEventEnvelope({ ...envelope, event_kind: wrongKind }),
     `subject accepted wrong event kind ${binding.subject}`,
   );
+  if (binding.event_kind === "LOGIN_ACCOUNT_LOCKED") {
+    const unresolvedAccountScope = clone(envelope);
+    delete unresolvedAccountScope.scope.user_id;
+    assert(
+      !validateEventEnvelope(unresolvedAccountScope),
+      `${binding.subject} accepted unresolved account-lock scope`,
+    );
+  }
 }
 
 assert.equal(transactions.authority.system_of_record, "POSTGRESQL");
@@ -1169,21 +2121,61 @@ assert.equal(
   transactions.idempotency.same_scope_same_key_different_digest,
   "IDEMPOTENCY_CONFLICT",
 );
+assert.equal(
+  failureInjection.coverage_model,
+  "DERIVE_EVERY_CUT_FROM_TRANSACTION_BOUNDARIES_MANIFEST",
+);
+assertDeepEqual(
+  failureInjection.workflow_requirements.map(({ workflow }) => workflow).sort(),
+  transactions.workflows.map(({ name }) => name).sort(),
+  "failure injection must cover every transaction workflow",
+);
+const failureCutEvidence = [];
 for (const workflow of transactions.workflows) {
-  const steps = [
-    ...(workflow.single_postgresql_transaction ?? []),
-    ...(workflow.conditional_same_transaction ?? []),
-    ...(workflow.postgresql_transaction ?? []),
-    ...(workflow.claim_postgresql_transaction ?? []),
-    ...(workflow.mark_postgresql_transaction ?? []),
-  ];
-  assert(steps.length > 0, `transaction workflow ${workflow.name} has no steps`);
-  assertDeepEqual(
-    [...failureInjection.statement_coverage[workflow.name]].sort(),
-    [...steps].sort(),
-    `statement failure coverage drifted for ${workflow.name}`,
+  const requirement = failureInjection.workflow_requirements.find(
+    ({ workflow: name }) => name === workflow.name,
   );
+  assert(requirement, `missing failure requirement for ${workflow.name}`);
+  if (requirement.must_not_persist === true) {
+    assert.equal(workflow.must_not_persist, true, workflow.name);
+    assertDeepEqual(requirement.transaction_groups, [], workflow.name);
+    assert(
+      Array.isArray(workflow.response_steps) && workflow.response_steps.length > 0,
+      `${workflow.name} must define a nonpersistent response`,
+    );
+    failureCutEvidence.push(`${workflow.name}:NO_PERSISTENCE_PROVEN`);
+    continue;
+  }
+  for (const [groupIndex, fields] of requirement.transaction_groups.entries()) {
+    assert(Array.isArray(fields) && fields.length > 0, workflow.name);
+    const statements = fields.flatMap((field) => {
+      assert(
+        Array.isArray(workflow[field]) && workflow[field].length > 0,
+        `${workflow.name}.${field} has no statements`,
+      );
+      return workflow[field].map((statement) => ({ field, statement }));
+    });
+    const transactionName = `TX${groupIndex + 1}`;
+    failureCutEvidence.push(
+      `${workflow.name}:${transactionName}:BEFORE_FIRST_STATEMENT`,
+    );
+    for (const [statementIndex, { field, statement }] of statements.entries()) {
+      assert.equal(typeof statement, "string", `${workflow.name}.${field}`);
+      failureCutEvidence.push(
+        `${workflow.name}:${transactionName}:AFTER_STATEMENT_${statementIndex + 1}:${field}:${statement}`,
+      );
+    }
+    failureCutEvidence.push(`${workflow.name}:${transactionName}:AFTER_COMMIT`);
+  }
+  for (const boundary of requirement.external_boundaries ?? []) {
+    failureCutEvidence.push(`${workflow.name}:EXTERNAL:${boundary}`);
+  }
 }
+assert.equal(
+  new Set(failureCutEvidence).size,
+  failureCutEvidence.length,
+  "derived failure cut evidence contains duplicates",
+);
 const ordinaryEnrollment = transactions.workflows.find(
   ({ name }) => name === "ordinary_device_enrollment",
 );
@@ -1225,23 +2217,21 @@ assert(
   "recovery restore must contain no trading capability",
 );
 
-const failureIds = failureInjection.boundaries.map(({ id }) => id);
-assert.equal(new Set(failureIds).size, failureIds.length);
-assert(failureIds.some((id) => id.includes("statement")));
 assert(
-  failureInjection.boundaries.some(({ boundary }) =>
-    boundary.includes("commit"),
-  ),
+  failureCutEvidence.some((cut) => cut.includes("AFTER_STATEMENT_")),
+  "no derived statement cut",
 );
 assert(
-  failureInjection.boundaries.some(({ boundary }) =>
-    boundary.includes("publish"),
-  ),
+  failureCutEvidence.some((cut) => cut.includes("AFTER_COMMIT")),
+  "no derived commit cut",
 );
 assert(
-  failureInjection.boundaries.some(({ boundary }) =>
-    boundary.includes("ack"),
-  ),
+  failureCutEvidence.some((cut) => cut.includes("PUBLISH")),
+  "no publish cut",
+);
+assert(
+  failureCutEvidence.some((cut) => cut.includes("ACK")),
+  "no acknowledgement cut",
 );
 assert.equal(
   failureInjection.coverage_requirements.every_postgresql_statement_boundary,
@@ -1257,6 +2247,18 @@ assert.equal(
 );
 assert.equal(
   failureInjection.coverage_requirements.every_ack_boundary,
+  true,
+);
+assert.equal(
+  failureInjection.coverage_requirements.every_transaction_manifest_workflow,
+  true,
+);
+assert.equal(
+  failureInjection.coverage_requirements.every_postgresql_transaction_segment,
+  true,
+);
+assert.equal(
+  failureInjection.coverage_requirements.zero_persistence_workflows_prove_no_write,
   true,
 );
 
@@ -1402,14 +2404,20 @@ assert(
 const semanticScenarioCount = Object.values(scenarios)
   .filter((value) => Array.isArray(value))
   .reduce((count, value) => count + value.length, 0);
+const executableSecurityScenarioCount = Object.values(executableSecurity)
+  .filter((value) => Array.isArray(value))
+  .reduce((count, value) => count + value.length, 0);
 
 console.log(
   [
     `Platform schemas: ${platformValidators.size + 2}`,
     `Valid fixtures: ${validFixtureSet.cases.length}`,
     `Negative fixtures: ${invalidFixtureSet.cases.length}`,
-    `Failure boundaries: ${failureInjection.boundaries.length}`,
+    `Derived failure cuts: ${failureCutEvidence.length}`,
+    `Argon2 vector: ${argonVectorExecution}`,
     `Semantic scenarios: ${semanticScenarioCount}`,
+    `Executable security scenario groups: ${executableSecurityScenarioCount}`,
+    `Persistence linkage chains: ${linkageChains.chains.length}`,
     "Phase 1 platform contract verification passed.",
   ].join("\n"),
 );

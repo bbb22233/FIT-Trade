@@ -198,7 +198,12 @@
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
         "payload_schema_version": "fit.platform.operation-confirmed.v1",
-        "payload_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+        "payload_digest": "aac085282270fb3d66455badcea56b4accb3a2b4d798a20756ea1732d78b2ba1",
+        "payload": {
+          "schema_version": "fit.platform.operation-confirmed.v1",
+          "operation_id": "70000000-0000-4000-8000-000000000001",
+          "decision": "CONFIRM"
+        }
       }
     },
     {
@@ -441,7 +446,12 @@
           "correlation_id": "b0000000-0000-4000-8000-000000000002",
           "occurred_at": "2026-07-29T10:00:01Z",
           "payload_schema_version": "fit.platform.wal-incident.v1",
-          "payload_digest": "7777777777777777777777777777777777777777777777777777777777777777"
+          "payload_digest": "b6a075cdbba2e772672a7106ea9fdf6c96f02c21f2963b687abf022d9d5f1b60",
+          "payload": {
+            "schema_version": "fit.platform.wal-incident.v1",
+            "incident_id": "f0000000-0000-4000-8000-000000000002",
+            "archive_age_seconds": 61
+          }
         },
         "created_at": "2026-07-29T10:00:01Z",
         "publication_state": "PENDING",
@@ -465,7 +475,7 @@
         "failure": {
           "kind": "PROCESS_KILL",
           "injected_at": "2026-07-29T10:05:00Z",
-          "injection_point": "after committed sequence 6000"
+          "injection_point": "AFTER_COMMITTED_SEQUENCE_6000"
         },
         "last_committed": {
           "sequence": 6000,

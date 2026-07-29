@@ -31,7 +31,7 @@
         "schema_version": "fit.platform.device.v1",
         "device_id": "30000000-0000-4000-8000-000000000001",
         "user_id": "10000000-0000-4000-8000-000000000001",
-        "public_key_fingerprint": "ed25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f",
         "key_algorithm": "Ed25519",
         "status": "ACTIVE",
         "enrolled_at": "2026-07-29T10:00:00Z"
@@ -74,7 +74,7 @@
         "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
         "purpose": "ADDITIONAL_DEVICE",
         "subject_handle": "synthetic_subject_handle_0000000000000001",
-        "candidate_public_key_fingerprint": "ed25519:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "candidate_public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f",
         "nonce": "synthetic_enrollment_nonce_00000000000001",
         "issued_at": "2026-07-29T10:00:00Z",
         "expires_at": "2026-07-29T10:02:00Z",
@@ -119,8 +119,8 @@
       "schema": "EnrollmentCompletionInput",
       "value": {
         "subject_handle": "synthetic_subject_handle_0000000000000001",
-        "candidate_public_key": "ed25519-public:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "signature": "ed25519-signature:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "candidate_public_key": "ed25519-public:fb15e0908fdc013b2361616a1a1304b8d7e0aa2d6f20afb70800730bc51c3ede",
+        "signature": "ed25519-signature:0274ec9e380070870c4479876860d768b4797554119ca9b35b81dce4478fa01646bb4932bc41a8dde49bafcf97f681ed677f4f6b8149bb8f6f535bc917ab940f"
       }
     },
     {
@@ -134,9 +134,27 @@
         "device_id": "30000000-0000-4000-8000-000000000001",
         "first_session_id": "40000000-0000-4000-8000-000000000001",
         "subject_handle_digest": "abababababababababababababababababababababababababababababababab",
-        "candidate_public_key_fingerprint": "ed25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_public_key_fingerprint": "ed25519:b949ac2b75c302b225c65a812c02e7c22eec8d5df90ef149daa6c8859588911f",
         "proof_algorithm": "Ed25519",
         "prior_scope_effect": "PRESERVE_EXISTING",
+        "completed_at": "2026-07-29T10:00:00Z",
+        "identity_origin": "SERVER_AUTHORED"
+      }
+    },
+    {
+      "name": "replacement device enrollment durable record",
+      "schema": "DeviceEnrollment",
+      "value": {
+        "schema_version": "fit.platform.device-enrollment.v1",
+        "enrollment_id": "31000000-0000-4000-8000-000000000002",
+        "purpose": "REPLACEMENT_DEVICE",
+        "user_id": "10000000-0000-4000-8000-000000000001",
+        "device_id": "30000000-0000-4000-8000-000000000002",
+        "first_session_id": "40000000-0000-4000-8000-000000000002",
+        "subject_handle_digest": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "candidate_public_key_fingerprint": "ed25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "proof_algorithm": "Ed25519",
+        "prior_scope_effect": "REVOKE_ALL_BEFORE_CREATE",
         "completed_at": "2026-07-29T10:00:00Z",
         "identity_origin": "SERVER_AUTHORED"
       }
@@ -146,7 +164,7 @@
       "schema": "DeviceActionProofInput",
       "value": {
         "challenge_nonce": "synthetic_device_action_nonce_000000000001",
-        "signature": "ed25519-signature:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        "signature": "ed25519-signature:28f8ebf3f6cd3e887198e0222437b5b3362d818bcdb32e1d3321f500d82135d1aa474e89d62076f6cc0652587ef02b693b2be0e0ee24dd33cf6c8dbce440ac01"
       }
     },
     {
@@ -246,7 +264,12 @@
         "correlation_id": "b0000000-0000-4000-8000-000000000001",
         "occurred_at": "2026-07-29T10:00:01Z",
         "payload_schema_version": "fit.platform.operation-confirmed.v1",
-        "payload_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+        "payload_digest": "aac085282270fb3d66455badcea56b4accb3a2b4d798a20756ea1732d78b2ba1",
+        "payload": {
+          "schema_version": "fit.platform.operation-confirmed.v1",
+          "operation_id": "70000000-0000-4000-8000-000000000001",
+          "decision": "CONFIRM"
+        }
       }
     },
     {
@@ -286,7 +309,12 @@
           "correlation_id": "b0000000-0000-4000-8000-000000000001",
           "occurred_at": "2026-07-29T10:00:01Z",
           "payload_schema_version": "fit.platform.operation-confirmed.v1",
-          "payload_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+          "payload_digest": "aac085282270fb3d66455badcea56b4accb3a2b4d798a20756ea1732d78b2ba1",
+          "payload": {
+            "schema_version": "fit.platform.operation-confirmed.v1",
+            "operation_id": "70000000-0000-4000-8000-000000000001",
+            "decision": "CONFIRM"
+          }
         },
         "created_at": "2026-07-29T10:00:01Z",
         "published_at": "2026-07-29T10:00:03Z",
@@ -537,7 +565,7 @@
         "failure": {
           "kind": "PROCESS_KILL",
           "injected_at": "2026-07-29T10:05:00Z",
-          "injection_point": "after committed sequence 6000"
+          "injection_point": "AFTER_COMMITTED_SEQUENCE_6000"
         },
         "last_committed": {
           "sequence": 6000,

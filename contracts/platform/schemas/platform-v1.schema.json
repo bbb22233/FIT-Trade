@@ -68,6 +68,26 @@
         }
       }
     },
+    "ResolvedAuthSecurityScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "source_key",
+        "user_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "AUTH_SECURITY"
+        },
+        "source_key": {
+          "$ref": "#/$defs/SourceKeyDigest"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      }
+    },
     "SystemScope": {
       "type": "object",
       "additionalProperties": false,
@@ -276,6 +296,11 @@
     },
     "Session": {
       "type": "object",
+      "x-fit-time-window": {
+        "start": "created_at",
+        "end": "access_expires_at",
+        "seconds": 900
+      },
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -337,12 +362,20 @@
             "required": [
               "revoked_at"
             ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "revoked_at"
+              ]
+            }
           }
         }
       ]
     },
     "RefreshTokenRecord": {
       "type": "object",
+      "x-fit-refresh-window": true,
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -424,12 +457,24 @@
             "required": [
               "revoked_at"
             ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "revoked_at"
+              ]
+            }
           }
         }
       ]
     },
     "EnrollmentChallenge": {
       "type": "object",
+      "x-fit-time-window": {
+        "start": "issued_at",
+        "end": "expires_at",
+        "seconds": 120
+      },
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -477,6 +522,11 @@
     },
     "DeviceActionChallenge": {
       "type": "object",
+      "x-fit-time-window": {
+        "start": "issued_at",
+        "end": "expires_at",
+        "seconds": 120
+      },
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -700,7 +750,24 @@
             "token_digest",
             "device_verification",
             "confirmation_id",
-            "confirmation_hash"
+            "confirmation_hash",
+            "authorization",
+            "authorized",
+            "owner_id",
+            "ownership_id",
+            "role",
+            "refresh_family_id",
+            "identity_origin",
+            "actor",
+            "actor_id",
+            "scope",
+            "created_at",
+            "updated_at",
+            "occurred_at",
+            "issued_at",
+            "expires_at",
+            "revoked_at",
+            "signature_verified"
           ]
         }
       },
@@ -849,6 +916,7 @@
     },
     "WebSocketReauthRequired": {
       "type": "object",
+      "x-fit-websocket-deadline": true,
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -908,6 +976,7 @@
     },
     "EventEnvelope": {
       "type": "object",
+      "x-fit-payload-integrity": true,
       "additionalProperties": false,
       "required": [
         "schema_version",
@@ -923,7 +992,8 @@
         "correlation_id",
         "occurred_at",
         "payload_schema_version",
-        "payload_digest"
+        "payload_digest",
+        "payload"
       ],
       "properties": {
         "schema_version": {
@@ -1000,6 +1070,9 @@
         },
         "payload_digest": {
           "$ref": "#/$defs/Digest"
+        },
+        "payload": {
+          "$ref": "#/$defs/JsonObject"
         }
       },
       "allOf": [
@@ -1019,14 +1092,12 @@
               "properties": {
                 "subject": {
                   "enum": [
-                    "fit.platform.v1.auth-security.login-account-locked",
                     "fit.platform.v1.auth-security.login-source-locked",
                     "fit.platform.v1.auth-security.device-enrolled",
                     "fit.platform.v1.auth-security.device-replaced",
                     "fit.platform.v1.auth-security.device-revoked",
                     "fit.platform.v1.auth-security.session-revoked",
                     "fit.platform.v1.auth-security.refresh-reuse-detected",
-                    "fit.platform.v1.notification.login-account-locked",
                     "fit.platform.v1.notification.login-source-locked",
                     "fit.platform.v1.notification.device-enrolled",
                     "fit.platform.v1.notification.device-replaced",
@@ -1037,6 +1108,19 @@
                 },
                 "scope": {
                   "$ref": "#/$defs/AuthSecurityScope"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.login-account-locked",
+                    "fit.platform.v1.notification.login-account-locked"
+                  ]
+                },
+                "scope": {
+                  "$ref": "#/$defs/ResolvedAuthSecurityScope"
                 }
               }
             },
@@ -1521,8 +1605,17 @@
             {
               "properties": {
                 "kind": {
+                  "const": "LOGIN_ACCOUNT_LOCKED"
+                },
+                "scope": {
+                  "$ref": "#/$defs/ResolvedAuthSecurityScope"
+                }
+              }
+            },
+            {
+              "properties": {
+                "kind": {
                   "enum": [
-                    "LOGIN_ACCOUNT_LOCKED",
                     "LOGIN_SOURCE_LOCKED",
                     "DEVICE_ENROLLED",
                     "DEVICE_REPLACED",
@@ -1722,7 +1815,7 @@
               "const": "security.login.account_locked"
             },
             "scope": {
-              "$ref": "#/$defs/AuthSecurityScope"
+              "$ref": "#/$defs/ResolvedAuthSecurityScope"
             },
             "message_args": {
               "$ref": "#/$defs/LockMessageArgs"
@@ -1916,6 +2009,37 @@
           "minimum": 0
         }
       }
+    },
+    "JsonObject": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      }
+    },
+    "JsonValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/JsonObject"
+        }
+      ]
     },
     "SourceKeyRecord": {
       "type": "object",

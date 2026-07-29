@@ -1,0 +1,130 @@
+{
+  "schema_version": "fit.platform.linkage-chains.v1",
+  "chains": [
+    {
+      "name": "unknown identifier source lock",
+      "trigger_context": {
+        "identifier_resolved": false,
+        "phantom_owner_allowed": false
+      },
+      "kind": "LOGIN_SOURCE_LOCKED",
+      "scope": {
+        "type": "AUTH_SECURITY",
+        "source_key": "src_1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "trigger": "REQUEST",
+      "operation_link_field": "request_id",
+      "operation_id": "21000000-0000-4000-8000-000000000001",
+      "causation_id": "21000000-0000-4000-8000-000000000001",
+      "correlation_id": "22000000-0000-4000-8000-000000000001",
+      "audit_event_id": "23000000-0000-4000-8000-000000000001",
+      "notification_id": "24000000-0000-4000-8000-000000000001",
+      "audit_subject": "fit.platform.v1.auth-security.login-source-locked",
+      "notification_subject": "fit.platform.v1.notification.login-source-locked",
+      "aggregate_type": "AUTH_THROTTLE",
+      "aggregate_id": "25000000-0000-4000-8000-000000000001",
+      "expected_outbox_records": 2,
+      "recovery_projection": {
+        "source": "POSTGRESQL_OUTBOX",
+        "audit_event_ids": ["23000000-0000-4000-8000-000000000001"],
+        "notification_ids": ["24000000-0000-4000-8000-000000000001"],
+        "scope_type": "AUTH_SECURITY",
+        "phantom_owner": false
+      }
+    },
+    {
+      "name": "resolved account lock",
+      "trigger_context": {
+        "identifier_resolved": true,
+        "phantom_owner_allowed": false
+      },
+      "kind": "LOGIN_ACCOUNT_LOCKED",
+      "scope": {
+        "type": "AUTH_SECURITY",
+        "source_key": "src_2222222222222222222222222222222222222222222222222222222222222222",
+        "user_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "trigger": "REQUEST",
+      "operation_link_field": "request_id",
+      "operation_id": "21000000-0000-4000-8000-000000000002",
+      "causation_id": "21000000-0000-4000-8000-000000000002",
+      "correlation_id": "22000000-0000-4000-8000-000000000002",
+      "audit_event_id": "23000000-0000-4000-8000-000000000002",
+      "notification_id": "24000000-0000-4000-8000-000000000002",
+      "audit_subject": "fit.platform.v1.auth-security.login-account-locked",
+      "notification_subject": "fit.platform.v1.notification.login-account-locked",
+      "aggregate_type": "AUTH_THROTTLE",
+      "aggregate_id": "25000000-0000-4000-8000-000000000002",
+      "expected_outbox_records": 2,
+      "recovery_projection": {
+        "source": "POSTGRESQL_OUTBOX",
+        "audit_event_ids": ["23000000-0000-4000-8000-000000000002"],
+        "notification_ids": ["24000000-0000-4000-8000-000000000002"],
+        "scope_type": "AUTH_SECURITY",
+        "phantom_owner": false
+      }
+    },
+    {
+      "name": "WAL interruption incident",
+      "trigger_context": {
+        "identifier_resolved": null,
+        "phantom_owner_allowed": false
+      },
+      "kind": "WAL_ARCHIVE_INTERRUPTED",
+      "scope": {
+        "type": "SYSTEM"
+      },
+      "trigger": "BACKGROUND",
+      "operation_link_field": "system_operation_id",
+      "operation_id": "21000000-0000-4000-8000-000000000003",
+      "causation_id": "21000000-0000-4000-8000-000000000003",
+      "correlation_id": "22000000-0000-4000-8000-000000000003",
+      "audit_event_id": "23000000-0000-4000-8000-000000000003",
+      "notification_id": "24000000-0000-4000-8000-000000000003",
+      "audit_subject": "fit.platform.v1.system.wal-archive-interrupted",
+      "notification_subject": "fit.platform.v1.notification.wal-archive-interrupted",
+      "aggregate_type": "WAL_INCIDENT",
+      "aggregate_id": "25000000-0000-4000-8000-000000000003",
+      "expected_outbox_records": 2,
+      "recovery_projection": {
+        "source": "POSTGRESQL_OUTBOX",
+        "audit_event_ids": ["23000000-0000-4000-8000-000000000003"],
+        "notification_ids": ["24000000-0000-4000-8000-000000000003"],
+        "scope_type": "SYSTEM",
+        "phantom_owner": false
+      }
+    },
+    {
+      "name": "owner mutation",
+      "trigger_context": {
+        "identifier_resolved": true,
+        "phantom_owner_allowed": false
+      },
+      "kind": "OWNER_MUTATION_COMMITTED",
+      "scope": {
+        "type": "OWNER",
+        "user_id": "10000000-0000-4000-8000-000000000001",
+        "trading_account_id": "20000000-0000-4000-8000-000000000001"
+      },
+      "trigger": "REQUEST",
+      "operation_link_field": "request_id",
+      "operation_id": "21000000-0000-4000-8000-000000000004",
+      "causation_id": "21000000-0000-4000-8000-000000000004",
+      "correlation_id": "22000000-0000-4000-8000-000000000004",
+      "audit_event_id": "23000000-0000-4000-8000-000000000004",
+      "notification_id": null,
+      "audit_subject": "fit.platform.v1.owner.owner-mutation-committed",
+      "notification_subject": null,
+      "aggregate_type": "OWNER_OPERATION",
+      "aggregate_id": "25000000-0000-4000-8000-000000000004",
+      "expected_outbox_records": 1,
+      "recovery_projection": {
+        "source": "POSTGRESQL_OUTBOX",
+        "audit_event_ids": ["23000000-0000-4000-8000-000000000004"],
+        "notification_ids": [],
+        "scope_type": "OWNER",
+        "phantom_owner": false
+      }
+    }
+  ]
+}

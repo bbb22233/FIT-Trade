@@ -17,6 +17,77 @@
   ],
   "workflows": [
     {
+      "name": "successful_login",
+      "single_postgresql_transaction": [
+        "lock_resolved_user_authentication_state",
+        "verify_not_locked",
+        "invalidate_preauthentication_identifier",
+        "create_server_random_session",
+        "create_server_random_refresh_family_with_fixed_deadline",
+        "persist_initial_refresh_digest",
+        "write_immutable_audit_and_outbox"
+      ],
+      "new_session_and_family_required": true,
+      "commit_before_credential_response": true
+    },
+    {
+      "name": "real_enrollment_challenge_creation",
+      "single_postgresql_transaction": [
+        "assert_resolved_user",
+        "create_random_opaque_subject_handle",
+        "persist_single_use_challenge_and_candidate_fingerprint",
+        "write_challenge_audit_and_outbox"
+      ],
+      "commit_before_challenge_response": true
+    },
+    {
+      "name": "synthetic_enrollment_challenge_response",
+      "must_not_persist": true,
+      "must_not_create": [
+        "challenge",
+        "device",
+        "session",
+        "refresh_family",
+        "audit_owner_scope"
+      ],
+      "response_steps": [
+        "create_process_local_random_opaque_handle",
+        "return_contract_valid_synthetic_challenge"
+      ]
+    },
+    {
+      "name": "failed_enrollment_proof",
+      "single_postgresql_transaction": [
+        "lock_and_consume_real_challenge_once",
+        "persist_invalid_proof_audit",
+        "write_invalid_proof_outbox",
+        "assert_no_device_session_or_family_created"
+      ],
+      "commit_before_rejection_response": true
+    },
+    {
+      "name": "device_revocation",
+      "single_postgresql_transaction": [
+        "lock_active_device",
+        "revoke_device_and_bound_sessions_and_families",
+        "persist_device_revocation_audit",
+        "persist_device_revocation_notification",
+        "write_device_revocation_outbox_events"
+      ],
+      "commit_before_response": true
+    },
+    {
+      "name": "session_revocation",
+      "single_postgresql_transaction": [
+        "lock_active_session",
+        "revoke_session_and_refresh_family",
+        "persist_session_revocation_audit",
+        "persist_session_revocation_notification",
+        "write_session_revocation_outbox_events"
+      ],
+      "commit_before_response": true
+    },
+    {
       "name": "owner_mutation",
       "single_postgresql_transaction": [
         "verify_owner_scope",

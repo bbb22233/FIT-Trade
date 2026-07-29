@@ -3,6 +3,7 @@
   "$id": "https://fit.trade/contracts/platform/recovery-evidence-v1.schema.json",
   "title": "FIT Trade Phase 1 measured recovery evidence",
   "type": "object",
+  "x-fit-recovery-consistency": true,
   "additionalProperties": false,
   "required": [
     "schema_version",
@@ -194,19 +195,16 @@
       ],
       "properties": {
         "workload_id": {
-          "type": "string",
-          "pattern": "^p1-recovery-[a-z0-9-]+$"
+          "const": "p1-recovery-synthetic-v1"
         },
         "workload_manifest_sha256": {
-          "$ref": "#/$defs/Digest"
+          "const": "2258819d69d696992b7f8c0306244bba93e8569a4bff0886ada4d061e7d7ddec"
         },
         "fixed_seed": {
-          "type": "integer",
-          "minimum": 0
+          "const": 20260729
         },
         "event_rate_per_second": {
-          "type": "integer",
-          "minimum": 1
+          "const": 20
         },
         "utc_clock_source": {
           "const": "CLOCK_REALTIME_UTC"
@@ -238,9 +236,7 @@
           "$ref": "#/$defs/Timestamp"
         },
         "injection_point": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
+          "const": "AFTER_COMMITTED_SEQUENCE_6000"
         }
       }
     },

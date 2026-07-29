@@ -5,6 +5,10 @@
       "ttl_seconds": 120,
       "single_use": true,
       "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+      "signature_input": "UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))",
+      "public_key_wire": "ed25519-public:<32-byte-raw-public-key-lowercase-hex>",
+      "signature_wire": "ed25519-signature:<64-byte-signature-lowercase-hex>",
+      "fingerprint": "ed25519: + lowercase_hex(SHA-256(raw_32_byte_public_key))",
       "wire_fields": [
         "schema_version",
         "domain",
@@ -33,6 +37,10 @@
       "single_use": true,
       "domain": "FIT_TRADE_DEVICE_ACTION_V1",
       "algorithm": "Ed25519",
+      "signature_input": "UTF8(domain) || 0x00 || UTF8(RFC8785_JCS(challenge))",
+      "public_key_wire": "ed25519-public:<32-byte-raw-public-key-lowercase-hex>",
+      "signature_wire": "ed25519-signature:<64-byte-signature-lowercase-hex>",
+      "fingerprint": "ed25519: + lowercase_hex(SHA-256(raw_32_byte_public_key))",
       "registered_active_key_required": true,
       "bound_fields": [
         "domain",
@@ -85,6 +93,7 @@
   },
   "password_hashing": {
     "algorithm": "Argon2id",
+    "version": 19,
     "production_profile": {
       "profile_id": "argon2id-production-v1",
       "minimum_memory_kib": 65536,
@@ -140,6 +149,18 @@
   },
   "password_throttle": {
     "shared_verifier": true,
+    "algorithm": "SERIALIZABLE_ROLLING_WINDOW_WITH_NEXT_ALLOWED_AT",
+    "clock": "MONOTONIC_MILLISECONDS",
+    "same_timestamp_order": "TRANSACTION_SERIALIZATION_ORDER",
+    "denied_attempt_increments_counter": false,
+    "lock_expiry": "CLEAR_COUNT_DELAY_AND_LOCK_BEFORE_DECISION",
+    "decision_order": [
+      "clear_expired_dimension_state",
+      "deny_if_either_dimension_locked",
+      "deny_if_either_dimension_delayed",
+      "verify_password",
+      "atomically_update_source_and_resolved_user_dimensions"
+    ],
     "routes": [
       "POST /v1/auth/login",
       "POST /v1/auth/device-enrollments/start",
@@ -211,6 +232,7 @@
     ],
     "reject": [
       "duplicate_query_keys",
+      "duplicate_json_object_keys_at_any_depth",
       "non_json_mutation",
       "unknown_fields",
       "ambiguous_path_normalization"
@@ -238,6 +260,19 @@
       "refresh_family_id"
     ],
     "success": "ATOMIC_REBIND_AND_CONSUME_NONCE",
+    "upgrade_binding_validation": "EXACT_USER_ACCOUNT_DEVICE_SESSION_REFRESH_FAMILY_MATCH",
+    "application_frame_while_reauth_pending": "REJECT",
+    "redacted_fields": [
+      "access_token_transport",
+      "nonce",
+      "raw_control_frame"
+    ],
+    "redaction_sinks": [
+      "logs",
+      "traces",
+      "metrics",
+      "error_messages"
+    ],
     "failure_close_code": 4401,
     "expired_pending_application_frames": "REJECT",
     "forbidden": [
