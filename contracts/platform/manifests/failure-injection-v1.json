@@ -1,0 +1,250 @@
+{
+  "schema_version": "fit.platform.failure-injection.v1",
+  "injection_methods": [
+    "PROCESS_KILL",
+    "TRANSACTION_ABORT",
+    "NETWORK_PARTITION",
+    "BROKER_ACK_LOSS"
+  ],
+  "boundaries": [
+    {
+      "id": "owner-after-idempotency-lookup",
+      "workflow": "owner_mutation",
+      "boundary": "after idempotency lookup before claim",
+      "expected": "no durable effect"
+    },
+    {
+      "id": "owner-after-idempotency-claim-statement",
+      "workflow": "owner_mutation",
+      "boundary": "after idempotency claim statement before business statement",
+      "expected": "transaction rollback removes claim and no durable effect"
+    },
+    {
+      "id": "owner-after-business-statement",
+      "workflow": "owner_mutation",
+      "boundary": "after business statement before audit statement",
+      "expected": "transaction rollback removes business effect"
+    },
+    {
+      "id": "owner-after-audit-statement",
+      "workflow": "owner_mutation",
+      "boundary": "after audit statement before outbox statement",
+      "expected": "transaction rollback removes business and audit"
+    },
+    {
+      "id": "owner-after-notification-statement",
+      "workflow": "owner_mutation",
+      "boundary": "after conditional notification before outbox statement",
+      "expected": "transaction rollback removes business audit and notification"
+    },
+    {
+      "id": "owner-after-outbox-statement",
+      "workflow": "owner_mutation",
+      "boundary": "after outbox statement before commit",
+      "expected": "transaction rollback removes every effect"
+    },
+    {
+      "id": "owner-after-commit-before-response",
+      "workflow": "owner_mutation",
+      "boundary": "after commit before response",
+      "expected": "retry returns recorded result and creates no second business effect"
+    },
+    {
+      "id": "consumer-after-inbox-statement",
+      "workflow": "nats_consumer_business_effect",
+      "boundary": "after Inbox statement before business statement",
+      "expected": "transaction rollback removes Inbox record"
+    },
+    {
+      "id": "consumer-after-business-statement",
+      "workflow": "nats_consumer_business_effect",
+      "boundary": "after business statement before audit and outbox",
+      "expected": "transaction rollback removes business effect"
+    },
+    {
+      "id": "consumer-after-inbox-applied-before-commit",
+      "workflow": "nats_consumer_business_effect",
+      "boundary": "after Inbox applied statement before commit",
+      "expected": "transaction rollback removes Inbox and every effect"
+    },
+    {
+      "id": "consumer-after-commit-before-ack",
+      "workflow": "nats_consumer_business_effect",
+      "boundary": "after PostgreSQL commit before NATS ack",
+      "expected": "redelivery hits Inbox and creates no second business effect"
+    },
+    {
+      "id": "publisher-after-claim",
+      "workflow": "outbox_publish",
+      "boundary": "after Outbox claim transaction commit before publish",
+      "expected": "claim becomes retryable and event remains unpublished"
+    },
+    {
+      "id": "publisher-after-publish-before-broker-ack",
+      "workflow": "outbox_publish",
+      "boundary": "after publish before broker ack",
+      "expected": "retry may duplicate delivery with identical event ID and digest"
+    },
+    {
+      "id": "publisher-after-broker-ack-before-mark",
+      "workflow": "outbox_publish",
+      "boundary": "after broker ack before published statement",
+      "expected": "retry may duplicate delivery with identical event ID and digest"
+    },
+    {
+      "id": "publisher-after-published-statement-before-commit",
+      "workflow": "outbox_publish",
+      "boundary": "after published statement before commit",
+      "expected": "rollback leaves event retryable"
+    },
+    {
+      "id": "publisher-after-commit",
+      "workflow": "outbox_publish",
+      "boundary": "after published commit",
+      "expected": "event remains retained and is not republished by normal scan"
+    },
+    {
+      "id": "enrollment-after-challenge-consume",
+      "workflow": "ordinary_device_enrollment",
+      "boundary": "after challenge consume statement before key registration",
+      "expected": "rollback leaves real challenge unconsumed and no device exists"
+    },
+    {
+      "id": "enrollment-after-device-statement",
+      "workflow": "ordinary_device_enrollment",
+      "boundary": "after device statement before session and family statements",
+      "expected": "rollback removes device and preserves prior devices"
+    },
+    {
+      "id": "enrollment-after-session-family-statements",
+      "workflow": "ordinary_device_enrollment",
+      "boundary": "after session and family statements before audit notification and outbox",
+      "expected": "rollback removes new device session family and preserves prior devices"
+    },
+    {
+      "id": "replacement-after-prior-revocation-statements",
+      "workflow": "replacement_device_enrollment",
+      "boundary": "after prior revocations before new device statement",
+      "expected": "rollback restores prior devices sessions and families"
+    },
+    {
+      "id": "replacement-after-new-session-statement",
+      "workflow": "replacement_device_enrollment",
+      "boundary": "after new session statement before commit",
+      "expected": "rollback restores prior state and removes replacement state"
+    },
+    {
+      "id": "refresh-after-family-lock",
+      "workflow": "refresh_rotation",
+      "boundary": "after family lock before state evaluation",
+      "expected": "rollback leaves token state unchanged"
+    },
+    {
+      "id": "refresh-after-descendant-statement",
+      "workflow": "refresh_rotation",
+      "boundary": "after descendant token-digest statement before commit",
+      "expected": "rollback keeps ancestor active and removes descendant"
+    },
+    {
+      "id": "refresh-reuse-after-family-revoke",
+      "workflow": "refresh_rotation",
+      "boundary": "after family revoke statement before audit notification and outbox",
+      "expected": "rollback leaves family unchanged so complete retry repeats atomic detection"
+    },
+    {
+      "id": "throttle-after-counter-statement",
+      "workflow": "password_lock",
+      "boundary": "after counter statement before lock audit and notification",
+      "expected": "rollback removes increment and every lock side effect"
+    },
+    {
+      "id": "wal-after-incident-upsert",
+      "workflow": "wal_archive_incident",
+      "boundary": "after incident upsert before audit notification and outbox",
+      "expected": "rollback removes incident and every side effect"
+    },
+    {
+      "id": "wal-after-commit-before-observer-result",
+      "workflow": "wal_archive_incident",
+      "boundary": "after incident commit before observer result",
+      "expected": "retry reuses the open incident and emits no duplicate audit or notification"
+    }
+  ],
+  "statement_coverage": {
+    "owner_mutation": [
+      "verify_owner_scope",
+      "claim_idempotency_key_and_request_digest",
+      "write_business_effect",
+      "write_immutable_audit_event",
+      "write_outbox_event",
+      "write_internal_notification"
+    ],
+    "nats_consumer_business_effect": [
+      "lock_or_insert_inbox_deduplication_record",
+      "verify_event_owner_scope",
+      "write_business_effect",
+      "write_immutable_audit_event",
+      "write_outbox_event",
+      "mark_inbox_applied"
+    ],
+    "password_lock": [
+      "atomically_increment_throttle_dimension",
+      "create_audit_intent",
+      "persist_immutable_audit_event",
+      "create_notification_intent",
+      "persist_internal_notification",
+      "write_outbox_events"
+    ],
+    "ordinary_device_enrollment": [
+      "consume_real_challenge_once",
+      "verify_candidate_ed25519_proof",
+      "assert_global_public_key_uniqueness",
+      "create_server_owned_device",
+      "create_independent_session_and_refresh_family",
+      "write_immutable_audit_event",
+      "write_internal_notification",
+      "write_outbox_events"
+    ],
+    "replacement_device_enrollment": [
+      "consume_real_challenge_once",
+      "verify_candidate_ed25519_proof",
+      "revoke_all_prior_devices",
+      "revoke_all_prior_sessions",
+      "revoke_all_prior_refresh_families",
+      "assert_global_public_key_uniqueness",
+      "create_server_owned_device",
+      "create_independent_session_and_refresh_family",
+      "write_immutable_audit_event",
+      "write_internal_notification",
+      "write_outbox_events"
+    ],
+    "refresh_rotation": [
+      "lock_refresh_family",
+      "evaluate_family_deadline",
+      "evaluate_already_rotated_reuse",
+      "evaluate_individual_expiry",
+      "rotate_active_digest_or_revoke_complete_family",
+      "write_security_audit_if_reuse",
+      "write_internal_notification_if_reuse",
+      "write_outbox_events_if_reuse"
+    ],
+    "outbox_publish": [
+      "claim_unpublished_outbox_record_with_expiring_lease",
+      "mark_outbox_published"
+    ],
+    "wal_archive_incident": [
+      "upsert_one_open_incident",
+      "write_one_immutable_audit_event_per_incident",
+      "write_one_internal_notification_per_incident",
+      "write_outbox_events"
+    ]
+  },
+  "coverage_requirements": {
+    "every_postgresql_statement_boundary": true,
+    "every_commit_boundary": true,
+    "every_publish_boundary": true,
+    "every_ack_boundary": true,
+    "duplicate_business_effects_allowed": false,
+    "lost_authoritative_state_allowed": false
+  }
+}

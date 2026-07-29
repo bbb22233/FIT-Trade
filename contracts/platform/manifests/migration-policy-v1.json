@@ -1,0 +1,27 @@
+{
+  "schema_version": "fit.platform.migration-policy.v1",
+  "revision_source": "P1-004_LINEAR_NUMBERED_MIGRATION_MANIFEST",
+  "immediate_predecessor_definition": "DIRECTLY_PRIOR_NUMBERED_SCHEMA_REVISION",
+  "initial_revision_applies_from": [
+    "EMPTY_DATABASE"
+  ],
+  "later_revision_applies_from": [
+    "EMPTY_DATABASE",
+    "IMMEDIATE_PREDECESSOR"
+  ],
+  "application_compatibility": [
+    "CURRENT_APPLICATION_REVISION",
+    "IMMEDIATE_PREVIOUS_APPLICATION_REVISION"
+  ],
+  "strategy": "EXPAND_CONTRACT",
+  "destructive_cleanup": {
+    "allowed_in_phase_1": false,
+    "requires_predecessor_retired": true,
+    "requires_later_reviewed_task": true
+  },
+  "rollback": {
+    "schema_downgrade_required": false,
+    "application_rollback_uses_compatible_expanded_schema": true
+  },
+  "outbox_business_event_deletion": "FORBIDDEN_IN_PHASE_1"
+}

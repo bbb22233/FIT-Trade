@@ -1,0 +1,314 @@
+{
+  "schema_version": "fit.platform.security-values.v1",
+  "challenge": {
+    "enrollment": {
+      "ttl_seconds": 120,
+      "single_use": true,
+      "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+      "wire_fields": [
+        "schema_version",
+        "domain",
+        "purpose",
+        "subject_handle",
+        "candidate_public_key_fingerprint",
+        "nonce",
+        "issued_at",
+        "expires_at",
+        "single_use"
+      ],
+      "wire_forbidden_fields": [
+        "user_id",
+        "trading_account_id",
+        "device_id",
+        "session_id"
+      ],
+      "synthetic_handle": {
+        "accepted_state": false,
+        "persisted": false,
+        "completion_allowed": false
+      }
+    },
+    "device_action": {
+      "ttl_seconds": 120,
+      "single_use": true,
+      "domain": "FIT_TRADE_DEVICE_ACTION_V1",
+      "algorithm": "Ed25519",
+      "registered_active_key_required": true,
+      "bound_fields": [
+        "domain",
+        "user_id",
+        "trading_account_id",
+        "device_id",
+        "session_id",
+        "action",
+        "payload_hash",
+        "nonce",
+        "issued_at",
+        "expires_at"
+      ],
+      "revoked_key_result": "REJECT"
+    }
+  },
+  "enrollment": {
+    "device_id_origin": "SERVER_RANDOM",
+    "public_key_uniqueness": "GLOBAL",
+    "session_id_origin": "SERVER_RANDOM",
+    "preauthentication_identifier_action": "INVALIDATE",
+    "ordinary": {
+      "prior_devices": "PRESERVE",
+      "prior_sessions": "PRESERVE",
+      "prior_refresh_families": "PRESERVE",
+      "transaction_order": [
+        "consume_challenge",
+        "register_unique_device_key",
+        "create_independent_session",
+        "create_refresh_family",
+        "write_audit",
+        "write_notification"
+      ]
+    },
+    "replacement": {
+      "prior_devices": "REVOKE_ALL",
+      "prior_sessions": "REVOKE_ALL",
+      "prior_refresh_families": "REVOKE_ALL",
+      "transaction_order": [
+        "consume_challenge",
+        "revoke_prior_devices_sessions_families",
+        "register_unique_device_key",
+        "create_independent_session",
+        "create_refresh_family",
+        "write_audit",
+        "write_notification"
+      ]
+    },
+    "atomic": true
+  },
+  "password_hashing": {
+    "algorithm": "Argon2id",
+    "production_profile": {
+      "profile_id": "argon2id-production-v1",
+      "minimum_memory_kib": 65536,
+      "minimum_iterations": 3,
+      "parallelism": 1,
+      "salt_bytes": 16,
+      "result_bytes": 32,
+      "production_vector_required": true
+    },
+    "test_profile": {
+      "profile_id": "argon2id-test-only-v1",
+      "production": false,
+      "reduced_cost_allowed": true,
+      "production_metadata_still_verified": true
+    }
+  },
+  "tokens": {
+    "access_ttl_seconds": 900,
+    "refresh_individual_ttl_seconds": 604800,
+    "refresh_family_max_lifetime_seconds": 2592000,
+    "refresh_expiry_formula": "min(issued_at_plus_604800_seconds,family_deadline)",
+    "rotation_extends_family_deadline": false,
+    "storage": "SHA256_DIGEST_ONLY",
+    "plaintext_in_storage_or_logs": false,
+    "evaluation_order": [
+      "family_deadline",
+      "already_rotated_reuse",
+      "individual_expiry",
+      "active_rotation"
+    ],
+    "rotated_reuse_before_family_deadline": "REVOKE_FAMILY_AND_ALL_DESCENDANTS",
+    "rotated_reuse_after_individual_expiry_before_family_deadline": "REVOKE_FAMILY_AND_ALL_DESCENDANTS",
+    "never_rotated_individual_expiry": "REJECT_EXPIRED_NO_ROTATION",
+    "family_expiry": "REJECT_FAMILY_EXPIRED",
+    "rotation_creates_descendant": true
+  },
+  "session_fixation": {
+    "login": "NEW_SESSION_AND_REFRESH_FAMILY",
+    "ordinary_enrollment": "NEW_INDEPENDENT_SESSION_PRESERVE_OTHERS",
+    "replacement_enrollment": "REVOKE_OTHERS_THEN_NEW_INDEPENDENT_SESSION",
+    "preauthentication_promotion": false,
+    "other_phase1_privilege_transitions": false
+  },
+  "revocation": {
+    "maximum_propagation_seconds": 5,
+    "ingress": [
+      "HTTP",
+      "WEBSOCKET_EXISTING",
+      "WEBSOCKET_NEW",
+      "REFRESH",
+      "INTERNAL_TOOL"
+    ]
+  },
+  "password_throttle": {
+    "shared_verifier": true,
+    "routes": [
+      "POST /v1/auth/login",
+      "POST /v1/auth/device-enrollments/start",
+      "POST /v1/auth/device-replacements/start"
+    ],
+    "dimensions": [
+      "SERVER_USER_ID",
+      "SOURCE_KEY"
+    ],
+    "window_seconds": 900,
+    "failure_delays_seconds": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "lock_on_failure": 5,
+    "lock_seconds": 900,
+    "deny_if_either_dimension_delayed_or_locked": true,
+    "lock_expiry_reset": "ATOMIC_CLEAR_DIMENSION",
+    "successful_password_reset": [
+      "SERVER_USER_ID"
+    ],
+    "successful_password_does_not_reset": [
+      "SOURCE_KEY"
+    ],
+    "source_failure_increment": "EVERY_FAILED_VERIFICATION",
+    "user_failure_increment": "ONLY_RESOLVED_USER",
+    "unknown_and_wrong_password_same_route_response": true,
+    "same_route_status_envelope_minimum_timing": true,
+    "lock_side_effects": [
+      "AuditIntent",
+      "NotificationIntent"
+    ]
+  },
+  "source_key": {
+    "algorithm": "HMAC-SHA-256",
+    "input": "NORMALIZED_16_BYTE_IPV6_DIRECT_PEER",
+    "ipv4_encoding": "IPV4_MAPPED_IPV6",
+    "forwarding_headers": "IGNORE",
+    "persisted_fields": [
+      "key_id",
+      "source_key_digest"
+    ],
+    "raw_ip_persisted_or_logged": false,
+    "runtime_key_persisted_or_logged": false,
+    "prior_key_overlap_seconds": 1800
+  },
+  "request_digest": {
+    "algorithm": "SHA-256",
+    "canonicalization": "RFC8785_JCS",
+    "version": "fit.platform.request-digest.v1",
+    "bound_fields": [
+      "schema_version",
+      "method",
+      "route_template",
+      "path",
+      "query",
+      "body",
+      "user_id",
+      "trading_account_id"
+    ],
+    "excluded_fields": [
+      "authorization",
+      "cookie",
+      "raw_token",
+      "forwarding_headers",
+      "client_identity_headers"
+    ],
+    "reject": [
+      "duplicate_query_keys",
+      "non_json_mutation",
+      "unknown_fields",
+      "ambiguous_path_normalization"
+    ],
+    "idempotency_scope": [
+      "user_id",
+      "trading_account_id",
+      "route_template",
+      "idempotency_key"
+    ],
+    "same_key_different_digest": "IDEMPOTENCY_CONFLICT"
+  },
+  "websocket_reauthorization": {
+    "fresh_token_transport": "HTTPS_REFRESH_ONLY",
+    "challenge_before_expiry_seconds": 60,
+    "deadline_formula": "min(reauth_required_issued_at_plus_60_seconds,current_access_expiry)",
+    "deadline_comparison": "verification_completed_at_strictly_less_than_deadline",
+    "deadline_equality": "EXPIRED",
+    "nonce_single_use": true,
+    "same_binding_fields": [
+      "user_id",
+      "trading_account_id",
+      "device_id",
+      "session_id",
+      "refresh_family_id"
+    ],
+    "success": "ATOMIC_REBIND_AND_CONSUME_NONCE",
+    "failure_close_code": 4401,
+    "expired_pending_application_frames": "REJECT",
+    "forbidden": [
+      "unsolicited",
+      "duplicate",
+      "late",
+      "cross_owner",
+      "cross_account",
+      "cross_device",
+      "cross_session",
+      "cross_family",
+      "expired",
+      "malformed"
+    ],
+    "sensitive_control_data_in_logs_traces_metrics_application_messages": false
+  },
+  "server_authored_identity": {
+    "fields": [
+      "user_id",
+      "trading_account_id",
+      "session_id",
+      "device_id",
+      "source_key",
+      "server_received_at",
+      "token_digest",
+      "device_verification"
+    ],
+    "untrusted_transport_result": "REJECT_UNKNOWN_FIELD"
+  },
+  "scope_rules": {
+    "OWNER": {
+      "requires": [
+        "user_id",
+        "trading_account_id"
+      ],
+      "business_effects_allowed": true
+    },
+    "AUTH_SECURITY": {
+      "requires": [
+        "source_key"
+      ],
+      "user_id": "OPTIONAL_AFTER_UNAMBIGUOUS_RESOLUTION",
+      "trading_account_id": "FORBIDDEN",
+      "business_effects_allowed": false
+    },
+    "SYSTEM": {
+      "user_id": "FORBIDDEN",
+      "trading_account_id": "FORBIDDEN",
+      "business_effects_allowed": false
+    }
+  },
+  "notification": {
+    "internal_only": true,
+    "kind_severity": {
+      "LOGIN_ACCOUNT_LOCKED": "WARNING",
+      "LOGIN_SOURCE_LOCKED": "WARNING",
+      "DEVICE_ENROLLED": "INFO",
+      "DEVICE_REPLACED": "CRITICAL",
+      "DEVICE_REVOKED": "WARNING",
+      "SESSION_REVOKED": "INFO",
+      "REFRESH_REUSE_DETECTED": "CRITICAL",
+      "WAL_ARCHIVE_INTERRUPTED": "CRITICAL"
+    },
+    "forbidden_fields": [
+      "text",
+      "destination",
+      "address",
+      "credential",
+      "email",
+      "push",
+      "webhook"
+    ]
+  }
+}

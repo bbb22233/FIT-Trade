@@ -1,0 +1,366 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fit.trade/contracts/platform/recovery-evidence-v1.schema.json",
+  "title": "FIT Trade Phase 1 measured recovery evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "workload",
+    "failure",
+    "last_committed",
+    "last_recovered",
+    "observed_rpo",
+    "restore",
+    "observed_rto_ms",
+    "components",
+    "verification_gates",
+    "result"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "fit.platform.recovery-evidence.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workload": {
+      "$ref": "#/$defs/Workload"
+    },
+    "failure": {
+      "$ref": "#/$defs/Failure"
+    },
+    "last_committed": {
+      "$ref": "#/$defs/SequencePoint"
+    },
+    "last_recovered": {
+      "$ref": "#/$defs/SequencePoint"
+    },
+    "observed_rpo": {
+      "$ref": "#/$defs/ObservedRpo"
+    },
+    "restore": {
+      "$ref": "#/$defs/Restore"
+    },
+    "observed_rto_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "components": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/Component"
+      }
+    },
+    "verification_gates": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/Gate"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "const": "constraints"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "const": "aggregate_versions"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "const": "outbox_continuity"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "const": "audit_linkage"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "name": {
+                "const": "fixture_checksums"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    },
+    "result": {
+      "enum": [
+        "PASS",
+        "FAIL_CLOSED"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "PASS"
+          }
+        },
+        "required": [
+          "result"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verification_gates": {
+            "items": {
+              "properties": {
+                "status": {
+                  "const": "PASS"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "Workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workload_id",
+        "workload_manifest_sha256",
+        "fixed_seed",
+        "event_rate_per_second",
+        "utc_clock_source"
+      ],
+      "properties": {
+        "workload_id": {
+          "type": "string",
+          "pattern": "^p1-recovery-[a-z0-9-]+$"
+        },
+        "workload_manifest_sha256": {
+          "$ref": "#/$defs/Digest"
+        },
+        "fixed_seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "event_rate_per_second": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "utc_clock_source": {
+          "const": "CLOCK_REALTIME_UTC"
+        }
+      }
+    },
+    "Failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "injected_at",
+        "injection_point"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "PROCESS_KILL",
+            "NETWORK_PARTITION",
+            "BACKUP_CORRUPTION",
+            "MISSING_WAL",
+            "INCOMPATIBLE_MIGRATION",
+            "PARTIAL_RESTORE",
+            "MISSING_CREDENTIAL",
+            "EXTERNAL_EGRESS"
+          ]
+        },
+        "injected_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "injection_point": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "SequencePoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "committed_at"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "committed_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "ObservedRpo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence_gap",
+        "time_gap_ms",
+        "calculation"
+      ],
+      "properties": {
+        "sequence_gap": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "time_gap_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "calculation": {
+          "const": "last_committed_minus_last_recovered"
+        }
+      }
+    },
+    "Restore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "invoked_at",
+        "verification_completed_at",
+        "start_event_id",
+        "completion_event_id"
+      ],
+      "properties": {
+        "invoked_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "verification_completed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "start_event_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "completion_event_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "Component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "artifact_sha256"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    },
+    "Gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status",
+        "evidence_sha256"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "constraints",
+            "aggregate_versions",
+            "outbox_continuity",
+            "audit_linkage",
+            "fixture_checksums"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "evidence_sha256": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    }
+  }
+}

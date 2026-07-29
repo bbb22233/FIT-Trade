@@ -1,0 +1,46 @@
+{
+  "schema_version": "fit.platform.recovery-policy.v1",
+  "workload": {
+    "workload_id": "p1-recovery-synthetic-v1",
+    "workload_manifest_sha256": "2258819d69d696992b7f8c0306244bba93e8569a4bff0886ada4d061e7d7ddec",
+    "fixed_seed": 20260729,
+    "event_rate_per_second": 20,
+    "utc_clock_source": "CLOCK_REALTIME_UTC",
+    "failure_injection_point": "AFTER_COMMITTED_SEQUENCE",
+    "failure_sequence": 6000
+  },
+  "observed_rpo": {
+    "sequence_gap_formula": "last_committed_sequence_minus_last_recovered_sequence",
+    "time_gap_formula": "last_committed_time_minus_last_recovered_time",
+    "target_fields_allowed_in_evidence": false
+  },
+  "observed_rto": {
+    "start_event": "RESTORE_INVOCATION",
+    "end_event": "ALL_VERIFICATION_GATES_PASS",
+    "formula": "verification_completed_at_minus_restore_invoked_at",
+    "target_fields_allowed_in_evidence": false
+  },
+  "verification_gates": [
+    "constraints",
+    "aggregate_versions",
+    "outbox_continuity",
+    "audit_linkage",
+    "fixture_checksums"
+  ],
+  "restore_capabilities": {
+    "connector_present": false,
+    "executor_present": false,
+    "signer_present": false,
+    "wallet_present": false,
+    "exchange_route_present": false,
+    "trading_enabled": false
+  },
+  "fail_closed_conditions": [
+    "BACKUP_CORRUPTION",
+    "MISSING_WAL",
+    "INCOMPATIBLE_MIGRATION",
+    "PARTIAL_RESTORE",
+    "MISSING_CREDENTIAL",
+    "EXTERNAL_EGRESS"
+  ]
+}

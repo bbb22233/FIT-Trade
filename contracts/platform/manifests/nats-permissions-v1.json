@@ -1,0 +1,223 @@
+{
+  "schema_version": "fit.platform.nats-permissions.v1",
+  "stream": {
+    "name": "FIT_PLATFORM_V1",
+    "delivery": "AT_LEAST_ONCE",
+    "authority": "DERIVED_FROM_POSTGRESQL_OUTBOX",
+    "subjects": [
+      "fit.platform.v1.auth-security.device-enrolled",
+      "fit.platform.v1.auth-security.device-replaced",
+      "fit.platform.v1.auth-security.device-revoked",
+      "fit.platform.v1.auth-security.login-account-locked",
+      "fit.platform.v1.auth-security.login-source-locked",
+      "fit.platform.v1.auth-security.refresh-reuse-detected",
+      "fit.platform.v1.auth-security.session-revoked",
+      "fit.platform.v1.notification.device-enrolled",
+      "fit.platform.v1.notification.device-replaced",
+      "fit.platform.v1.notification.device-revoked",
+      "fit.platform.v1.notification.login-account-locked",
+      "fit.platform.v1.notification.login-source-locked",
+      "fit.platform.v1.notification.refresh-reuse-detected",
+      "fit.platform.v1.notification.session-revoked",
+      "fit.platform.v1.notification.wal-archive-interrupted",
+      "fit.platform.v1.owner.owner-mutation-committed",
+      "fit.platform.v1.system.wal-archive-interrupted"
+    ]
+  },
+  "subject_bindings": [
+    {
+      "subject": "fit.platform.v1.auth-security.device-enrolled",
+      "event_kind": "DEVICE_ENROLLED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.auth-security.device-replaced",
+      "event_kind": "DEVICE_REPLACED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.auth-security.device-revoked",
+      "event_kind": "DEVICE_REVOKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.auth-security.login-account-locked",
+      "event_kind": "LOGIN_ACCOUNT_LOCKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.auth-security.login-source-locked",
+      "event_kind": "LOGIN_SOURCE_LOCKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.auth-security.refresh-reuse-detected",
+      "event_kind": "REFRESH_REUSE_DETECTED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.auth-security.session-revoked",
+      "event_kind": "SESSION_REVOKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.device-enrolled",
+      "event_kind": "DEVICE_ENROLLED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.device-replaced",
+      "event_kind": "DEVICE_REPLACED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.device-revoked",
+      "event_kind": "DEVICE_REVOKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.login-account-locked",
+      "event_kind": "LOGIN_ACCOUNT_LOCKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.login-source-locked",
+      "event_kind": "LOGIN_SOURCE_LOCKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.refresh-reuse-detected",
+      "event_kind": "REFRESH_REUSE_DETECTED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.session-revoked",
+      "event_kind": "SESSION_REVOKED",
+      "scope": "AUTH_SECURITY",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.notification.wal-archive-interrupted",
+      "event_kind": "WAL_ARCHIVE_INTERRUPTED",
+      "scope": "SYSTEM",
+      "consumer": "internal-notification-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.owner.owner-mutation-committed",
+      "event_kind": "OWNER_MUTATION_COMMITTED",
+      "scope": "OWNER",
+      "consumer": "platform-consumer"
+    },
+    {
+      "subject": "fit.platform.v1.system.wal-archive-interrupted",
+      "event_kind": "WAL_ARCHIVE_INTERRUPTED",
+      "scope": "SYSTEM",
+      "consumer": "platform-consumer"
+    }
+  ],
+  "event_semantics": {
+    "owner_scope_origin": "SERVER_AUTHORED",
+    "ordering": {
+      "scope": "PER_AGGREGATE",
+      "fields": [
+        "aggregate_id",
+        "aggregate_version"
+      ],
+      "global_order_claimed": false
+    },
+    "redelivery": {
+      "stable_fields": [
+        "event_id",
+        "payload_digest",
+        "aggregate_id",
+        "aggregate_version"
+      ],
+      "delivery": "AT_LEAST_ONCE",
+      "consumer_deduplication": "INBOX_EVENT_ID_PER_CONSUMER",
+      "same_event_id_different_digest": "REJECT_AND_ALERT"
+    },
+    "compatibility": {
+      "payload_schema_version_required": true,
+      "current_and_immediately_previous_consumer_revisions": true,
+      "same_major_changes": "ADDITIVE_ONLY",
+      "breaking_change": "NEW_VERSIONED_SUBJECT_AND_REVIEW"
+    },
+    "payload_integrity": "SHA-256_OVER_RFC8785_JCS"
+  },
+  "principals": [
+    {
+      "name": "outbox-publisher",
+      "publish": [
+        "fit.platform.v1.auth-security.device-enrolled",
+        "fit.platform.v1.auth-security.device-replaced",
+        "fit.platform.v1.auth-security.device-revoked",
+        "fit.platform.v1.auth-security.login-account-locked",
+        "fit.platform.v1.auth-security.login-source-locked",
+        "fit.platform.v1.auth-security.refresh-reuse-detected",
+        "fit.platform.v1.auth-security.session-revoked",
+        "fit.platform.v1.notification.device-enrolled",
+        "fit.platform.v1.notification.device-replaced",
+        "fit.platform.v1.notification.device-revoked",
+        "fit.platform.v1.notification.login-account-locked",
+        "fit.platform.v1.notification.login-source-locked",
+        "fit.platform.v1.notification.refresh-reuse-detected",
+        "fit.platform.v1.notification.session-revoked",
+        "fit.platform.v1.notification.wal-archive-interrupted",
+        "fit.platform.v1.owner.owner-mutation-committed",
+        "fit.platform.v1.system.wal-archive-interrupted"
+      ],
+      "subscribe": [],
+      "jetstream_admin": false,
+      "identity_claims": []
+    },
+    {
+      "name": "platform-consumer",
+      "publish": [],
+      "subscribe": [
+        "fit.platform.v1.auth-security.device-enrolled",
+        "fit.platform.v1.auth-security.device-replaced",
+        "fit.platform.v1.auth-security.device-revoked",
+        "fit.platform.v1.auth-security.login-account-locked",
+        "fit.platform.v1.auth-security.login-source-locked",
+        "fit.platform.v1.auth-security.refresh-reuse-detected",
+        "fit.platform.v1.auth-security.session-revoked",
+        "fit.platform.v1.owner.owner-mutation-committed",
+        "fit.platform.v1.system.wal-archive-interrupted"
+      ],
+      "jetstream_admin": false,
+      "identity_claims": []
+    },
+    {
+      "name": "internal-notification-consumer",
+      "publish": [],
+      "subscribe": [
+        "fit.platform.v1.notification.device-enrolled",
+        "fit.platform.v1.notification.device-replaced",
+        "fit.platform.v1.notification.device-revoked",
+        "fit.platform.v1.notification.login-account-locked",
+        "fit.platform.v1.notification.login-source-locked",
+        "fit.platform.v1.notification.refresh-reuse-detected",
+        "fit.platform.v1.notification.session-revoked",
+        "fit.platform.v1.notification.wal-archive-interrupted"
+      ],
+      "jetstream_admin": false,
+      "identity_claims": []
+    }
+  ],
+  "wildcards_allowed": false,
+  "api_service_has_nats_credential": false,
+  "user_or_account_claims_allowed": false
+}

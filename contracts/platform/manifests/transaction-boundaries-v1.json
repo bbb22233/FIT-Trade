@@ -1,0 +1,159 @@
+{
+  "schema_version": "fit.platform.transaction-boundaries.v1",
+  "authority": {
+    "system_of_record": "POSTGRESQL",
+    "nats": "DERIVED_DELIVERY_ONLY",
+    "control_plane_scope_grants_owner_authority": false
+  },
+  "server_owned_fields": [
+    "user_id",
+    "trading_account_id",
+    "session_id",
+    "device_id",
+    "source_key",
+    "server_time",
+    "token_digest",
+    "device_verification"
+  ],
+  "workflows": [
+    {
+      "name": "owner_mutation",
+      "single_postgresql_transaction": [
+        "verify_owner_scope",
+        "claim_idempotency_key_and_request_digest",
+        "write_business_effect",
+        "write_immutable_audit_event",
+        "write_outbox_event"
+      ],
+      "conditional_same_transaction": [
+        "write_internal_notification"
+      ],
+      "commit_before_response": true
+    },
+    {
+      "name": "nats_consumer_business_effect",
+      "single_postgresql_transaction": [
+        "lock_or_insert_inbox_deduplication_record",
+        "verify_event_owner_scope",
+        "write_business_effect",
+        "write_immutable_audit_event",
+        "write_outbox_event",
+        "mark_inbox_applied"
+      ],
+      "ack_after_commit": true
+    },
+    {
+      "name": "password_lock",
+      "single_postgresql_transaction": [
+        "atomically_increment_throttle_dimension",
+        "create_audit_intent",
+        "persist_immutable_audit_event",
+        "create_notification_intent",
+        "persist_internal_notification",
+        "write_outbox_events"
+      ],
+      "commit_before_response": true
+    },
+    {
+      "name": "ordinary_device_enrollment",
+      "single_postgresql_transaction": [
+        "consume_real_challenge_once",
+        "verify_candidate_ed25519_proof",
+        "assert_global_public_key_uniqueness",
+        "create_server_owned_device",
+        "create_independent_session_and_refresh_family",
+        "write_immutable_audit_event",
+        "write_internal_notification",
+        "write_outbox_events"
+      ],
+      "must_not_write": [
+        "prior_device_revocation",
+        "prior_session_revocation",
+        "prior_refresh_family_revocation"
+      ],
+      "commit_before_response": true
+    },
+    {
+      "name": "replacement_device_enrollment",
+      "single_postgresql_transaction": [
+        "consume_real_challenge_once",
+        "verify_candidate_ed25519_proof",
+        "revoke_all_prior_devices",
+        "revoke_all_prior_sessions",
+        "revoke_all_prior_refresh_families",
+        "assert_global_public_key_uniqueness",
+        "create_server_owned_device",
+        "create_independent_session_and_refresh_family",
+        "write_immutable_audit_event",
+        "write_internal_notification",
+        "write_outbox_events"
+      ],
+      "revocation_before_new_session": true,
+      "commit_before_response": true
+    },
+    {
+      "name": "refresh_rotation",
+      "single_postgresql_transaction": [
+        "lock_refresh_family",
+        "evaluate_family_deadline",
+        "evaluate_already_rotated_reuse",
+        "evaluate_individual_expiry",
+        "rotate_active_digest_or_revoke_complete_family",
+        "write_security_audit_if_reuse",
+        "write_internal_notification_if_reuse",
+        "write_outbox_events_if_reuse"
+      ],
+      "commit_before_credential_response": true
+    },
+    {
+      "name": "outbox_publish",
+      "claim_postgresql_transaction": [
+        "claim_unpublished_outbox_record_with_expiring_lease"
+      ],
+      "broker_phase": [
+        "publish_exact_event_id_and_payload_digest",
+        "receive_broker_ack"
+      ],
+      "mark_postgresql_transaction": [
+        "mark_outbox_published"
+      ],
+      "duplicate_publish_allowed": true,
+      "duplicate_business_effect_allowed": false,
+      "delete_business_event_allowed_in_phase_1": false
+    },
+    {
+      "name": "wal_archive_incident",
+      "single_postgresql_transaction": [
+        "upsert_one_open_incident",
+        "write_one_immutable_audit_event_per_incident",
+        "write_one_internal_notification_per_incident",
+        "write_outbox_events"
+      ],
+      "clear_condition": "two_consecutive_successes_and_age_at_or_below_60_seconds"
+    }
+  ],
+  "idempotency": {
+    "scope": [
+      "user_id",
+      "trading_account_id",
+      "route_template",
+      "idempotency_key"
+    ],
+    "same_scope_same_key_same_digest": "RETURN_RECORDED_RESULT",
+    "same_scope_same_key_different_digest": "IDEMPOTENCY_CONFLICT",
+    "claim_and_business_effect_same_transaction": true
+  },
+  "referential_invariants": [
+    "ownership.user_id references user.user_id",
+    "device.user_id references user.user_id",
+    "session.user_id equals device.user_id",
+    "session.trading_account_id has active ownership for session.user_id",
+    "refresh_token.session_id references session.session_id",
+    "inbox.event_id is unique per consumer",
+    "outbox.event.event_id is globally unique",
+    "aggregate_version is unique and contiguous per aggregate",
+    "device public key fingerprint is globally unique",
+    "audit and notification scope never fabricates owner identity"
+  ],
+  "outbox_retention": "NEVER_DELETE_BUSINESS_EVENTS_IN_PHASE_1"
+}

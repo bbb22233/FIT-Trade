@@ -1,0 +1,52 @@
+{
+  "schema_version": "fit.platform.golden-vectors.v1",
+  "request_digest": {
+    "canonicalization": "RFC8785_JCS",
+    "algorithm": "SHA-256",
+    "value": {
+      "schema_version": "fit.platform.request-digest.v1",
+      "method": "POST",
+      "route_template": "/v1/operations/{operation_id}/confirm",
+      "path": {
+        "operation_id": "70000000-0000-4000-8000-000000000001"
+      },
+      "query": {
+        "mode": "strict"
+      },
+      "body": {
+        "decision": "CONFIRM",
+        "reason_code": "USER_APPROVED"
+      },
+      "user_id": "10000000-0000-4000-8000-000000000001",
+      "trading_account_id": "20000000-0000-4000-8000-000000000001"
+    },
+    "canonical_utf8": "{\"body\":{\"decision\":\"CONFIRM\",\"reason_code\":\"USER_APPROVED\"},\"method\":\"POST\",\"path\":{\"operation_id\":\"70000000-0000-4000-8000-000000000001\"},\"query\":{\"mode\":\"strict\"},\"route_template\":\"/v1/operations/{operation_id}/confirm\",\"schema_version\":\"fit.platform.request-digest.v1\",\"trading_account_id\":\"20000000-0000-4000-8000-000000000001\",\"user_id\":\"10000000-0000-4000-8000-000000000001\"}",
+    "sha256": "945e2d0a0435b6e074da85dfd2038a61449f27040e2a39d7d2ea638bcd1c16a2"
+  },
+  "payload_digest": {
+    "canonicalization": "RFC8785_JCS",
+    "algorithm": "SHA-256",
+    "value": {
+      "schema_version": "fit.platform.synthetic-event.v1",
+      "event_kind": "DEVICE_ENROLLED",
+      "scope": {
+        "type": "AUTH_SECURITY",
+        "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "user_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "device_id": "30000000-0000-4000-8000-000000000001"
+    },
+    "canonical_utf8": "{\"device_id\":\"30000000-0000-4000-8000-000000000001\",\"event_kind\":\"DEVICE_ENROLLED\",\"schema_version\":\"fit.platform.synthetic-event.v1\",\"scope\":{\"source_key\":\"src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"type\":\"AUTH_SECURITY\",\"user_id\":\"10000000-0000-4000-8000-000000000001\"}}",
+    "sha256": "c16612094da1e4952b460d90516f8d9d7be3be5a14e36b24f87ef5c24d1b46e5"
+  },
+  "argon2id_production": {
+    "profile_id": "argon2id-production-v1",
+    "password_utf8": "synthetic-password-vector-only",
+    "salt_hex": "000102030405060708090a0b0c0d0e0f",
+    "memory_kib": 65536,
+    "iterations": 3,
+    "parallelism": 1,
+    "result_bytes": 32,
+    "result_hex": "79cba77cff303e01dcae3bd6a16dddd07b734b1b91eda7c7d42c574101d9a920"
+  }
+}

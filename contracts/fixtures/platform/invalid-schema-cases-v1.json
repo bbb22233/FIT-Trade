@@ -1,0 +1,541 @@
+{
+  "schema_version": "fit.platform.fixture-cases.v1",
+  "cases": [
+    {
+      "name": "enrollment wire rejects user identity",
+      "schema": "EnrollmentChallenge",
+      "reason": "wire challenge cannot reveal or accept owner authority",
+      "value": {
+        "schema_version": "fit.platform.enrollment-challenge.v1",
+        "domain": "FIT_TRADE_DEVICE_ENROLLMENT_V1",
+        "purpose": "ADDITIONAL_DEVICE",
+        "subject_handle": "synthetic_subject_handle_0000000000000001",
+        "candidate_public_key_fingerprint": "ed25519:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "nonce": "synthetic_enrollment_nonce_00000000000001",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-07-29T10:02:00Z",
+        "single_use": true,
+        "user_id": "10000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "enrollment wire rejects device-action domain",
+      "schema": "EnrollmentChallenge",
+      "reason": "challenge domains cannot be substituted",
+      "value": {
+        "schema_version": "fit.platform.enrollment-challenge.v1",
+        "domain": "FIT_TRADE_DEVICE_ACTION_V1",
+        "purpose": "ADDITIONAL_DEVICE",
+        "subject_handle": "synthetic_subject_handle_0000000000000001",
+        "candidate_public_key_fingerprint": "ed25519:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "nonce": "synthetic_enrollment_nonce_00000000000001",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-07-29T10:02:00Z",
+        "single_use": true
+      }
+    },
+    {
+      "name": "device-action challenge rejects enrollment handle",
+      "schema": "DeviceActionChallenge",
+      "reason": "device-action domain cannot carry enrollment-only fields",
+      "value": {
+        "schema_version": "fit.platform.device-action-challenge.v1",
+        "domain": "FIT_TRADE_DEVICE_ACTION_V1",
+        "user_id": "10000000-0000-4000-8000-000000000001",
+        "trading_account_id": "20000000-0000-4000-8000-000000000001",
+        "device_id": "30000000-0000-4000-8000-000000000001",
+        "session_id": "40000000-0000-4000-8000-000000000001",
+        "action": "OPEN_POSITION",
+        "payload_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "nonce": "synthetic_device_action_nonce_000000000001",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-07-29T10:02:00Z",
+        "single_use": true,
+        "subject_handle": "synthetic_subject_handle_0000000000000001"
+      }
+    },
+    {
+      "name": "enrollment completion rejects client owner",
+      "schema": "EnrollmentCompletionInput",
+      "reason": "server resolves the opaque handle",
+      "value": {
+        "subject_handle": "synthetic_subject_handle_0000000000000001",
+        "candidate_public_key": "ed25519-public:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": "ed25519-signature:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "user_id": "10000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "ordinary enrollment rejects replacement revocation effect",
+      "schema": "DeviceEnrollment",
+      "reason": "ordinary enrollment preserves existing device and session scope",
+      "value": {
+        "schema_version": "fit.platform.device-enrollment.v1",
+        "enrollment_id": "31000000-0000-4000-8000-000000000001",
+        "purpose": "ADDITIONAL_DEVICE",
+        "user_id": "10000000-0000-4000-8000-000000000001",
+        "device_id": "30000000-0000-4000-8000-000000000001",
+        "first_session_id": "40000000-0000-4000-8000-000000000001",
+        "subject_handle_digest": "abababababababababababababababababababababababababababababababab",
+        "candidate_public_key_fingerprint": "ed25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "proof_algorithm": "Ed25519",
+        "prior_scope_effect": "REVOKE_ALL_BEFORE_CREATE",
+        "completed_at": "2026-07-29T10:00:00Z",
+        "identity_origin": "SERVER_AUTHORED"
+      }
+    },
+    {
+      "name": "device action proof rejects client session authority",
+      "schema": "DeviceActionProofInput",
+      "reason": "server resolves all bound fields from the single-use challenge",
+      "value": {
+        "challenge_nonce": "synthetic_device_action_nonce_000000000001",
+        "signature": "ed25519-signature:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "session_id": "40000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "untrusted mutation rejects server identity",
+      "schema": "UntrustedMutationInput",
+      "reason": "identity must be injected after authentication",
+      "value": {
+        "idempotency_key": "60000000-0000-4000-8000-000000000001",
+        "path": {},
+        "query": {},
+        "body": {
+          "decision": "CONFIRM"
+        },
+        "trading_account_id": "20000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "untrusted mutation rejects nested server identity",
+      "schema": "UntrustedMutationInput",
+      "reason": "identity injection is rejected recursively before route handling",
+      "value": {
+        "idempotency_key": "60000000-0000-4000-8000-000000000001",
+        "path": {},
+        "query": {},
+        "body": {
+          "decision": "CONFIRM",
+          "authority": {
+            "session_id": "40000000-0000-4000-8000-000000000001"
+          }
+        }
+      }
+    },
+    {
+      "name": "request envelope rejects client-authored identity",
+      "schema": "RequestEnvelope",
+      "reason": "request context identity is always server authored",
+      "value": {
+        "schema_version": "fit.platform.request-envelope.v1",
+        "request_id": "80000000-0000-4000-8000-000000000001",
+        "method": "POST",
+        "route_template": "/v1/operations/{operation_id}/confirm",
+        "path": {},
+        "query": {},
+        "body": {},
+        "user_id": "10000000-0000-4000-8000-000000000001",
+        "trading_account_id": "20000000-0000-4000-8000-000000000001",
+        "session_id": "40000000-0000-4000-8000-000000000001",
+        "device_id": "30000000-0000-4000-8000-000000000001",
+        "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "server_received_at": "2026-07-29T10:00:00Z",
+        "identity_origin": "CLIENT",
+        "canonical_request_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    },
+    {
+      "name": "refresh record rejects plaintext credential",
+      "schema": "RefreshTokenRecord",
+      "reason": "storage contains digests only",
+      "value": {
+        "schema_version": "fit.platform.refresh-record.v1",
+        "token_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "family_id": "50000000-0000-4000-8000-000000000001",
+        "session_id": "40000000-0000-4000-8000-000000000001",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-08-05T10:00:00Z",
+        "family_deadline": "2026-08-28T10:00:00Z",
+        "status": "ACTIVE",
+        "plaintext_credential": "synthetic-value-must-not-persist"
+      }
+    },
+    {
+      "name": "rotated refresh record requires descendant digest",
+      "schema": "RefreshTokenRecord",
+      "reason": "rotation lineage must be explicit",
+      "value": {
+        "schema_version": "fit.platform.refresh-record.v1",
+        "token_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "family_id": "50000000-0000-4000-8000-000000000001",
+        "session_id": "40000000-0000-4000-8000-000000000001",
+        "issued_at": "2026-07-29T10:00:00Z",
+        "expires_at": "2026-08-05T10:00:00Z",
+        "family_deadline": "2026-08-28T10:00:00Z",
+        "status": "ROTATED"
+      }
+    },
+    {
+      "name": "owner subject rejects auth-security scope",
+      "schema": "EventEnvelope",
+      "reason": "subject and tagged scope must agree",
+      "value": {
+        "schema_version": "fit.platform.event-envelope.v1",
+        "subject": "fit.platform.v1.owner.owner-mutation-committed",
+        "stream": "FIT_PLATFORM_V1",
+        "event_id": "a0000000-0000-4000-8000-000000000001",
+        "event_kind": "OWNER_MUTATION_COMMITTED",
+        "scope": {
+          "type": "AUTH_SECURITY",
+          "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "aggregate_type": "OPERATION",
+        "aggregate_id": "70000000-0000-4000-8000-000000000001",
+        "aggregate_version": 1,
+        "causation_id": "80000000-0000-4000-8000-000000000001",
+        "correlation_id": "b0000000-0000-4000-8000-000000000001",
+        "occurred_at": "2026-07-29T10:00:01Z",
+        "payload_schema_version": "fit.platform.operation-confirmed.v1",
+        "payload_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    {
+      "name": "auth security audit rejects trading account",
+      "schema": "AuditEvent",
+      "reason": "control-plane facts never carry trading-account authority",
+      "value": {
+        "schema_version": "fit.platform.audit-event.v1",
+        "event_id": "e0000000-0000-4000-8000-000000000001",
+        "kind": "LOGIN_ACCOUNT_LOCKED",
+        "actor": {
+          "type": "SERVICE",
+          "id": "auth-service"
+        },
+        "scope": {
+          "type": "AUTH_SECURITY",
+          "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "user_id": "10000000-0000-4000-8000-000000000001",
+          "trading_account_id": "20000000-0000-4000-8000-000000000001"
+        },
+        "trigger": "REQUEST",
+        "causation_id": "80000000-0000-4000-8000-000000000001",
+        "correlation_id": "b0000000-0000-4000-8000-000000000001",
+        "request_id": "80000000-0000-4000-8000-000000000001",
+        "occurred_at": "2026-07-29T10:00:01Z",
+        "payload_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "background auth audit rejects fabricated request",
+      "schema": "AuditEvent",
+      "reason": "background security events use security operation linkage",
+      "value": {
+        "schema_version": "fit.platform.audit-event.v1",
+        "event_id": "e0000000-0000-4000-8000-000000000003",
+        "kind": "SESSION_REVOKED",
+        "actor": {
+          "type": "SERVICE",
+          "id": "session-reaper"
+        },
+        "scope": {
+          "type": "AUTH_SECURITY",
+          "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "trigger": "BACKGROUND",
+        "causation_id": "f0000000-0000-4000-8000-000000000001",
+        "correlation_id": "b0000000-0000-4000-8000-000000000001",
+        "security_operation_id": "f0000000-0000-4000-8000-000000000001",
+        "request_id": "80000000-0000-4000-8000-000000000001",
+        "session_id": "40000000-0000-4000-8000-000000000001",
+        "occurred_at": "2026-07-29T10:00:01Z",
+        "payload_digest": "4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    },
+    {
+      "name": "system audit rejects request linkage",
+      "schema": "AuditEvent",
+      "reason": "system incidents use system operation linkage only",
+      "value": {
+        "schema_version": "fit.platform.audit-event.v1",
+        "event_id": "e0000000-0000-4000-8000-000000000004",
+        "kind": "WAL_ARCHIVE_INTERRUPTED",
+        "actor": {
+          "type": "SYSTEM",
+          "id": "wal-monitor"
+        },
+        "scope": {
+          "type": "SYSTEM"
+        },
+        "trigger": "BACKGROUND",
+        "causation_id": "f0000000-0000-4000-8000-000000000002",
+        "correlation_id": "b0000000-0000-4000-8000-000000000002",
+        "system_operation_id": "f0000000-0000-4000-8000-000000000002",
+        "request_id": "80000000-0000-4000-8000-000000000001",
+        "occurred_at": "2026-07-29T10:00:01Z",
+        "payload_digest": "5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    },
+    {
+      "name": "owner audit requires request linkage",
+      "schema": "AuditIntent",
+      "reason": "owner effects are request-triggered in this contract",
+      "value": {
+        "schema_version": "fit.platform.audit-intent.v1",
+        "kind": "OWNER_MUTATION_COMMITTED",
+        "actor": {
+          "type": "USER",
+          "id": "synthetic-user-actor"
+        },
+        "scope": {
+          "type": "OWNER",
+          "user_id": "10000000-0000-4000-8000-000000000001",
+          "trading_account_id": "20000000-0000-4000-8000-000000000001"
+        },
+        "trigger": "REQUEST",
+        "causation_id": "80000000-0000-4000-8000-000000000001",
+        "correlation_id": "b0000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "lock audit rejects device field",
+      "schema": "AuditEvent",
+      "reason": "device and session fields are kind-allowlisted",
+      "value": {
+        "schema_version": "fit.platform.audit-event.v1",
+        "event_id": "e0000000-0000-4000-8000-000000000001",
+        "kind": "LOGIN_SOURCE_LOCKED",
+        "actor": {
+          "type": "SERVICE",
+          "id": "auth-service"
+        },
+        "scope": {
+          "type": "AUTH_SECURITY",
+          "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "trigger": "REQUEST",
+        "causation_id": "80000000-0000-4000-8000-000000000001",
+        "correlation_id": "b0000000-0000-4000-8000-000000000001",
+        "request_id": "80000000-0000-4000-8000-000000000001",
+        "device_id": "30000000-0000-4000-8000-000000000001",
+        "occurred_at": "2026-07-29T10:00:01Z",
+        "payload_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "notification rejects kind severity mismatch",
+      "schema": "Notification",
+      "reason": "severity is frozen per kind",
+      "value": {
+        "schema_version": "fit.platform.notification.v1",
+        "notification_id": "11000000-0000-4000-8000-000000000001",
+        "kind": "LOGIN_SOURCE_LOCKED",
+        "severity": "INFO",
+        "scope": {
+          "type": "AUTH_SECURITY",
+          "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "message_code": "security.login.source_locked",
+        "message_args": {
+          "lock_seconds": 900
+        },
+        "causation_id": "80000000-0000-4000-8000-000000000001",
+        "correlation_id": "b0000000-0000-4000-8000-000000000001",
+        "occurred_at": "2026-07-29T10:00:01Z",
+        "payload_digest": "6666666666666666666666666666666666666666666666666666666666666666"
+      }
+    },
+    {
+      "name": "notification rejects arbitrary delivery destination",
+      "schema": "Notification",
+      "reason": "Phase 1 notification is internal and schema-positive only",
+      "value": {
+        "schema_version": "fit.platform.notification.v1",
+        "notification_id": "11000000-0000-4000-8000-000000000001",
+        "kind": "LOGIN_SOURCE_LOCKED",
+        "severity": "WARNING",
+        "scope": {
+          "type": "AUTH_SECURITY",
+          "source_key": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "message_code": "security.login.source_locked",
+        "message_args": {
+          "lock_seconds": 900
+        },
+        "causation_id": "80000000-0000-4000-8000-000000000001",
+        "correlation_id": "b0000000-0000-4000-8000-000000000001",
+        "occurred_at": "2026-07-29T10:00:01Z",
+        "payload_digest": "6666666666666666666666666666666666666666666666666666666666666666",
+        "webhook": "synthetic-destination-is-forbidden"
+      }
+    },
+    {
+      "name": "WAL notification rejects owner scope",
+      "schema": "Notification",
+      "reason": "system incidents cannot acquire owner authority",
+      "value": {
+        "schema_version": "fit.platform.notification.v1",
+        "notification_id": "11000000-0000-4000-8000-000000000002",
+        "kind": "WAL_ARCHIVE_INTERRUPTED",
+        "severity": "CRITICAL",
+        "scope": {
+          "type": "OWNER",
+          "user_id": "10000000-0000-4000-8000-000000000001",
+          "trading_account_id": "20000000-0000-4000-8000-000000000001"
+        },
+        "message_code": "system.wal.archive_interrupted",
+        "message_args": {
+          "incident_id": "f0000000-0000-4000-8000-000000000002",
+          "archive_age_seconds": 61
+        },
+        "causation_id": "f0000000-0000-4000-8000-000000000002",
+        "correlation_id": "b0000000-0000-4000-8000-000000000002",
+        "occurred_at": "2026-07-29T10:00:01Z",
+        "payload_digest": "7777777777777777777777777777777777777777777777777777777777777777"
+      }
+    },
+    {
+      "name": "source record rejects raw peer address",
+      "schema": "SourceKeyRecord",
+      "reason": "only key ID and pseudonymous digest persist",
+      "value": {
+        "schema_version": "fit.platform.source-key-record.v1",
+        "key_id": "source-key-v1",
+        "source_key_digest": "src_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "raw_ip": "192.0.2.8"
+      }
+    },
+    {
+      "name": "reauth control frame rejects owner injection",
+      "schema": "WebSocketReauth",
+      "reason": "fresh credential is verified against server binding",
+      "value": {
+        "schema_version": "fit.platform.websocket-control.v1",
+        "type": "REAUTH",
+        "nonce": "synthetic_websocket_nonce_000000000000001",
+        "access_token_transport": "synthetic-access-credential-not-valid-anywhere",
+        "user_id": "10000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "outbox rejects deletion retention",
+      "schema": "OutboxRecord",
+      "reason": "business events are retained for complete Phase 1 rebuild",
+      "value": {
+        "schema_version": "fit.platform.outbox-record.v1",
+        "outbox_id": "d0000000-0000-4000-8000-000000000001",
+        "event": {
+          "schema_version": "fit.platform.event-envelope.v1",
+          "subject": "fit.platform.v1.system.wal-archive-interrupted",
+          "stream": "FIT_PLATFORM_V1",
+          "event_id": "a0000000-0000-4000-8000-000000000001",
+          "event_kind": "WAL_ARCHIVE_INTERRUPTED",
+          "scope": {
+            "type": "SYSTEM"
+          },
+          "aggregate_type": "WAL_INCIDENT",
+          "aggregate_id": "f0000000-0000-4000-8000-000000000002",
+          "aggregate_version": 1,
+          "causation_id": "f0000000-0000-4000-8000-000000000002",
+          "correlation_id": "b0000000-0000-4000-8000-000000000002",
+          "occurred_at": "2026-07-29T10:00:01Z",
+          "payload_schema_version": "fit.platform.wal-incident.v1",
+          "payload_digest": "7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "created_at": "2026-07-29T10:00:01Z",
+        "publication_state": "PENDING",
+        "retention": "DELETE_AFTER_PUBLISH"
+      }
+    },
+    {
+      "name": "recovery evidence rejects SLA target as measurement",
+      "schema": "RecoveryEvidence",
+      "reason": "targets cannot be represented as observed results",
+      "value": {
+        "schema_version": "fit.platform.recovery-evidence.v1",
+        "run_id": "13000000-0000-4000-8000-000000000001",
+        "workload": {
+          "workload_id": "p1-recovery-synthetic-v1",
+          "workload_manifest_sha256": "2258819d69d696992b7f8c0306244bba93e8569a4bff0886ada4d061e7d7ddec",
+          "fixed_seed": 20260729,
+          "event_rate_per_second": 20,
+          "utc_clock_source": "CLOCK_REALTIME_UTC"
+        },
+        "failure": {
+          "kind": "PROCESS_KILL",
+          "injected_at": "2026-07-29T10:05:00Z",
+          "injection_point": "after committed sequence 6000"
+        },
+        "last_committed": {
+          "sequence": 6000,
+          "committed_at": "2026-07-29T10:05:00Z"
+        },
+        "last_recovered": {
+          "sequence": 5998,
+          "committed_at": "2026-07-29T10:04:59.900Z"
+        },
+        "observed_rpo": {
+          "sequence_gap": 2,
+          "time_gap_ms": 100,
+          "calculation": "last_committed_minus_last_recovered"
+        },
+        "restore": {
+          "invoked_at": "2026-07-29T10:06:00Z",
+          "verification_completed_at": "2026-07-29T10:07:30Z",
+          "start_event_id": "14000000-0000-4000-8000-000000000001",
+          "completion_event_id": "14000000-0000-4000-8000-000000000002"
+        },
+        "observed_rto_ms": 90000,
+        "target_rto_ms": 120000,
+        "components": [
+          {
+            "name": "postgresql",
+            "version": "synthetic-pinned-version",
+            "artifact_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+          },
+          {
+            "name": "recovery-tool",
+            "version": "synthetic-build-v1",
+            "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "verification_gates": [
+          {
+            "name": "constraints",
+            "status": "PASS",
+            "evidence_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "result": "PASS"
+      }
+    },
+    {
+      "name": "active device rejects revocation timestamp",
+      "schema": "Device",
+      "reason": "active and revoked states cannot be ambiguous",
+      "value": {
+        "schema_version": "fit.platform.device.v1",
+        "device_id": "30000000-0000-4000-8000-000000000001",
+        "user_id": "10000000-0000-4000-8000-000000000001",
+        "public_key_fingerprint": "ed25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "key_algorithm": "Ed25519",
+        "status": "ACTIVE",
+        "enrolled_at": "2026-07-29T10:00:00Z",
+        "revoked_at": "2026-07-29T10:01:00Z"
+      }
+    },
+    {
+      "name": "strict user rejects unknown field",
+      "schema": "User",
+      "reason": "security-sensitive records are closed objects",
+      "value": {
+        "schema_version": "fit.platform.user.v1",
+        "user_id": "10000000-0000-4000-8000-000000000001",
+        "status": "ACTIVE",
+        "created_at": "2026-07-29T10:00:00Z",
+        "is_admin": true
+      }
+    }
+  ]
+}

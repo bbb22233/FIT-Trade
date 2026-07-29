@@ -1,0 +1,675 @@
+{
+  "schema_version": "fit.platform.semantic-scenarios.v1",
+  "challenge_cases": [
+    {
+      "name": "valid proof strictly before expiry consumes once",
+      "synthetic": false,
+      "now": "2026-07-29T10:01:59.999Z",
+      "expires_at": "2026-07-29T10:02:00Z",
+      "already_attempted": false,
+      "proof_valid": true,
+      "expected": "CONSUMED_SUCCESS"
+    },
+    {
+      "name": "deadline equality is expired",
+      "synthetic": false,
+      "now": "2026-07-29T10:02:00Z",
+      "expires_at": "2026-07-29T10:02:00Z",
+      "already_attempted": false,
+      "proof_valid": true,
+      "expected": "REJECT_EXPIRED"
+    },
+    {
+      "name": "replay after first attempt fails",
+      "synthetic": false,
+      "now": "2026-07-29T10:01:00Z",
+      "expires_at": "2026-07-29T10:02:00Z",
+      "already_attempted": true,
+      "proof_valid": true,
+      "expected": "REJECT_REPLAY"
+    },
+    {
+      "name": "invalid proof consumes the one attempt",
+      "synthetic": false,
+      "now": "2026-07-29T10:01:00Z",
+      "expires_at": "2026-07-29T10:02:00Z",
+      "already_attempted": false,
+      "proof_valid": false,
+      "expected": "CONSUMED_INVALID_PROOF"
+    },
+    {
+      "name": "synthetic challenge has no completion path",
+      "synthetic": true,
+      "now": "2026-07-29T10:01:00Z",
+      "expires_at": "2026-07-29T10:02:00Z",
+      "already_attempted": false,
+      "proof_valid": true,
+      "expected": "REJECT_SYNTHETIC_NO_STATE"
+    }
+  ],
+  "refresh_cases": [
+    {
+      "name": "active token rotates before both deadlines",
+      "status": "ACTIVE",
+      "now": "2026-08-01T10:00:00Z",
+      "individual_expires_at": "2026-08-05T10:00:00Z",
+      "family_deadline": "2026-08-28T10:00:00Z",
+      "expected": "ROTATE_CREATE_DESCENDANT"
+    },
+    {
+      "name": "never-rotated individual expiry cannot rotate",
+      "status": "ACTIVE",
+      "now": "2026-08-05T10:00:00Z",
+      "individual_expires_at": "2026-08-05T10:00:00Z",
+      "family_deadline": "2026-08-28T10:00:00Z",
+      "expected": "REJECT_EXPIRED_NO_ROTATION"
+    },
+    {
+      "name": "rotated ancestor reuse before individual expiry revokes family",
+      "status": "ROTATED",
+      "now": "2026-08-01T10:00:00Z",
+      "individual_expires_at": "2026-08-05T10:00:00Z",
+      "family_deadline": "2026-08-28T10:00:00Z",
+      "expected": "REVOKE_FAMILY_AND_DESCENDANTS"
+    },
+    {
+      "name": "rotated ancestor reuse after individual expiry still revokes family",
+      "status": "ROTATED",
+      "now": "2026-08-10T10:00:00Z",
+      "individual_expires_at": "2026-08-05T10:00:00Z",
+      "family_deadline": "2026-08-28T10:00:00Z",
+      "expected": "REVOKE_FAMILY_AND_DESCENDANTS"
+    },
+    {
+      "name": "family deadline wins over reuse",
+      "status": "ROTATED",
+      "now": "2026-08-28T10:00:00Z",
+      "individual_expires_at": "2026-08-29T10:00:00Z",
+      "family_deadline": "2026-08-28T10:00:00Z",
+      "expected": "REJECT_FAMILY_EXPIRED"
+    },
+    {
+      "name": "revoked descendant always rejects",
+      "status": "REVOKED",
+      "now": "2026-08-01T10:00:00Z",
+      "individual_expires_at": "2026-08-05T10:00:00Z",
+      "family_deadline": "2026-08-28T10:00:00Z",
+      "expected": "REJECT_REVOKED"
+    }
+  ],
+  "refresh_expiry_cases": [
+    {
+      "name": "normal seven-day expiry",
+      "issued_at": "2026-07-29T10:00:00Z",
+      "family_deadline": "2026-08-28T10:00:00Z",
+      "expected_expires_at": "2026-08-05T10:00:00Z"
+    },
+    {
+      "name": "family deadline truncates descendant",
+      "issued_at": "2026-08-27T10:00:00Z",
+      "family_deadline": "2026-08-28T10:00:00Z",
+      "expected_expires_at": "2026-08-28T10:00:00Z"
+    }
+  ],
+  "throttle_cases": [
+    {
+      "name": "failures one through four use frozen delays",
+      "failure_number": 1,
+      "expected_delay_seconds": 1,
+      "expected_lock_seconds": 0
+    },
+    {
+      "name": "second failure",
+      "failure_number": 2,
+      "expected_delay_seconds": 2,
+      "expected_lock_seconds": 0
+    },
+    {
+      "name": "third failure",
+      "failure_number": 3,
+      "expected_delay_seconds": 4,
+      "expected_lock_seconds": 0
+    },
+    {
+      "name": "fourth failure",
+      "failure_number": 4,
+      "expected_delay_seconds": 8,
+      "expected_lock_seconds": 0
+    },
+    {
+      "name": "fifth failure locks",
+      "failure_number": 5,
+      "expected_delay_seconds": 0,
+      "expected_lock_seconds": 900
+    }
+  ],
+  "cross_route_throttle_case": {
+    "attempts": [
+      {
+        "route": "POST /v1/auth/login",
+        "resolved_user": true,
+        "success": false
+      },
+      {
+        "route": "POST /v1/auth/device-enrollments/start",
+        "resolved_user": true,
+        "success": false
+      },
+      {
+        "route": "POST /v1/auth/device-replacements/start",
+        "resolved_user": true,
+        "success": false
+      },
+      {
+        "route": "POST /v1/auth/login",
+        "resolved_user": true,
+        "success": false
+      },
+      {
+        "route": "POST /v1/auth/device-enrollments/start",
+        "resolved_user": true,
+        "success": false
+      }
+    ],
+    "expected_account_failures": 5,
+    "expected_source_failures": 5,
+    "expected_both_locked": true
+  },
+  "password_failure_response_cases": [
+    {
+      "route": "POST /v1/auth/login",
+      "failure": "UNKNOWN_IDENTIFIER",
+      "status": 401,
+      "envelope": "AUTHENTICATION_FAILED",
+      "timing_class": "PASSWORD_VERIFICATION_AND_THROTTLE_DELAY",
+      "synthetic_challenge": false
+    },
+    {
+      "route": "POST /v1/auth/login",
+      "failure": "WRONG_PASSWORD",
+      "status": 401,
+      "envelope": "AUTHENTICATION_FAILED",
+      "timing_class": "PASSWORD_VERIFICATION_AND_THROTTLE_DELAY",
+      "synthetic_challenge": false
+    },
+    {
+      "route": "POST /v1/auth/device-enrollments/start",
+      "failure": "UNKNOWN_IDENTIFIER",
+      "status": 200,
+      "envelope": "ENROLLMENT_CHALLENGE_ISSUED",
+      "timing_class": "PASSWORD_VERIFICATION_AND_THROTTLE_DELAY",
+      "synthetic_challenge": true
+    },
+    {
+      "route": "POST /v1/auth/device-enrollments/start",
+      "failure": "WRONG_PASSWORD",
+      "status": 200,
+      "envelope": "ENROLLMENT_CHALLENGE_ISSUED",
+      "timing_class": "PASSWORD_VERIFICATION_AND_THROTTLE_DELAY",
+      "synthetic_challenge": true
+    },
+    {
+      "route": "POST /v1/auth/device-replacements/start",
+      "failure": "UNKNOWN_IDENTIFIER",
+      "status": 200,
+      "envelope": "ENROLLMENT_CHALLENGE_ISSUED",
+      "timing_class": "PASSWORD_VERIFICATION_AND_THROTTLE_DELAY",
+      "synthetic_challenge": true
+    },
+    {
+      "route": "POST /v1/auth/device-replacements/start",
+      "failure": "WRONG_PASSWORD",
+      "status": 200,
+      "envelope": "ENROLLMENT_CHALLENGE_ISSUED",
+      "timing_class": "PASSWORD_VERIFICATION_AND_THROTTLE_DELAY",
+      "synthetic_challenge": true
+    }
+  ],
+  "throttle_reset_cases": [
+    {
+      "name": "success clears account only",
+      "event": "PASSWORD_SUCCESS",
+      "account_failures_before": 4,
+      "source_failures_before": 4,
+      "expected_account_failures": 0,
+      "expected_source_failures": 4
+    },
+    {
+      "name": "unknown identifier increments source only",
+      "event": "PASSWORD_FAILURE_UNKNOWN_IDENTIFIER",
+      "account_failures_before": 0,
+      "source_failures_before": 2,
+      "expected_account_failures": 0,
+      "expected_source_failures": 3
+    },
+    {
+      "name": "expired account lock clears dimension",
+      "event": "ACCOUNT_LOCK_EXPIRED",
+      "account_failures_before": 5,
+      "source_failures_before": 2,
+      "expected_account_failures": 0,
+      "expected_source_failures": 2
+    }
+  ],
+  "websocket_cases": [
+    {
+      "name": "same binding finishes before deadline",
+      "challenge_issued": true,
+      "nonce_matches": true,
+      "nonce_consumed": false,
+      "binding_matches": true,
+      "fresh_token": true,
+      "verification_completed_at": "2026-07-29T10:14:59.999Z",
+      "deadline": "2026-07-29T10:15:00Z",
+      "revoked": false,
+      "expected": "ATOMIC_REBIND"
+    },
+    {
+      "name": "deadline equality closes",
+      "challenge_issued": true,
+      "nonce_matches": true,
+      "nonce_consumed": false,
+      "binding_matches": true,
+      "fresh_token": true,
+      "verification_completed_at": "2026-07-29T10:15:00Z",
+      "deadline": "2026-07-29T10:15:00Z",
+      "revoked": false,
+      "expected": "CLOSE_4401"
+    },
+    {
+      "name": "unsolicited reauth closes",
+      "challenge_issued": false,
+      "nonce_matches": true,
+      "nonce_consumed": false,
+      "binding_matches": true,
+      "fresh_token": true,
+      "verification_completed_at": "2026-07-29T10:14:30Z",
+      "deadline": "2026-07-29T10:15:00Z",
+      "revoked": false,
+      "expected": "CLOSE_4401"
+    },
+    {
+      "name": "replayed nonce closes",
+      "challenge_issued": true,
+      "nonce_matches": true,
+      "nonce_consumed": true,
+      "binding_matches": true,
+      "fresh_token": true,
+      "verification_completed_at": "2026-07-29T10:14:30Z",
+      "deadline": "2026-07-29T10:15:00Z",
+      "revoked": false,
+      "expected": "CLOSE_4401"
+    },
+    {
+      "name": "cross-owner or cross-family binding closes",
+      "challenge_issued": true,
+      "nonce_matches": true,
+      "nonce_consumed": false,
+      "binding_matches": false,
+      "fresh_token": true,
+      "verification_completed_at": "2026-07-29T10:14:30Z",
+      "deadline": "2026-07-29T10:15:00Z",
+      "revoked": false,
+      "expected": "CLOSE_4401"
+    },
+    {
+      "name": "revocation wins over valid reauth",
+      "challenge_issued": true,
+      "nonce_matches": true,
+      "nonce_consumed": false,
+      "binding_matches": true,
+      "fresh_token": true,
+      "verification_completed_at": "2026-07-29T10:14:30Z",
+      "deadline": "2026-07-29T10:15:00Z",
+      "revoked": true,
+      "expected": "CLOSE_REVOKED_WITHIN_5_SECONDS"
+    }
+  ],
+  "websocket_deadline_cases": [
+    {
+      "name": "normal challenge gets sixty seconds",
+      "issued_at": "2026-07-29T10:14:00Z",
+      "current_access_expires_at": "2026-07-29T10:20:00Z",
+      "expected_deadline": "2026-07-29T10:15:00Z"
+    },
+    {
+      "name": "near-expiry challenge is truncated by access expiry",
+      "issued_at": "2026-07-29T10:14:40Z",
+      "current_access_expires_at": "2026-07-29T10:15:00Z",
+      "expected_deadline": "2026-07-29T10:15:00Z"
+    }
+  ],
+  "idempotency_cases": [
+    {
+      "name": "first use claims and executes",
+      "existing_digest": null,
+      "incoming_digest": "945e2d0a0435b6e074da85dfd2038a61449f27040e2a39d7d2ea638bcd1c16a2",
+      "same_scope": true,
+      "expected": "CLAIM_AND_EXECUTE"
+    },
+    {
+      "name": "same key and digest returns record",
+      "existing_digest": "945e2d0a0435b6e074da85dfd2038a61449f27040e2a39d7d2ea638bcd1c16a2",
+      "incoming_digest": "945e2d0a0435b6e074da85dfd2038a61449f27040e2a39d7d2ea638bcd1c16a2",
+      "same_scope": true,
+      "expected": "RETURN_RECORDED_RESULT"
+    },
+    {
+      "name": "same scoped key with changed body conflicts",
+      "existing_digest": "945e2d0a0435b6e074da85dfd2038a61449f27040e2a39d7d2ea638bcd1c16a2",
+      "incoming_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "same_scope": true,
+      "expected": "IDEMPOTENCY_CONFLICT"
+    },
+    {
+      "name": "cross-owner key does not access prior record",
+      "existing_digest": "945e2d0a0435b6e074da85dfd2038a61449f27040e2a39d7d2ea638bcd1c16a2",
+      "incoming_digest": "945e2d0a0435b6e074da85dfd2038a61449f27040e2a39d7d2ea638bcd1c16a2",
+      "same_scope": false,
+      "expected": "INDEPENDENT_SCOPE_NO_CROSS_OWNER_ACCESS"
+    }
+  ],
+  "request_decode_cases": [
+    {
+      "name": "duplicate query key",
+      "duplicate_query_keys": true,
+      "json_mutation": true,
+      "unknown_fields": false,
+      "ambiguous_path": false,
+      "expected": "REJECT"
+    },
+    {
+      "name": "non JSON mutation",
+      "duplicate_query_keys": false,
+      "json_mutation": false,
+      "unknown_fields": false,
+      "ambiguous_path": false,
+      "expected": "REJECT"
+    },
+    {
+      "name": "unknown body field",
+      "duplicate_query_keys": false,
+      "json_mutation": true,
+      "unknown_fields": true,
+      "ambiguous_path": false,
+      "expected": "REJECT"
+    },
+    {
+      "name": "ambiguous normalized path",
+      "duplicate_query_keys": false,
+      "json_mutation": true,
+      "unknown_fields": false,
+      "ambiguous_path": true,
+      "expected": "REJECT"
+    },
+    {
+      "name": "strictly decoded mutation",
+      "duplicate_query_keys": false,
+      "json_mutation": true,
+      "unknown_fields": false,
+      "ambiguous_path": false,
+      "expected": "ACCEPT"
+    }
+  ],
+  "source_key_vectors": [
+    {
+      "name": "IPv4 uses mapped 16-byte IPv6 form",
+      "direct_peer_ip": "192.0.2.8",
+      "canonical_ip_hex": "00000000000000000000ffffc0000208",
+      "test_key_utf8": "fit-source-key-test-only",
+      "expected_hmac_sha256": "d58c9dc24594e980417d1305d4ee4844da152566afefea9d7c90da70755a1d12"
+    },
+    {
+      "name": "compressed IPv6 expands to 16 bytes",
+      "direct_peer_ip": "2001:db8::1",
+      "canonical_ip_hex": "20010db8000000000000000000000001",
+      "test_key_utf8": "fit-source-key-test-only",
+      "expected_hmac_sha256": "c9aeab6ede709a5de8fa3d9a82432f4415c3ab40a5ce20fb8208623e5c64a215"
+    }
+  ],
+  "forwarding_header_case": {
+    "direct_peer_ip": "192.0.2.8",
+    "forwarding_header_value": "2001:db8::1",
+    "expected_canonical_ip_hex": "00000000000000000000ffffc0000208"
+  },
+  "source_key_rotation_cases": [
+    {
+      "elapsed_seconds": 1799,
+      "previous_key_accepted_for_correlation": true
+    },
+    {
+      "elapsed_seconds": 1800,
+      "previous_key_accepted_for_correlation": false
+    },
+    {
+      "elapsed_seconds": 1801,
+      "previous_key_accepted_for_correlation": false
+    }
+  ],
+  "rate_limit_cases": [
+    {
+      "group": "password-starts-source",
+      "rate": 10,
+      "per_seconds": 60,
+      "burst": 3
+    },
+    {
+      "group": "enrollment-completions-source",
+      "rate": 10,
+      "per_seconds": 60,
+      "burst": 3
+    },
+    {
+      "group": "refresh-source",
+      "rate": 30,
+      "per_seconds": 60,
+      "burst": 5
+    },
+    {
+      "group": "refresh-family",
+      "rate": 10,
+      "per_seconds": 60,
+      "burst": 3
+    },
+    {
+      "group": "health-live-source",
+      "rate": 60,
+      "per_seconds": 60,
+      "burst": 10
+    },
+    {
+      "group": "health-ready-source",
+      "rate": 5,
+      "per_seconds": 60,
+      "burst": 2
+    },
+    {
+      "group": "authenticated-session",
+      "rate": 20,
+      "per_seconds": 1,
+      "burst": 40
+    },
+    {
+      "group": "authenticated-source",
+      "rate": 50,
+      "per_seconds": 1,
+      "burst": 100
+    },
+    {
+      "group": "websocket-session",
+      "rate": 2,
+      "per_seconds": 1,
+      "burst": 2,
+      "maximum_concurrent": 5
+    },
+    {
+      "group": "websocket-source",
+      "rate": 10,
+      "per_seconds": 1,
+      "burst": 20,
+      "maximum_concurrent": 20
+    }
+  ],
+  "enrollment_effect_cases": [
+    {
+      "purpose": "ADDITIONAL_DEVICE",
+      "expected_prior_devices": "PRESERVED",
+      "expected_prior_sessions": "PRESERVED",
+      "expected_prior_families": "PRESERVED",
+      "new_session_origin": "SERVER_RANDOM_INDEPENDENT"
+    },
+    {
+      "purpose": "REPLACEMENT_DEVICE",
+      "expected_prior_devices": "REVOKED_BEFORE_NEW_SESSION",
+      "expected_prior_sessions": "REVOKED_BEFORE_NEW_SESSION",
+      "expected_prior_families": "REVOKED_BEFORE_NEW_SESSION",
+      "new_session_origin": "SERVER_RANDOM_INDEPENDENT"
+    }
+  ],
+  "device_key_cases": [
+    {
+      "name": "unused candidate key registers",
+      "existing_owner": "NONE",
+      "requested_owner": "USER_A",
+      "key_revoked": false,
+      "operation": "ENROLL",
+      "expected": "REGISTER"
+    },
+    {
+      "name": "same-owner duplicate key rejects",
+      "existing_owner": "USER_A",
+      "requested_owner": "USER_A",
+      "key_revoked": false,
+      "operation": "ENROLL",
+      "expected": "REJECT_DUPLICATE_KEY"
+    },
+    {
+      "name": "cross-owner key rebinding rejects",
+      "existing_owner": "USER_A",
+      "requested_owner": "USER_B",
+      "key_revoked": false,
+      "operation": "ENROLL",
+      "expected": "REJECT_CROSS_OWNER_REBIND"
+    },
+    {
+      "name": "revoked registered key rejects device action",
+      "existing_owner": "USER_A",
+      "requested_owner": "USER_A",
+      "key_revoked": true,
+      "operation": "DEVICE_ACTION",
+      "expected": "REJECT_REVOKED_KEY"
+    }
+  ],
+  "session_fixation_cases": [
+    {
+      "workflow": "LOGIN",
+      "presented_preauthentication_id": "19000000-0000-4000-8000-000000000001",
+      "created_session_id": "19000000-0000-4000-8000-000000000002",
+      "created_family_id": "19000000-0000-4000-8000-000000000003",
+      "prior_scope_effect": "INVALIDATE_PREAUTHENTICATION_IDENTIFIER"
+    },
+    {
+      "workflow": "ORDINARY_ENROLLMENT",
+      "presented_preauthentication_id": "19000000-0000-4000-8000-000000000004",
+      "created_session_id": "19000000-0000-4000-8000-000000000005",
+      "created_family_id": "19000000-0000-4000-8000-000000000006",
+      "prior_scope_effect": "PRESERVE_EXISTING_AUTHENTICATED_SCOPE"
+    },
+    {
+      "workflow": "REPLACEMENT_ENROLLMENT",
+      "presented_preauthentication_id": "19000000-0000-4000-8000-000000000007",
+      "created_session_id": "19000000-0000-4000-8000-000000000008",
+      "created_family_id": "19000000-0000-4000-8000-000000000009",
+      "prior_scope_effect": "REVOKE_EXISTING_AUTHENTICATED_SCOPE_BEFORE_CREATE"
+    }
+  ],
+  "revocation_deadline_cases": [
+    {
+      "ingress": "HTTP",
+      "elapsed_ms": 5000,
+      "expected": "DENY"
+    },
+    {
+      "ingress": "WEBSOCKET_EXISTING",
+      "elapsed_ms": 5000,
+      "expected": "DENY_AND_CLOSE"
+    },
+    {
+      "ingress": "WEBSOCKET_NEW",
+      "elapsed_ms": 5000,
+      "expected": "DENY"
+    },
+    {
+      "ingress": "REFRESH",
+      "elapsed_ms": 5000,
+      "expected": "DENY"
+    },
+    {
+      "ingress": "INTERNAL_TOOL",
+      "elapsed_ms": 5000,
+      "expected": "DENY"
+    }
+  ],
+  "wal_cases": [
+    {
+      "archive_command_failed": false,
+      "archive_age_seconds": 59,
+      "consecutive_healthy_cycles": 0,
+      "incident_open_before": false,
+      "expected": "HEALTHY"
+    },
+    {
+      "archive_command_failed": false,
+      "archive_age_seconds": 60,
+      "consecutive_healthy_cycles": 0,
+      "incident_open_before": false,
+      "expected": "HEALTHY"
+    },
+    {
+      "archive_command_failed": false,
+      "archive_age_seconds": 61,
+      "consecutive_healthy_cycles": 0,
+      "incident_open_before": false,
+      "expected": "OPEN_ONE_INCIDENT"
+    },
+    {
+      "archive_command_failed": true,
+      "archive_age_seconds": 0,
+      "consecutive_healthy_cycles": 0,
+      "incident_open_before": false,
+      "expected": "OPEN_ONE_INCIDENT"
+    },
+    {
+      "archive_command_failed": true,
+      "archive_age_seconds": 90,
+      "consecutive_healthy_cycles": 0,
+      "incident_open_before": true,
+      "expected": "KEEP_SAME_INCIDENT_NO_DUPLICATE"
+    },
+    {
+      "archive_command_failed": false,
+      "archive_age_seconds": 60,
+      "consecutive_healthy_cycles": 1,
+      "incident_open_before": true,
+      "expected": "CLEAR_AFTER_SECOND_SUCCESS"
+    },
+    {
+      "archive_command_failed": false,
+      "archive_age_seconds": 61,
+      "consecutive_healthy_cycles": 2,
+      "incident_open_before": true,
+      "expected": "KEEP_SAME_INCIDENT_NO_DUPLICATE"
+    }
+  ],
+  "recovery_calculation_case": {
+    "last_committed_sequence": 6000,
+    "last_recovered_sequence": 5998,
+    "last_committed_at": "2026-07-29T10:05:00Z",
+    "last_recovered_at": "2026-07-29T10:04:59.900Z",
+    "restore_invoked_at": "2026-07-29T10:06:00Z",
+    "verification_completed_at": "2026-07-29T10:07:30Z",
+    "expected_sequence_gap": 2,
+    "expected_time_gap_ms": 100,
+    "expected_rto_ms": 90000
+  }
+}

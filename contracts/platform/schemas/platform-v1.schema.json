@@ -1,0 +1,1942 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fit.trade/contracts/platform/platform-v1.schema.json",
+  "title": "FIT Trade Phase 1 platform records",
+  "$defs": {
+    "Uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "SourceKeyDigest": {
+      "type": "string",
+      "pattern": "^src_[a-f0-9]{64}$"
+    },
+    "Ed25519Fingerprint": {
+      "type": "string",
+      "pattern": "^ed25519:[a-f0-9]{64}$"
+    },
+    "OpaqueHandle": {
+      "type": "string",
+      "minLength": 32,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "OwnerScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "user_id",
+        "trading_account_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "OWNER"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "trading_account_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      }
+    },
+    "AuthSecurityScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "source_key"
+      ],
+      "properties": {
+        "type": {
+          "const": "AUTH_SECURITY"
+        },
+        "source_key": {
+          "$ref": "#/$defs/SourceKeyDigest"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      }
+    },
+    "SystemScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "SYSTEM"
+        }
+      }
+    },
+    "Scope": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/OwnerScope"
+        },
+        {
+          "$ref": "#/$defs/AuthSecurityScope"
+        },
+        {
+          "$ref": "#/$defs/SystemScope"
+        }
+      ]
+    },
+    "Actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "USER",
+            "DEVICE",
+            "SERVICE",
+            "SYSTEM"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "User": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "user_id",
+        "status",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.user.v1"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "LOCKED",
+            "DISABLED"
+          ]
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "TradingAccountOwnership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ownership_id",
+        "user_id",
+        "trading_account_id",
+        "role",
+        "status",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.account-ownership.v1"
+        },
+        "ownership_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "trading_account_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "role": {
+          "const": "OWNER"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "REVOKED"
+          ]
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revoked_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "REVOKED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "revoked_at"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "revoked_at"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "device_id",
+        "user_id",
+        "public_key_fingerprint",
+        "key_algorithm",
+        "status",
+        "enrolled_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.device.v1"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "public_key_fingerprint": {
+          "$ref": "#/$defs/Ed25519Fingerprint"
+        },
+        "key_algorithm": {
+          "const": "Ed25519"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "REVOKED"
+          ]
+        },
+        "enrolled_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revoked_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "REVOKED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "revoked_at"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "revoked_at"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "session_id",
+        "user_id",
+        "trading_account_id",
+        "device_id",
+        "refresh_family_id",
+        "status",
+        "created_at",
+        "access_expires_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.session.v1"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "trading_account_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "refresh_family_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "REVOKED",
+            "EXPIRED"
+          ]
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "access_expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "revoked_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "REVOKED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "revoked_at"
+            ]
+          }
+        }
+      ]
+    },
+    "RefreshTokenRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "token_digest",
+        "family_id",
+        "session_id",
+        "issued_at",
+        "expires_at",
+        "family_deadline",
+        "status"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.refresh-record.v1"
+        },
+        "token_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "family_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "issued_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "family_deadline": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "status": {
+          "enum": [
+            "ACTIVE",
+            "ROTATED",
+            "REVOKED"
+          ]
+        },
+        "rotated_to_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "revoked_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ROTATED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "rotated_to_digest"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "rotated_to_digest"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "REVOKED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "revoked_at"
+            ]
+          }
+        }
+      ]
+    },
+    "EnrollmentChallenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "domain",
+        "purpose",
+        "subject_handle",
+        "candidate_public_key_fingerprint",
+        "nonce",
+        "issued_at",
+        "expires_at",
+        "single_use"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.enrollment-challenge.v1"
+        },
+        "domain": {
+          "const": "FIT_TRADE_DEVICE_ENROLLMENT_V1"
+        },
+        "purpose": {
+          "enum": [
+            "ADDITIONAL_DEVICE",
+            "REPLACEMENT_DEVICE"
+          ]
+        },
+        "subject_handle": {
+          "$ref": "#/$defs/OpaqueHandle"
+        },
+        "candidate_public_key_fingerprint": {
+          "$ref": "#/$defs/Ed25519Fingerprint"
+        },
+        "nonce": {
+          "$ref": "#/$defs/OpaqueHandle"
+        },
+        "issued_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "single_use": {
+          "const": true
+        }
+      }
+    },
+    "DeviceActionChallenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "domain",
+        "user_id",
+        "trading_account_id",
+        "device_id",
+        "session_id",
+        "action",
+        "payload_hash",
+        "nonce",
+        "issued_at",
+        "expires_at",
+        "single_use"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.device-action-challenge.v1"
+        },
+        "domain": {
+          "const": "FIT_TRADE_DEVICE_ACTION_V1"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "trading_account_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "action": {
+          "enum": [
+            "OPEN_POSITION",
+            "ADD_POSITION"
+          ]
+        },
+        "payload_hash": {
+          "$ref": "#/$defs/Digest"
+        },
+        "nonce": {
+          "$ref": "#/$defs/OpaqueHandle"
+        },
+        "issued_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "single_use": {
+          "const": true
+        }
+      }
+    },
+    "EnrollmentCompletionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_handle",
+        "candidate_public_key",
+        "signature"
+      ],
+      "properties": {
+        "subject_handle": {
+          "$ref": "#/$defs/OpaqueHandle"
+        },
+        "candidate_public_key": {
+          "type": "string",
+          "pattern": "^ed25519-public:[a-f0-9]{64}$"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^ed25519-signature:[a-f0-9]{128}$"
+        }
+      }
+    },
+    "DeviceEnrollment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "enrollment_id",
+        "purpose",
+        "user_id",
+        "device_id",
+        "first_session_id",
+        "subject_handle_digest",
+        "candidate_public_key_fingerprint",
+        "proof_algorithm",
+        "prior_scope_effect",
+        "completed_at",
+        "identity_origin"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.device-enrollment.v1"
+        },
+        "enrollment_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "purpose": {
+          "enum": [
+            "ADDITIONAL_DEVICE",
+            "REPLACEMENT_DEVICE"
+          ]
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "first_session_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "subject_handle_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "candidate_public_key_fingerprint": {
+          "$ref": "#/$defs/Ed25519Fingerprint"
+        },
+        "proof_algorithm": {
+          "const": "Ed25519"
+        },
+        "prior_scope_effect": {
+          "enum": [
+            "PRESERVE_EXISTING",
+            "REVOKE_ALL_BEFORE_CREATE"
+          ]
+        },
+        "completed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "identity_origin": {
+          "const": "SERVER_AUTHORED"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "purpose": {
+                "const": "ADDITIONAL_DEVICE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "prior_scope_effect": {
+                "const": "PRESERVE_EXISTING"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "prior_scope_effect": {
+                "const": "REVOKE_ALL_BEFORE_CREATE"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "DeviceActionProofInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "challenge_nonce",
+        "signature"
+      ],
+      "properties": {
+        "challenge_nonce": {
+          "$ref": "#/$defs/OpaqueHandle"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^ed25519-signature:[a-f0-9]{128}$"
+        }
+      }
+    },
+    "UntrustedMutationInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "idempotency_key",
+        "path",
+        "query",
+        "body"
+      ],
+      "properties": {
+        "idempotency_key": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "path": {
+          "$ref": "#/$defs/UntrustedJsonObject"
+        },
+        "query": {
+          "$ref": "#/$defs/UntrustedJsonObject"
+        },
+        "body": {
+          "$ref": "#/$defs/UntrustedJsonObject"
+        }
+      }
+    },
+    "UntrustedJsonObject": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "user_id",
+            "account_id",
+            "trading_account_id",
+            "session_id",
+            "device_id",
+            "source_key",
+            "server_received_at",
+            "server_time",
+            "token_digest",
+            "device_verification",
+            "confirmation_id",
+            "confirmation_hash"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/UntrustedJsonValue"
+      }
+    },
+    "UntrustedJsonValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UntrustedJsonValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/UntrustedJsonObject"
+        }
+      ]
+    },
+    "RequestEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "request_id",
+        "method",
+        "route_template",
+        "path",
+        "query",
+        "body",
+        "user_id",
+        "trading_account_id",
+        "session_id",
+        "device_id",
+        "source_key",
+        "server_received_at",
+        "identity_origin",
+        "canonical_request_digest"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.request-envelope.v1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "method": {
+          "type": "string",
+          "pattern": "^[A-Z]+$"
+        },
+        "route_template": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "path": {
+          "type": "object"
+        },
+        "query": {
+          "type": "object"
+        },
+        "body": {
+          "type": "object"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "trading_account_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "source_key": {
+          "$ref": "#/$defs/SourceKeyDigest"
+        },
+        "server_received_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "identity_origin": {
+          "const": "SERVER_AUTHORED"
+        },
+        "canonical_request_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    },
+    "WebSocketBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "connection_id",
+        "user_id",
+        "trading_account_id",
+        "device_id",
+        "session_id",
+        "refresh_family_id",
+        "access_expires_at",
+        "identity_origin"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.websocket-binding.v1"
+        },
+        "connection_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "user_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "trading_account_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "refresh_family_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "access_expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "identity_origin": {
+          "const": "SERVER_AUTHORED"
+        }
+      }
+    },
+    "WebSocketReauthRequired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "type",
+        "nonce",
+        "issued_at",
+        "deadline",
+        "current_access_expires_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.websocket-control.v1"
+        },
+        "type": {
+          "const": "REAUTH_REQUIRED"
+        },
+        "nonce": {
+          "$ref": "#/$defs/OpaqueHandle"
+        },
+        "issued_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "deadline": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "current_access_expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "WebSocketReauth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "type",
+        "nonce",
+        "access_token_transport"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.websocket-control.v1"
+        },
+        "type": {
+          "const": "REAUTH"
+        },
+        "nonce": {
+          "$ref": "#/$defs/OpaqueHandle"
+        },
+        "access_token_transport": {
+          "type": "string",
+          "minLength": 24,
+          "maxLength": 4096,
+          "writeOnly": true
+        }
+      }
+    },
+    "EventEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "subject",
+        "stream",
+        "event_id",
+        "event_kind",
+        "scope",
+        "aggregate_type",
+        "aggregate_id",
+        "aggregate_version",
+        "causation_id",
+        "correlation_id",
+        "occurred_at",
+        "payload_schema_version",
+        "payload_digest"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.event-envelope.v1"
+        },
+        "subject": {
+          "enum": [
+            "fit.platform.v1.owner.owner-mutation-committed",
+            "fit.platform.v1.auth-security.login-account-locked",
+            "fit.platform.v1.auth-security.login-source-locked",
+            "fit.platform.v1.auth-security.device-enrolled",
+            "fit.platform.v1.auth-security.device-replaced",
+            "fit.platform.v1.auth-security.device-revoked",
+            "fit.platform.v1.auth-security.session-revoked",
+            "fit.platform.v1.auth-security.refresh-reuse-detected",
+            "fit.platform.v1.system.wal-archive-interrupted",
+            "fit.platform.v1.notification.login-account-locked",
+            "fit.platform.v1.notification.login-source-locked",
+            "fit.platform.v1.notification.device-enrolled",
+            "fit.platform.v1.notification.device-replaced",
+            "fit.platform.v1.notification.device-revoked",
+            "fit.platform.v1.notification.session-revoked",
+            "fit.platform.v1.notification.refresh-reuse-detected",
+            "fit.platform.v1.notification.wal-archive-interrupted"
+          ]
+        },
+        "stream": {
+          "const": "FIT_PLATFORM_V1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "event_kind": {
+          "enum": [
+            "OWNER_MUTATION_COMMITTED",
+            "LOGIN_ACCOUNT_LOCKED",
+            "LOGIN_SOURCE_LOCKED",
+            "DEVICE_ENROLLED",
+            "DEVICE_REPLACED",
+            "DEVICE_REVOKED",
+            "SESSION_REVOKED",
+            "REFRESH_REUSE_DETECTED",
+            "WAL_ARCHIVE_INTERRUPTED"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "aggregate_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "aggregate_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "aggregate_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "causation_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "payload_schema_version": {
+          "type": "string",
+          "pattern": "^fit\\.platform\\.[a-z0-9-]+\\.v[0-9]+$"
+        },
+        "payload_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "subject": {
+                  "const": "fit.platform.v1.owner.owner-mutation-committed"
+                },
+                "scope": {
+                  "$ref": "#/$defs/OwnerScope"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.login-account-locked",
+                    "fit.platform.v1.auth-security.login-source-locked",
+                    "fit.platform.v1.auth-security.device-enrolled",
+                    "fit.platform.v1.auth-security.device-replaced",
+                    "fit.platform.v1.auth-security.device-revoked",
+                    "fit.platform.v1.auth-security.session-revoked",
+                    "fit.platform.v1.auth-security.refresh-reuse-detected",
+                    "fit.platform.v1.notification.login-account-locked",
+                    "fit.platform.v1.notification.login-source-locked",
+                    "fit.platform.v1.notification.device-enrolled",
+                    "fit.platform.v1.notification.device-replaced",
+                    "fit.platform.v1.notification.device-revoked",
+                    "fit.platform.v1.notification.session-revoked",
+                    "fit.platform.v1.notification.refresh-reuse-detected"
+                  ]
+                },
+                "scope": {
+                  "$ref": "#/$defs/AuthSecurityScope"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.system.wal-archive-interrupted",
+                    "fit.platform.v1.notification.wal-archive-interrupted"
+                  ]
+                },
+                "scope": {
+                  "$ref": "#/$defs/SystemScope"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "subject": {
+                  "const": "fit.platform.v1.owner.owner-mutation-committed"
+                },
+                "event_kind": {
+                  "const": "OWNER_MUTATION_COMMITTED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.login-account-locked",
+                    "fit.platform.v1.notification.login-account-locked"
+                  ]
+                },
+                "event_kind": {
+                  "const": "LOGIN_ACCOUNT_LOCKED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.login-source-locked",
+                    "fit.platform.v1.notification.login-source-locked"
+                  ]
+                },
+                "event_kind": {
+                  "const": "LOGIN_SOURCE_LOCKED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.device-enrolled",
+                    "fit.platform.v1.notification.device-enrolled"
+                  ]
+                },
+                "event_kind": {
+                  "const": "DEVICE_ENROLLED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.device-replaced",
+                    "fit.platform.v1.notification.device-replaced"
+                  ]
+                },
+                "event_kind": {
+                  "const": "DEVICE_REPLACED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.device-revoked",
+                    "fit.platform.v1.notification.device-revoked"
+                  ]
+                },
+                "event_kind": {
+                  "const": "DEVICE_REVOKED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.session-revoked",
+                    "fit.platform.v1.notification.session-revoked"
+                  ]
+                },
+                "event_kind": {
+                  "const": "SESSION_REVOKED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.auth-security.refresh-reuse-detected",
+                    "fit.platform.v1.notification.refresh-reuse-detected"
+                  ]
+                },
+                "event_kind": {
+                  "const": "REFRESH_REUSE_DETECTED"
+                }
+              }
+            },
+            {
+              "properties": {
+                "subject": {
+                  "enum": [
+                    "fit.platform.v1.system.wal-archive-interrupted",
+                    "fit.platform.v1.notification.wal-archive-interrupted"
+                  ]
+                },
+                "event_kind": {
+                  "const": "WAL_ARCHIVE_INTERRUPTED"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "InboxRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "consumer",
+        "event_id",
+        "event_payload_digest",
+        "received_at",
+        "business_transaction_id",
+        "status"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.inbox-record.v1"
+        },
+        "consumer": {
+          "enum": [
+            "platform-consumer",
+            "internal-notification-consumer"
+          ]
+        },
+        "event_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "event_payload_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "received_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "business_transaction_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "status": {
+          "const": "APPLIED"
+        }
+      }
+    },
+    "OutboxRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "outbox_id",
+        "event",
+        "created_at",
+        "publication_state",
+        "retention"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.outbox-record.v1"
+        },
+        "outbox_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "event": {
+          "$ref": "#/$defs/EventEnvelope"
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "published_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "publication_state": {
+          "enum": [
+            "PENDING",
+            "PUBLISHED"
+          ]
+        },
+        "retention": {
+          "const": "NEVER_DELETE_IN_PHASE_1"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "publication_state": {
+                "const": "PUBLISHED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "published_at"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "published_at"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "AuditCore": {
+      "type": "object",
+      "required": [
+        "kind",
+        "actor",
+        "scope",
+        "trigger",
+        "causation_id",
+        "correlation_id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "OWNER_MUTATION_COMMITTED",
+            "LOGIN_ACCOUNT_LOCKED",
+            "LOGIN_SOURCE_LOCKED",
+            "DEVICE_ENROLLED",
+            "DEVICE_REPLACED",
+            "DEVICE_REVOKED",
+            "SESSION_REVOKED",
+            "REFRESH_REUSE_DETECTED",
+            "WAL_ARCHIVE_INTERRUPTED"
+          ]
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "trigger": {
+          "enum": [
+            "REQUEST",
+            "BACKGROUND"
+          ]
+        },
+        "causation_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "security_operation_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "system_operation_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      }
+    },
+    "AuditIntent": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": [
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.audit-intent.v1"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/AuditCore"
+        },
+        {
+          "$ref": "#/$defs/AuditScopeRules"
+        },
+        {
+          "$ref": "#/$defs/AuditKindFieldRules"
+        }
+      ]
+    },
+    "AuditEvent": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": [
+        "schema_version",
+        "event_id",
+        "occurred_at",
+        "payload_digest"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.audit-event.v1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "payload_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/AuditCore"
+        },
+        {
+          "$ref": "#/$defs/AuditScopeRules"
+        },
+        {
+          "$ref": "#/$defs/AuditKindFieldRules"
+        }
+      ]
+    },
+    "AuditScopeRules": {
+      "oneOf": [
+        {
+          "properties": {
+            "scope": {
+              "$ref": "#/$defs/OwnerScope"
+            },
+            "trigger": {
+              "const": "REQUEST"
+            }
+          },
+          "required": [
+            "request_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "security_operation_id"
+                ]
+              },
+              {
+                "required": [
+                  "system_operation_id"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "trigger": {
+              "const": "REQUEST"
+            }
+          },
+          "required": [
+            "request_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "security_operation_id"
+                ]
+              },
+              {
+                "required": [
+                  "system_operation_id"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "trigger": {
+              "const": "BACKGROUND"
+            }
+          },
+          "required": [
+            "security_operation_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "request_id"
+                ]
+              },
+              {
+                "required": [
+                  "system_operation_id"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "scope": {
+              "$ref": "#/$defs/SystemScope"
+            },
+            "trigger": {
+              "const": "BACKGROUND"
+            }
+          },
+          "required": [
+            "system_operation_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "request_id"
+                ]
+              },
+              {
+                "required": [
+                  "security_operation_id"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "AuditKindFieldRules": {
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "OWNER_MUTATION_COMMITTED"
+                },
+                "scope": {
+                  "$ref": "#/$defs/OwnerScope"
+                }
+              }
+            },
+            {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "LOGIN_ACCOUNT_LOCKED",
+                    "LOGIN_SOURCE_LOCKED",
+                    "DEVICE_ENROLLED",
+                    "DEVICE_REPLACED",
+                    "DEVICE_REVOKED",
+                    "SESSION_REVOKED",
+                    "REFRESH_REUSE_DETECTED"
+                  ]
+                },
+                "scope": {
+                  "$ref": "#/$defs/AuthSecurityScope"
+                }
+              }
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "WAL_ARCHIVE_INTERRUPTED"
+                },
+                "scope": {
+                  "$ref": "#/$defs/SystemScope"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "DEVICE_ENROLLED",
+                  "DEVICE_REPLACED",
+                  "DEVICE_REVOKED"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "device_id"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "device_id"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "SESSION_REVOKED",
+                  "REFRESH_REUSE_DETECTED"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "session_id"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "session_id"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "NotificationCore": {
+      "type": "object",
+      "required": [
+        "kind",
+        "severity",
+        "scope",
+        "message_code",
+        "message_args",
+        "causation_id",
+        "correlation_id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "LOGIN_ACCOUNT_LOCKED",
+            "LOGIN_SOURCE_LOCKED",
+            "DEVICE_ENROLLED",
+            "DEVICE_REPLACED",
+            "DEVICE_REVOKED",
+            "SESSION_REVOKED",
+            "REFRESH_REUSE_DETECTED",
+            "WAL_ARCHIVE_INTERRUPTED"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "INFO",
+            "WARNING",
+            "CRITICAL"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "message_code": {
+          "enum": [
+            "security.login.account_locked",
+            "security.login.source_locked",
+            "security.device.enrolled",
+            "security.device.replaced",
+            "security.device.revoked",
+            "security.session.revoked",
+            "security.refresh.reuse_detected",
+            "system.wal.archive_interrupted"
+          ]
+        },
+        "message_args": {
+          "type": "object"
+        },
+        "causation_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      }
+    },
+    "NotificationIntent": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": [
+        "schema_version"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.notification-intent.v1"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/NotificationCore"
+        },
+        {
+          "$ref": "#/$defs/NotificationKindRules"
+        }
+      ]
+    },
+    "Notification": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": [
+        "schema_version",
+        "notification_id",
+        "occurred_at",
+        "payload_digest"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.notification.v1"
+        },
+        "notification_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "payload_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/NotificationCore"
+        },
+        {
+          "$ref": "#/$defs/NotificationKindRules"
+        }
+      ]
+    },
+    "NotificationKindRules": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "LOGIN_ACCOUNT_LOCKED"
+            },
+            "severity": {
+              "const": "WARNING"
+            },
+            "message_code": {
+              "const": "security.login.account_locked"
+            },
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/LockMessageArgs"
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "LOGIN_SOURCE_LOCKED"
+            },
+            "severity": {
+              "const": "WARNING"
+            },
+            "message_code": {
+              "const": "security.login.source_locked"
+            },
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/LockMessageArgs"
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "DEVICE_ENROLLED"
+            },
+            "severity": {
+              "const": "INFO"
+            },
+            "message_code": {
+              "const": "security.device.enrolled"
+            },
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/DeviceMessageArgs"
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "DEVICE_REPLACED"
+            },
+            "severity": {
+              "const": "CRITICAL"
+            },
+            "message_code": {
+              "const": "security.device.replaced"
+            },
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/DeviceMessageArgs"
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "DEVICE_REVOKED"
+            },
+            "severity": {
+              "const": "WARNING"
+            },
+            "message_code": {
+              "const": "security.device.revoked"
+            },
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/DeviceMessageArgs"
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "SESSION_REVOKED"
+            },
+            "severity": {
+              "const": "INFO"
+            },
+            "message_code": {
+              "const": "security.session.revoked"
+            },
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/SessionMessageArgs"
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "REFRESH_REUSE_DETECTED"
+            },
+            "severity": {
+              "const": "CRITICAL"
+            },
+            "message_code": {
+              "const": "security.refresh.reuse_detected"
+            },
+            "scope": {
+              "$ref": "#/$defs/AuthSecurityScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/SessionMessageArgs"
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "WAL_ARCHIVE_INTERRUPTED"
+            },
+            "severity": {
+              "const": "CRITICAL"
+            },
+            "message_code": {
+              "const": "system.wal.archive_interrupted"
+            },
+            "scope": {
+              "$ref": "#/$defs/SystemScope"
+            },
+            "message_args": {
+              "$ref": "#/$defs/WalMessageArgs"
+            }
+          }
+        }
+      ]
+    },
+    "LockMessageArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lock_seconds"
+      ],
+      "properties": {
+        "lock_seconds": {
+          "const": 900
+        }
+      }
+    },
+    "DeviceMessageArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device_id"
+      ],
+      "properties": {
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      }
+    },
+    "SessionMessageArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id"
+      ],
+      "properties": {
+        "session_id": {
+          "$ref": "#/$defs/Uuid"
+        }
+      }
+    },
+    "WalMessageArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "incident_id",
+        "archive_age_seconds"
+      ],
+      "properties": {
+        "incident_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "archive_age_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "SourceKeyRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "key_id",
+        "source_key_digest"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fit.platform.source-key-record.v1"
+        },
+        "key_id": {
+          "type": "string",
+          "pattern": "^source-key-v[0-9]+$"
+        },
+        "source_key_digest": {
+          "$ref": "#/$defs/SourceKeyDigest"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "schema_version": "fit.platform.state-machines.v1",
+  "machines": {
+    "challenge": {
+      "initial": "ISSUED",
+      "terminal": [
+        "CONSUMED",
+        "EXPIRED",
+        "REJECTED_SYNTHETIC"
+      ],
+      "transitions": [
+        {
+          "from": "ISSUED",
+          "event": "VALID_PROOF_STRICTLY_BEFORE_EXPIRY",
+          "to": "CONSUMED"
+        },
+        {
+          "from": "ISSUED",
+          "event": "CLOCK_AT_OR_AFTER_EXPIRY",
+          "to": "EXPIRED"
+        },
+        {
+          "from": "ISSUED",
+          "event": "INVALID_PROOF",
+          "to": "CONSUMED"
+        },
+        {
+          "from": "SYNTHETIC_WIRE_ONLY",
+          "event": "ANY_COMPLETION",
+          "to": "REJECTED_SYNTHETIC"
+        }
+      ],
+      "second_attempt": "REJECT",
+      "ttl_seconds": 120
+    },
+    "refresh": {
+      "evaluation_order": [
+        "FAMILY_DEADLINE",
+        "ALREADY_ROTATED_REUSE",
+        "INDIVIDUAL_EXPIRY",
+        "ACTIVE_ROTATION"
+      ],
+      "outcomes": {
+        "FAMILY_DEADLINE_REACHED": "REJECT_FAMILY_EXPIRED",
+        "ROTATED_BEFORE_FAMILY_DEADLINE": "REVOKE_FAMILY_AND_DESCENDANTS",
+        "ROTATED_INDIVIDUALLY_EXPIRED_BEFORE_FAMILY_DEADLINE": "REVOKE_FAMILY_AND_DESCENDANTS",
+        "ACTIVE_INDIVIDUALLY_EXPIRED": "REJECT_EXPIRED_NO_ROTATION",
+        "ACTIVE_BEFORE_BOTH_DEADLINES": "ROTATE_CREATE_DESCENDANT"
+      },
+      "family_deadline_seconds": 2592000,
+      "individual_ttl_seconds": 604800,
+      "rotation_moves_family_deadline": false
+    },
+    "password_throttle_dimension": {
+      "window_seconds": 900,
+      "failure_delays_seconds": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "fifth_failure_lock_seconds": 900,
+      "lock_expiry": "ATOMIC_CLEAR_THEN_NEXT_FAILURE_IS_ONE",
+      "deny_combination": "ACCOUNT_OR_SOURCE",
+      "success_reset": {
+        "account": true,
+        "source": false
+      },
+      "concurrency": "ATOMIC_SERIALIZED"
+    },
+    "websocket_reauthorization": {
+      "states": [
+        "BOUND",
+        "AWAITING_REAUTH",
+        "REBOUND",
+        "CLOSED_4401",
+        "CLOSED_REVOKED"
+      ],
+      "challenge_at_seconds_before_expiry": 60,
+      "deadline": "MIN_ISSUED_PLUS_60_OR_CURRENT_ACCESS_EXPIRY",
+      "success_guard": "VALID_FRESH_TOKEN_SAME_BINDING_AND_VERIFICATION_FINISHES_STRICTLY_BEFORE_DEADLINE",
+      "success_effect": "ATOMIC_CONSUME_NONCE_AND_REBIND",
+      "invalid_effect": "CLOSE_4401",
+      "deadline_equality_effect": "CLOSE_4401",
+      "expired_pending_application_frame": "REJECT",
+      "revocation_maximum_seconds": 5
+    },
+    "idempotency": {
+      "key_scope": "USER_ACCOUNT_ROUTE_KEY",
+      "first_digest": "CLAIM_AND_EXECUTE_IN_ONE_TRANSACTION",
+      "same_digest": "RETURN_RECORDED_RESULT",
+      "different_digest": "IDEMPOTENCY_CONFLICT"
+    },
+    "wal_archive_incident": {
+      "open_if": [
+        "ARCHIVE_COMMAND_FAILURE",
+        "ARCHIVE_AGE_STRICTLY_GREATER_THAN_60"
+      ],
+      "age_seconds_59": "HEALTHY",
+      "age_seconds_60": "HEALTHY",
+      "age_seconds_61": "OPEN_INCIDENT",
+      "per_incident_audit_count": 1,
+      "per_incident_notification_count": 1,
+      "notification_kind": "WAL_ARCHIVE_INTERRUPTED",
+      "notification_severity": "CRITICAL",
+      "clear_after_consecutive_successes": 2,
+      "clear_requires_age_at_or_below_seconds": 60
+    }
+  }
+}

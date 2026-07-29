@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run test:contracts && npm run test:history-secrets",
+    "test": "npm run test:contracts && npm run test:platform && npm run test:history-secrets",
     "test:contracts": "node scripts/verify.mjs",
+    "test:platform": "node scripts/verify-platform.mjs",
     "test:history-secrets": "git -C .. log -p --all -- . | node scripts/scan-stdin-secrets.mjs"
   },
   "devDependencies": {

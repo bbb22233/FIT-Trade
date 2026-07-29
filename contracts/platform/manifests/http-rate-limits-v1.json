@@ -1,0 +1,139 @@
+{
+  "schema_version": "fit.platform.http-rate-limits.v1",
+  "source_identity": {
+    "origin": "DIRECT_PEER_IP",
+    "forwarding_headers_trusted": false
+  },
+  "unauthenticated_allowlist": [
+    {
+      "route": "POST /v1/auth/login",
+      "groups": [
+        "password-starts-source"
+      ]
+    },
+    {
+      "route": "POST /v1/auth/device-enrollments/start",
+      "groups": [
+        "password-starts-source"
+      ]
+    },
+    {
+      "route": "POST /v1/auth/device-replacements/start",
+      "groups": [
+        "password-starts-source"
+      ]
+    },
+    {
+      "route": "POST /v1/auth/device-enrollments/complete",
+      "groups": [
+        "enrollment-completions-source",
+        "one-attempt-per-challenge"
+      ]
+    },
+    {
+      "route": "POST /v1/auth/device-replacements/complete",
+      "groups": [
+        "enrollment-completions-source",
+        "one-attempt-per-challenge"
+      ]
+    },
+    {
+      "route": "POST /v1/auth/refresh",
+      "groups": [
+        "refresh-source",
+        "refresh-family"
+      ]
+    },
+    {
+      "route": "GET /health/live",
+      "groups": [
+        "health-live-source"
+      ]
+    },
+    {
+      "route": "GET /health/ready",
+      "groups": [
+        "health-ready-source"
+      ]
+    }
+  ],
+  "groups": {
+    "password-starts-source": {
+      "scope": "SOURCE",
+      "rate": 10,
+      "per_seconds": 60,
+      "burst": 3,
+      "aggregate_routes": true
+    },
+    "enrollment-completions-source": {
+      "scope": "SOURCE",
+      "rate": 10,
+      "per_seconds": 60,
+      "burst": 3,
+      "aggregate_routes": true
+    },
+    "one-attempt-per-challenge": {
+      "scope": "CHALLENGE",
+      "maximum_attempts": 1
+    },
+    "refresh-source": {
+      "scope": "SOURCE",
+      "rate": 30,
+      "per_seconds": 60,
+      "burst": 5
+    },
+    "refresh-family": {
+      "scope": "REFRESH_FAMILY",
+      "rate": 10,
+      "per_seconds": 60,
+      "burst": 3
+    },
+    "health-live-source": {
+      "scope": "SOURCE",
+      "rate": 60,
+      "per_seconds": 60,
+      "burst": 10
+    },
+    "health-ready-source": {
+      "scope": "SOURCE",
+      "rate": 5,
+      "per_seconds": 60,
+      "burst": 2
+    },
+    "authenticated-session": {
+      "scope": "SESSION",
+      "rate": 20,
+      "per_seconds": 1,
+      "burst": 40
+    },
+    "authenticated-source": {
+      "scope": "SOURCE",
+      "rate": 50,
+      "per_seconds": 1,
+      "burst": 100
+    },
+    "websocket-session": {
+      "scope": "SESSION",
+      "rate": 2,
+      "per_seconds": 1,
+      "burst": 2,
+      "maximum_concurrent": 5
+    },
+    "websocket-source": {
+      "scope": "SOURCE",
+      "rate": 10,
+      "per_seconds": 1,
+      "burst": 20,
+      "maximum_concurrent": 20
+    }
+  },
+  "default_route_policy": "AUTHENTICATE_BEFORE_HANDLER_DISPATCH",
+  "authenticated_http_groups": [
+    "authenticated-session",
+    "authenticated-source"
+  ],
+  "websocket_creation_groups": [
+    "websocket-session",
+    "websocket-source"
+  ]
+}
