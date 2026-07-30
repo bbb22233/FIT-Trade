@@ -1,20 +1,25 @@
 # 当前项目进度
 
 更新日期：2026-07-29
-证据截止时间（as-of）：`2026-07-29T18:05:21-07:00`
-状态快照：`codex/round-3-progress-docs`（父提交
-`codex/round-2-progress-docs@91af7813d77190ed4b2a943411888d406fc146e2`）
+证据截止时间（as-of）：`2026-07-29T21:24:11-07:00`
+状态快照：`codex/round-4-progress-docs`（父提交
+`codex/round-3-progress-docs@e63704675b11d045be317339b4e544a246ccbc42`）
 
 ## 1. 结论
 
-本轮 AI Agent / Hermes 固定对象
-`367b86f94f855ddc7673997b0b455f5b0908f04f` 已获外部独立 fixed-commit review
-`P0/P1/P2 = 0/0/0`、`PASS`，对应隔离分支已推送但未合并。P1-003 auth runtime
-候选 `98f` 的审查仍为 `CHANGES_REQUIRED`（P1：缺 direct limits/timeouts 测试）；
-R5.2b full gate 已发现 WebSocket 顺序 flake，候选未接受、未推送。P1-004 R5.4 已通过
-pre/full/race 与真实 disposable PostgreSQL gates，并形成 mechanical amend 后的固定候选
-`a41960ff98a8b3be7b82e31f06c89ccb085c2593`；截至上述 as-of，独立 fixed-commit
-review 正在进行，不能称为已接受。P1-005 仍等待已接受的 P1-004 receipt gate。
+本轮 P1-003 auth core 固定对象
+`a3108988463e9b373b8263fb3f060f8908c54c82`（parent
+`19b778785565d31dc095996ce4d4b0f7d58bebdf`）已获 reviewer-7 独立 fixed-commit review
+`P0/P1/P2 = 0/0/0`、`PASS`。`origin` 的 `codex/p1-003-auth-core` 已推送并在本快照以
+远端 ref 核验到同一 40 位对象；未合并。该接受结论满足 P1-004 的 P1-003 接受前置，
+但 P1-004 R6 截至本快照为 `DEPENDENCY_BLOCKED/NOT_STARTED`：目标分支
+`codex/p1-004-postgres-runtime-r6`、工作树
+`/root/fit-trade-dev/worktrees/p1-004-postgres-runtime-r6` 均 `ABSENT`，writer 未启动，
+旧 `a41960ff98a8b3be7b82e31f06c89ccb085c2593` 未触碰。决定性 blocker 是已接受 P1-003
+尚缺 OwnerMutation input/result 和 NATS consumer business-effect shared interfaces，architect
+禁止 persistence 自行创造；第二 blocker 是仅 Docker 可用、disposable PostgreSQL 16 尚未实证。
+root 正在安排共享接口补充与 Docker PostgreSQL 16 preflight；在可核验固定对象前均为 `PENDING`。
+P1-005 仍等待已接受的 P1-004 receipt gate。AI Agent / Hermes 分支的已接受、已推送状态保持不变。
 
 这不是 Phase 退出、合并、部署、生产、钱包连接或真实交易授权。
 
@@ -29,8 +34,8 @@ review 正在进行，不能称为已接受。P1-005 仍等待已接受的 P1-00
 | P1-004 PostgreSQL 设计 | `264d4e943565a74039d0b74583bb0404b695d378`；`codex/p1-004-postgres-design-r2` | `PASS` | 已推送，未合并 | 持久化、事务、Inbox/Outbox 的实现前设计 |
 | P1-005 JetStream 设计 | `4589bed3f7f9287751a5c57db311a1373597a67f`；`codex/p1-005-jetstream-design` | `PASS` | 已推送，未合并 | 事件投递设计；不是已运行的 NATS/JetStream |
 | AI Agent / Hermes | `367b86f94f855ddc7673997b0b455f5b0908f04f`；`codex/ai-agent-swarm-bootstrap` | 外部 fixed-commit review：`P0/P1/P2 = 0/0/0`，`PASS` | 已推送，未合并 | 已关闭该固定对象的 provenance review；仍不等于 Phase 3 runtime/security exit |
-| P1-003 auth core 运行时 | 候选 `98f`；R5.2b 修复未形成已接受对象 | `CHANGES_REQUIRED`：原 P1 direct limits/timeouts 测试缺失；R5.2b full gate 又发现 WebSocket 顺序 flake | 截至 as-of 未接受、未推送 | 仅可在同范围修复 flake、固定并重新独立审查后前进 |
-| P1-004 PostgreSQL runtime | `a41960ff98a8b3be7b82e31f06c89ccb085c2593` | pre/full/race/真实 disposable PostgreSQL gates 均通过；截至 as-of 独立 fixed-commit review 进行中 | mechanical amend 已完成；未接受、未推送 | 通过 gates 与形成 fixed commit 均不替代独立 review |
+| P1-003 auth core 运行时 | `a3108988463e9b373b8263fb3f060f8908c54c82`；parent `19b778785565d31dc095996ce4d4b0f7d58bebdf`；`codex/p1-003-auth-core` | reviewer-7：`P0/P1/P2 = 0/0/0`，`PASS` | 已推送并以 `origin` 远端 ref 核验；未合并 | 已接受的 P1-003 固定对象；不授权 P1-004 acceptance、main merge 或发布 |
+| P1-004 PostgreSQL runtime | R6 `DEPENDENCY_BLOCKED/NOT_STARTED`；`codex/p1-004-postgres-runtime-r6` 与 `/root/fit-trade-dev/worktrees/p1-004-postgres-runtime-r6` 均 `ABSENT` | 缺 OwnerMutation input/result、NATS consumer business-effect shared interfaces；architect 禁止 persistence 自造；且仅 Docker 可用、disposable PostgreSQL 16 未实证 | writer 未启动；旧 `a41960ff98a8b3be7b82e31f06c89ccb085c2593` 未触碰；无 R6 fixed object | 等待共享接口补充和 Docker PostgreSQL 16 preflight 的可核验证据；不得以 P1-003 `PASS` 代替 P1-004 acceptance |
 | P1-005 JetStream runtime | 无运行时提交 | 未启动独立 runtime 审查 | 等待已接受的 P1-004 receipt gate | 不得越过持久 Outbox/receipt 依赖 |
 
 `PASS` 只描述表中那个固定对象的独立审查范围。它不授权 merge、deploy、
@@ -57,8 +62,8 @@ P1 行来自 `codex/p1-platform-contracts` 中的 `coordination/tasks/P1-001`—
 | P1-U01 | 平台契约与失败语义 | P1 | COMPLETED | `P1-001` 固定对象独立审查 `P0/P1/P2=0/0/0 PASS` | `9b4b113a4032f7f0eee88297781e3b2d069b1f18`；第 2 节与 `P1-001` |
 | P1-U02 | Go platform-contract consumer | P1 | COMPLETED | `P1-002` 固定对象独立审查 `P0/P1/P2=0/0/0 PASS` | `19b778785565d31dc095996ce4d4b0f7d58bebdf`；第 2 节与 `P1-002` |
 | P1-U03 | 接口 capsule 与实现前设计包 | P1 | COMPLETED | interface capsule security+DBMSG 双 `PASS`，且 P1-003/004/005 设计对象各有 `PASS` | `f61474ba4f96624f34ff478bd0047c28e72becab`、`12d698181ae88cadbfaf42a9dce6107585c432b7`、`264d4e943565a74039d0b74583bb0404b695d378`、`4589bed3f7f9287751a5c57db311a1373597a67f` |
-| P1-U04 | API、identity、session、ownership runtime | P1 | PENDING | `P1-003` 固定实现候选通过其 task-packet acceptance 并独立审查 | 候选 `98f` 为 `CHANGES_REQUIRED` P1；R5.2b full gate 发现 WebSocket 顺序 flake，截至 as-of 未接受/未推送 |
-| P1-U05 | PostgreSQL 原子持久化 runtime | P1 | PENDING | `P1-004` 在真实 disposable PostgreSQL 上通过 task-packet acceptance 并独立审查 | `a41960ff98a8b3be7b82e31f06c89ccb085c2593` 已 mechanical amend 且 gates 已过；截至 as-of 独立 review 进行中，故不计分 |
+| P1-U04 | API、identity、session、ownership runtime | P1 | PENDING | `P1-003` 固定实现候选通过其 task-packet acceptance 并独立审查 | `a3108988463e9b373b8263fb3f060f8908c54c82` 获 reviewer-7 `0/0/0 PASS` 且已推送、未合并；本快照没有其 task-packet acceptance 完整证据，故不计分 |
+| P1-U05 | PostgreSQL 原子持久化 runtime | P1 | PENDING | `P1-004` 在真实 disposable PostgreSQL 上通过 task-packet acceptance 并独立审查 | R6 为 `DEPENDENCY_BLOCKED/NOT_STARTED`：shared interfaces 缺失且 Docker PostgreSQL 16 未实证；无 fixed object、acceptance 或 review，故不计分 |
 | P1-U06 | NATS/JetStream、Inbox/Outbox、observability runtime | P1 | PENDING | `P1-005` 固定候选通过投递、重放、去重、故障 acceptance 并独立审查 | 等待已接受的 P1-004 receipt gate；未启动运行时验收或审查 |
 | P1-U07 | default-disabled recovery infrastructure 与 Phase 1 exit | P1 | PENDING | `P1-006` recovery acceptance 完成，且 `P1-007` 线性固定对象有独立 exit `PASS` | 无 P1-006/P1-007 候选；`P1-006`、`P1-007` |
 | P2-U01 | Hyperliquid 只读 Connector 与 Go 投影 | P2 | PENDING | Phase 2 所列只读市场/账户同步、重连和投影有固定验收对象 | `docs/04_DEVELOPMENT_PLAN.md` §5.2；没有固定对象 |
@@ -100,7 +105,7 @@ P1 行来自 `codex/p1-platform-contracts` 中的 `coordination/tasks/P1-001`—
 | Phase 0 | `1/2` | `50.0%` | `P0-U02` 缺 `P0-004` 固定 exit-review 证据，不计分。 |
 | Phase 1 | `3/7` | `42.9%` | 三个 design/contract 单元已满足固定审查条件；四个 runtime/recovery-exit 单元均未完成。 |
 | Phase 1 design / contract | `3/3` | `100.0%` | 仅描述 `P1-U01`—`P1-U03`，不表示 Phase 1 runtime 或阶段退出。 |
-| Phase 1 runtime / recovery exit | `0/4` | `0.0%` | `P1-U04`—`P1-U07` 都无已审查运行时候选。 |
+| Phase 1 runtime / recovery exit | `0/4` | `0.0%` | P1-003 已通过其 fixed-review，但 `P1-U04` 的 task-packet acceptance 未在本快照完整核验；P1-004 R6 为 `DEPENDENCY_BLOCKED/NOT_STARTED`，故 `P1-U04`—`P1-U07` 均不计分。 |
 
 可复制的检查（从仓库根目录运行；它按 `PROGRESS_SUBGROUPS_V1` 的稳定 ID 正则，
 只计 `COMPLETED`）：
@@ -140,9 +145,9 @@ awk -F '|' '
   中保留 registry、版本、integrity、命令输出和时间，不能以本机缓存或口头结果替代。
 - `go test -race` 仅能证明该固定候选在该 Go 进程/测试覆盖下未检测到 race；它
   不能证明 PostgreSQL 事务、NATS/JetStream 投递、跨进程竞争、真实网络或 AI 安全
-  执行。P1-004 R5.4 的 race 和真实 PostgreSQL gates 虽已通过，仍不能在 mechanical
-  amend、固定 commit 和独立 review 前升级为 runtime `PASS`。本轮已形成
-  `a41960ff98a8b3be7b82e31f06c89ccb085c2593`，但其独立 review 截至 as-of 尚无结论。
+  执行。P1-004 R6 为 `DEPENDENCY_BLOCKED/NOT_STARTED`，目标 branch/worktree `ABSENT`，
+  shared interfaces 与 disposable PostgreSQL 16 preflight 均未就绪；P1-003 `PASS` 不会将其
+  升级为 runtime `PASS`。
 - 上表只引用固定 commit 或绑定到 as-of 的明确证据状态。移动工作树、运行中 review、
   远端分支存在和设计文档都不得替代固定候选审查。
 
@@ -161,13 +166,15 @@ awk -F '|' '
 
 ## 6. 下一门槛与已知风险
 
-1. P1-003 必须在候选 `98f` 的同范围内关闭 direct limits/timeouts 测试缺口和 R5.2b
-   full gate 发现的 WebSocket 顺序 flake；随后固定、机械核验 scope/test 并重新独立审查。
+1. P1-003 `a3108988463e9b373b8263fb3f060f8908c54c82` 已获 reviewer-7 `0/0/0 PASS` 并
+   推送；它满足 P1-004 的 P1-003 接受前置，但不补齐 P1-004 所需 shared interfaces，也不构成
+   P1-003 task-packet acceptance 或 Phase 1 runtime 计分证据。
 2. 补齐 Operation、ExecutionAttempt、Order 的交易 domain subjects；目前不能把通用
    owner audit event 当成交易执行 JetStream subject。
-3. P1-004 R5.4 固定候选 `a41960ff98a8b3be7b82e31f06c89ccb085c2593` 已有真实
-   disposable PostgreSQL gate 记录和 mechanical amend；等待独立 review 明确结论，
-   不能提前标为接受或 runtime `PASS`。
+3. P1-004 R6 为 `DEPENDENCY_BLOCKED/NOT_STARTED`：先由 architect/root 补齐 OwnerMutation
+   input/result 与 NATS consumer business-effect shared interfaces，并完成 Docker PostgreSQL 16
+   preflight；persistence 不得自造接口。目标 branch/worktree 仍 `ABSENT`，收到可核验证据前
+   不创建或登记 R6 fixed object，也不能提前标为接受或 runtime `PASS`。
 4. P1-005 先等待已接受的 P1-004 receipt gate；随后才可在真实 NATS/JetStream 上验证
    投递、重放、去重、顺序和恢复。
 5. AI Agent `367b86f` 的 provenance fixed-review 已关闭；仍须完成 Phase 3 其余只读
